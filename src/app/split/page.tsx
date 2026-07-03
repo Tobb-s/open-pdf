@@ -97,7 +97,7 @@ export default function SplitPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Navbar />
       <main className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
@@ -109,7 +109,7 @@ export default function SplitPage() {
           <div className="space-y-8">
             {!file ? (
               <div 
-                className="border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white border-gray-300 hover:border-red-400"
+                className="border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white border-gray-300 hover:border-blue-400"
                 onClick={() => document.getElementById('fileInput')?.click()}
               >
                 <input 
@@ -120,7 +120,7 @@ export default function SplitPage() {
                   onChange={handleFileChange} 
                 />
                 <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                     <Upload className="w-8 h-8" />
                   </div>
                   <div>
@@ -133,7 +133,7 @@ export default function SplitPage() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
                   <div className="flex items-center gap-3 overflow-hidden">
-                    <FileText className="w-6 h-6 text-red-500 shrink-0" />
+                    <FileText className="w-6 h-6 text-blue-500 shrink-0" />
                     <span className="font-medium truncate">{file.name}</span>
                     <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
                       {pageCount} pages
@@ -141,7 +141,7 @@ export default function SplitPage() {
                   </div>
                   <button 
                     onClick={() => { setFile(null); setRange(''); setResultPdf(null); }}
-                    className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                    className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-blue-500 transition-colors"
                   >
                     <X className="w-5 h-5" />
                   </button>
@@ -157,12 +157,12 @@ export default function SplitPage() {
                       value={range}
                       onChange={(e) => setRange(e.target.value)}
                       placeholder="e.g. 1-3, 5, 8-10"
-                      className="flex-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent outline-none transition-all"
+                      className="flex-1 px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                     />
                     <button 
                       onClick={splitPdf}
                       disabled={!range || isProcessing}
-                      className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                      className="px-6 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2"
                     >
                       {isProcessing ? (
                         <>
@@ -191,7 +191,7 @@ export default function SplitPage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button 
                 onClick={downloadPdf}
-                className="px-8 py-4 bg-red-600 text-white rounded-full font-bold text-lg hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg shadow-red-200"
+                className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
               >
                 <Download className="w-5 h-5" />
                 Download PDF

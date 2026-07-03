@@ -83,7 +83,7 @@ export default function PdfToWordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Navbar />
       <main className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
@@ -100,7 +100,7 @@ export default function PdfToWordPage() {
               >
                 <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
                 <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center">
+                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                     <Upload className="w-8 h-8" />
                   </div>
                   <p className="text-lg font-semibold">Choose PDF file</p>
@@ -111,7 +111,7 @@ export default function PdfToWordPage() {
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
                   <div className="flex items-center gap-3">
-                    <FileText className="w-6 h-6 text-indigo-500 shrink-0" />
+                    <FileText className="w-6 h-6 text-blue-500 shrink-0" />
                     <span className="font-medium truncate">{file.name}</span>
                   </div>
                   <button
@@ -125,7 +125,7 @@ export default function PdfToWordPage() {
                   <button
                     onClick={convertToWord}
                     disabled={isProcessing}
-                    className="px-8 py-4 bg-indigo-600 text-white rounded-full font-bold text-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-indigo-200"
+                    className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
                   >
                     {isProcessing ? (
                       <><Loader2 className="w-5 h-5 animate-spin" /> Converting...</>

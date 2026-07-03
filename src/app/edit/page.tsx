@@ -140,7 +140,7 @@ export default function EditPage() {
   const pageAnns = annotations.filter(a => a.pageIndex === currentPage - 1);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Navbar />
       <main className="max-w-5xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
@@ -153,7 +153,7 @@ export default function EditPage() {
             onClick={() => document.getElementById('fileInput')?.click()}>
             <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
             <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center">
+              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                 <Upload className="w-8 h-8" />
               </div>
               <p className="text-lg font-semibold">Choose PDF file</p>
@@ -170,7 +170,7 @@ export default function EditPage() {
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={() => setIsPlacingText(v => !v)}
-                  className={`px-4 py-2 ${isPlacingText ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700'} rounded-xl font-medium text-sm flex items-center gap-2 hover:bg-purple-500 hover:text-white transition-all`}>
+                  className={`px-4 py-2 ${isPlacingText ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'} rounded-xl font-medium text-sm flex items-center gap-2 hover:bg-blue-500 hover:text-white transition-all`}>
                   <MousePointerClick className="w-4 h-4" />
                   {isPlacingText ? 'Placing text...' : 'Add Text'}
                 </button>
@@ -184,10 +184,10 @@ export default function EditPage() {
             {numPages > 1 && (
               <div className="flex justify-center items-center gap-4">
                 <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
-                  className="px-4 py-2 bg-white border rounded-xl disabled:opacity-30 hover:bg-gray-50">Previous</button>
+                  className="px-4 py-2 bg-white border rounded-xl disabled:opacity-30 hover:bg-white">Previous</button>
                 <span className="font-medium">Page {currentPage} of {numPages}</span>
                 <button onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages}
-                  className="px-4 py-2 bg-white border rounded-xl disabled:opacity-30 hover:bg-gray-50">Next</button>
+                  className="px-4 py-2 bg-white border rounded-xl disabled:opacity-30 hover:bg-white">Next</button>
               </div>
             )}
 
@@ -232,7 +232,7 @@ export default function EditPage() {
 
             <div className="flex justify-center pt-2">
               <button onClick={savePdf} disabled={isProcessing || annotations.length === 0}
-                className="px-8 py-4 bg-purple-600 text-white rounded-full font-bold text-lg hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-purple-200">
+                className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200">
                 {isProcessing ? <><Loader2 className="w-5 h-5 animate-spin" /> Saving...</> : 'Save PDF'}
               </button>
             </div>
@@ -249,7 +249,7 @@ export default function EditPage() {
               <p className="text-gray-600 mb-8">Your edited document is ready for download.</p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button onClick={downloadPdf}
-                  className="px-8 py-4 bg-purple-600 text-white rounded-full font-bold text-lg hover:bg-purple-700 flex items-center gap-2">
+                  className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 flex items-center gap-2">
                   <Download className="w-5 h-5" /> Download PDF
                 </button>
                 <button onClick={() => setResultPdf(null)}

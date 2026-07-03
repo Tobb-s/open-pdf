@@ -117,7 +117,7 @@ export default function FillFormPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Navbar />
       <main className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
@@ -130,7 +130,7 @@ export default function FillFormPage() {
             onClick={() => document.getElementById('fileInput')?.click()}>
             <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
             <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center">
+              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                 <Upload className="w-8 h-8" />
               </div>
               <p className="text-lg font-semibold">Choose PDF form</p>
@@ -141,7 +141,7 @@ export default function FillFormPage() {
           <div className="space-y-6">
             <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
               <div className="flex items-center gap-3">
-                <FileText className="w-6 h-6 text-teal-500 shrink-0" />
+                <FileText className="w-6 h-6 text-blue-500 shrink-0" />
                 <span className="font-medium truncate">{file.name}</span>
                 <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
                   {fields.length} fields detected
@@ -155,7 +155,7 @@ export default function FillFormPage() {
 
             {loadingFields ? (
               <div className="flex items-center justify-center p-12">
-                <Loader2 className="w-8 h-8 animate-spin text-teal-500" />
+                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
                 <span className="ml-3 text-gray-600">Detecting form fields...</span>
               </div>
             ) : fields.length === 0 ? (
@@ -177,17 +177,17 @@ export default function FillFormPage() {
                         {field.type === 'text' && (
                           <input type="text" value={field.value}
                             onChange={(e) => updateField(index, e.target.value)}
-                            className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none" />
+                            className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none" />
                         )}
                         {field.type === 'checkbox' && (
                           <button onClick={() => updateField(index, field.value === 'true' ? 'false' : 'true')}
-                            className={`px-6 py-2 rounded-xl font-medium text-sm border transition-all ${field.value === 'true' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'}`}>
+                            className={`px-6 py-2 rounded-xl font-medium text-sm border transition-all ${field.value === 'true' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
                             {field.value === 'true' ? '✓ Checked' : 'Unchecked'}
                           </button>
                         )}
                         {field.type === 'dropdown' && (
                           <select value={field.value} onChange={(e) => updateField(index, e.target.value)}
-                            className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none bg-white">
+                            className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white">
                             <option value="">Select...</option>
                             {field.options?.map(opt => (
                               <option key={opt} value={opt}>{opt}</option>
@@ -198,7 +198,7 @@ export default function FillFormPage() {
                           <div className="flex flex-wrap gap-3">
                             {field.options?.map(opt => (
                               <button key={opt} onClick={() => updateField(index, opt)}
-                                className={`px-4 py-2 rounded-xl text-sm border transition-all ${field.value === opt ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'}`}>
+                                className={`px-4 py-2 rounded-xl text-sm border transition-all ${field.value === opt ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
                                 {opt}
                               </button>
                             ))}
@@ -211,7 +211,7 @@ export default function FillFormPage() {
 
                 <div className="flex justify-center pt-2">
                   <button onClick={fillForm} disabled={isProcessing}
-                    className="px-8 py-4 bg-teal-600 text-white rounded-full font-bold text-lg hover:bg-teal-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-teal-200">
+                    className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200">
                     {isProcessing ? <><Loader2 className="w-5 h-5 animate-spin" /> Filling...</> : 'Download Filled PDF'}
                   </button>
                 </div>
@@ -230,7 +230,7 @@ export default function FillFormPage() {
               <p className="text-gray-600 mb-8">Your completed form is ready for download.</p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button onClick={downloadPdf}
-                  className="px-8 py-4 bg-teal-600 text-white rounded-full font-bold text-lg hover:bg-teal-700 flex items-center gap-2">
+                  className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 flex items-center gap-2">
                   <Download className="w-5 h-5" /> Download PDF
                 </button>
                 <button onClick={() => { setResultPdf(null); setFile(null); setPdfData(null); setFields([]); }}

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
+import { Upload, FileText, X, Download, Loader2, Combine } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function MergePage() {
@@ -60,7 +60,7 @@ export default function MergePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Navbar />
       <main className="max-w-4xl mx-auto px-4 py-12">
         <div className="text-center mb-12">
@@ -73,7 +73,7 @@ export default function MergePage() {
             <div 
               className={cn(
                 "border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white",
-                files.length > 0 ? "border-red-300" : "border-gray-300 hover:border-red-400"
+                files.length > 0 ? "border-blue-200" : "border-gray-300 hover:border-blue-400"
               )}
               onClick={() => document.getElementById('fileInput')?.click()}
             >
@@ -86,7 +86,7 @@ export default function MergePage() {
                 onChange={handleFileChange} 
               />
               <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center">
+                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                   <Upload className="w-8 h-8" />
                 </div>
                 <div>
@@ -102,7 +102,7 @@ export default function MergePage() {
                   <h3 className="font-medium text-gray-700">{files.length} files selected</h3>
                   <button 
                     onClick={() => setFiles([])}
-                    className="text-sm text-red-600 hover:underline"
+                    className="text-sm text-blue-600 hover:underline"
                   >
                     Clear all
                   </button>
@@ -116,7 +116,7 @@ export default function MergePage() {
                       </div>
                       <button 
                         onClick={() => removeFile(index)}
-                        className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                        className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-blue-500 transition-colors"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -127,7 +127,7 @@ export default function MergePage() {
                   <button 
                     onClick={mergePdfs}
                     disabled={files.length < 2 || isProcessing}
-                    className="px-8 py-4 bg-red-600 text-white rounded-full font-bold text-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-red-200"
+                    className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
                   >
                     {isProcessing ? (
                       <>
@@ -152,7 +152,7 @@ export default function MergePage() {
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <button 
                 onClick={downloadPdf}
-                className="px-8 py-4 bg-red-600 text-white rounded-full font-bold text-lg hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg shadow-red-200"
+                className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
               >
                 <Download className="w-5 h-5" />
                 Download PDF
