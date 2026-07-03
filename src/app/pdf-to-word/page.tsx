@@ -26,7 +26,7 @@ export default function PdfToWordPage() {
     setIsProcessing(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       const paragraphs: Paragraph[] = [];
 
       for (let i = 1; i <= pdf.numPages; i++) {

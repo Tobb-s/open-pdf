@@ -39,7 +39,7 @@ export default function EditPage() {
       const arrayBuffer = await selectedFile.arrayBuffer();
       setPdfData(arrayBuffer);
       
-      const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       setNumPages(pdf.numPages);
       setCurrentPage(1);
       setAnnotations([]);
