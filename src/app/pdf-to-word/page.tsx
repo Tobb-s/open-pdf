@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-import { Document, Packager, Paragraph, TextRun } from 'docx';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
 import Navbar from '@/components/Navbar';
 import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
 
@@ -64,7 +64,7 @@ export default function PdfToWordPage() {
         sections: [{ children: paragraphs }],
       });
 
-      const blob = await Packager.toBlob(doc);
+      const blob = await Packer.toBlob(doc);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
