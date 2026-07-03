@@ -13,9 +13,12 @@ export default function Navbar() {
             </Link>
           </div>
           <div className="hidden md:flex items-center gap-6 text-sm font-medium text-gray-600">
-            <Link href="/merge" className="hover:text-red-600 transition-colors">Merge PDF</Link>
-            <Link href="/split" className="hover:text-red-600 transition-colors">Split PDF</Link>
-            <Link href="https://github.com/anomalyco/open-pdf" target="_blank" className="hover:text-red-600 transition-colors">GitHub</Link>
+            <Link href="/merge" className="hover:text-red-600 transition-colors">Merge</Link>
+            <Link href="/split" className="hover:text-red-600 transition-colors">Split</Link>
+            <Link href="/pdf-to-word" className="hover:text-red-600 transition-colors">PDF to Word</Link>
+            <Link href="/edit" className="hover:text-red-600 transition-colors">Edit</Link>
+            <Link href="/fill-form" className="hover:text-red-600 transition-colors">Fill Form</Link>
+            <Link href="https://github.com/Tobb-s/open-pdf" target="_blank" className="hover:text-red-600 transition-colors">GitHub</Link>
           </div>
         </div>
       </div>

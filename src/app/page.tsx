@@ -1,6 +1,6 @@
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, Split, FileText, ShieldCheck, GitFork } from 'lucide-react';
+import { Combine, Split, FileText, ShieldCheck, GitFork, FileType, PenSquare, FormInput } from 'lucide-react';
 
 export default function Home() {
   const tools = [
@@ -18,7 +18,27 @@ export default function Home() {
       href: '/split',
       color: 'bg-red-500',
     },
-    // We can add more later like Compress, PDF to Word, etc.
+    {
+      title: 'PDF to Word',
+      description: 'Convert PDF files to editable Word (.docx) documents.',
+      icon: FileType,
+      href: '/pdf-to-word',
+      color: 'bg-indigo-500',
+    },
+    {
+      title: 'Edit PDF',
+      description: 'Add text annotations and notes to any page of your PDF.',
+      icon: PenSquare,
+      href: '/edit',
+      color: 'bg-purple-500',
+    },
+    {
+      title: 'Fill Form',
+      description: 'Complete interactive PDF forms with text, checkboxes and dropdowns.',
+      icon: FormInput,
+      href: '/fill-form',
+      color: 'bg-teal-500',
+    },
   ];
 
   return (
