@@ -1,9 +1,7 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import React, { useState, useRef, useEffect } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
+import dynamic from 'next/dynamic';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
 import { Upload, FileText, X, Download, Loader2, Plus, MousePointerClick, Trash2 } from 'lucide-react';
@@ -31,7 +29,9 @@ export default function EditPage() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    import('pdfjs-dist').then(mod => {
+      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
+    });
   }, []);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,7 +41,8 @@ export default function EditPage() {
       const arrayBuffer = await selectedFile.arrayBuffer();
       setPdfData(arrayBuffer);
       
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const mod = await import('pdfjs-dist');
+      const pdf = await mod.getDocument({ data: arrayBuffer }).promise;
       setNumPages(pdf.numPages);
       setCurrentPage(1);
       setAnnotations([]);

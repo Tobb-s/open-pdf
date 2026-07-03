@@ -1,9 +1,6 @@
 'use client';
 
-export const dynamic = 'force-dynamic';
-
 import React, { useState, useEffect } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import Navbar from '@/components/Navbar';
 import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
@@ -14,7 +11,9 @@ export default function PdfToWordPage() {
   const [resultReady, setResultReady] = useState(false);
 
   useEffect(() => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    import('pdfjs-dist').then(mod => {
+      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
+    });
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -28,7 +27,8 @@ export default function PdfToWordPage() {
     setIsProcessing(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const mod = await import('pdfjs-dist');
+      const pdf = await mod.getDocument({ data: arrayBuffer }).promise;
       const paragraphs: Paragraph[] = [];
 
       for (let i = 1; i <= pdf.numPages; i++) {
