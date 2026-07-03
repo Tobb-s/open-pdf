@@ -76,7 +76,7 @@ export default function SplitPage() {
       const copiedPages = await newPdf.copyPages(pdf, targetPages.map(p => p - 1));
       copiedPages.forEach(page => newPdf.addPage(page));
 
-      const pdfBytes = await newPdf.save();
+      const pdfBytes = (await newPdf.save()).slice();
       setResultPdf(new Blob([pdfBytes], { type: 'application/pdf' }));
     } catch (error) {
       console.error('Error splitting PDF:', error);

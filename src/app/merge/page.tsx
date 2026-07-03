@@ -39,7 +39,7 @@ export default function MergePage() {
         copiedPages.forEach((page) => mergedPdf.addPage(page));
       }
 
-      const pdfBytes = await mergedPdf.save();
+      const pdfBytes = (await mergedPdf.save()).slice();
       setResultPdf(new Blob([pdfBytes], { type: 'application/pdf' }));
     } catch (error) {
       console.error('Error merging PDFs:', error);
