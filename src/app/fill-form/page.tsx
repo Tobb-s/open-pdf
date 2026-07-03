@@ -47,10 +47,12 @@ export default function FillFormPage() {
           detected.push({ name, type: 'checkbox', value: field.isChecked() ? 'true' : 'false' });
         } else if (field instanceof PDFDropdown) {
           const options = field.getOptions();
-          detected.push({ name, type: 'dropdown', value: field.getSelected() || '', options });
+          const selected = field.getSelected();
+          detected.push({ name, type: 'dropdown', value: Array.isArray(selected) ? selected[0] || '' : selected || '', options });
         } else if (field instanceof PDFRadioGroup) {
           const options = field.getOptions();
-          detected.push({ name, type: 'radio', value: field.getSelected() || '', options });
+          const selected = field.getSelected();
+          detected.push({ name, type: 'radio', value: Array.isArray(selected) ? selected[0] || '' : selected || '', options });
         }
       }
       setFields(detected);
