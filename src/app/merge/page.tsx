@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import { Upload, FileText, X, Download, Loader2, Combine } from 'lucide-react';
+import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function MergePage() {

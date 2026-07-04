@@ -4,7 +4,6 @@ import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
 import { Upload, FileText, X, Download, Loader2, Layers } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import JSZip from 'jszip';
 
 export default function SplitPage() {

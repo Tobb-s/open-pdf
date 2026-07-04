@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import Navbar from '@/components/Navbar';
-import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
+import { Upload, FileText, X, Loader2 } from 'lucide-react';
 
 export default function PdfToWordPage() {
   const [file, setFile] = useState<File | null>(null);
