@@ -10,6 +10,7 @@ Actualmente OpenPDF incluye estas herramientas:
 
 - **Unir PDFs**: combina varios archivos PDF en un solo documento.
 - **Dividir PDFs**: separa páginas o rangos de páginas en archivos nuevos.
+- **Organizar PDFs**: reordena, rota y elimina páginas antes de descargar el archivo final.
 - **Editar PDFs**: agrega texto sobre un PDF existente.
 - **Completar formularios PDF**: detecta campos interactivos y permite llenarlos.
 - **Convertir PDF a Word**: genera un archivo `.docx` a partir del contenido del PDF.

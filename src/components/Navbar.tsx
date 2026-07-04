@@ -17,6 +17,7 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-2 text-sm font-medium">
             <Link href="/merge" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Merge</Link>
             <Link href="/split" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Split</Link>
+            <Link href="/organize" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Organize</Link>
             <Link href="/pdf-to-word" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">PDF to Word</Link>
             <Link href="/edit" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Edit</Link>
             <Link href="/fill-form" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Fill Form</Link>
