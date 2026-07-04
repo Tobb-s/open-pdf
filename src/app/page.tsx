@@ -1,6 +1,6 @@
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, Split, FileType, PenSquare, FormInput, ArrowRight } from 'lucide-react';
+import { Combine, Split, FileType, PenSquare, FormInput } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {

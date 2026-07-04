@@ -58,7 +58,8 @@ export default function FillFormPage() {
       setFields(detected);
     } catch (error) {
       console.error('Error detecting form fields:', error);
-      if (!error || (typeof error === 'object' && 'message' in (error as any) && !(error as any).message?.includes('form'))) {
+      const message = error instanceof Error ? error.message : '';
+      if (!message.includes('form')) {
         alert('No form fields detected in this PDF.');
       }
     } finally {

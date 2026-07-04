@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import { Upload, FileText, X, Download, Loader2, Plus, MousePointerClick, Trash2 } from 'lucide-react';
+import { Upload, FileText, X, Download, Loader2, MousePointerClick, Trash2 } from 'lucide-react';
 
 interface Annotation {
   id: number;
@@ -55,26 +54,11 @@ export default function EditPage() {
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
         canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d')!;
         await page.render({ canvas, viewport }).promise;
         pages[i] = canvas.toDataURL();
       }
       setRenderedPages(pages);
     }
-  };
-
-  const currentScale = 0.7;
-
-  const getPdfCoords = (canvasX: number, canvasY: number) => {
-    if (!pdfData) return { x: 0, y: 0 };
-    const canvasEl = canvasRef.current;
-    if (!canvasEl) return { x: 0, y: 0 };
-    const rect = canvasEl.getBoundingClientRect();
-    const relX = canvasX - rect.left;
-    const relY = canvasY - rect.top;
-    const pdfX = relX / currentScale;
-    const pdfY = (canvasEl.height / currentScale - relY / currentScale);
-    return { x: pdfX, y: pdfY };
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
