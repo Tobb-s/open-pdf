@@ -1,6 +1,6 @@
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, Split, FileType, PenSquare, FormInput } from 'lucide-react';
+import { Combine, FileStack, FileType, FormInput, PenSquare, Split } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
@@ -20,6 +20,14 @@ export default function Home() {
       href: '/split',
       bgColor: 'bg-red-50',
       color: 'text-red-500',
+    },
+    {
+      title: 'Organize PDF',
+      description: 'Reorder, rotate, and remove pages.',
+      icon: FileStack,
+      href: '/organize',
+      bgColor: 'bg-emerald-50',
+      color: 'text-emerald-500',
     },
     {
       title: 'PDF to Word',
