@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import { Upload, FileText, X, Download, Loader2, Minimize2, CheckCircle2, Zap, SlidersHorizontal, Sparkles } from 'lucide-react';
+import { FileText, X, Download, Loader2, Minimize2, CheckCircle2, Zap, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 type CompressionLevel = 'extreme' | 'recommended' | 'low';
@@ -119,6 +119,7 @@ export default function CompressPage() {
         await page.render({
           canvasContext: ctx,
           viewport: renderViewport,
+          canvas: canvas,
         }).promise;
 
         // Convert canvas to JPEG blob with chosen quality
@@ -140,7 +141,7 @@ export default function CompressPage() {
       setProgressPercent(95);
       setProgressMsg('Finalizing compressed PDF...');
 
-      const compressedBytes = await newPdfDoc.save();
+      const compressedBytes = (await newPdfDoc.save()).slice();
       const compressedBlob = new Blob([compressedBytes], { type: 'application/pdf' });
 
       setResultPdf({
@@ -152,7 +153,7 @@ export default function CompressPage() {
     } catch (error) {
       console.error('Error compressing PDF:', error);
       alert('An error occurred while compressing the PDF document.');
-    } fontally {
+    } finally {
       setIsProcessing(false);
     }
   };
