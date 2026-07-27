@@ -1,10 +1,18 @@
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, FileStack, FileType, FormInput, PenSquare, Split } from 'lucide-react';
+import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, Split } from 'lucide-react';
 import Link from 'next/link';
 
 export default function Home() {
   const tools = [
+    {
+      title: 'Compress PDF',
+      description: 'Reduce file size while optimizing quality.',
+      icon: Minimize2,
+      href: '/compress',
+      bgColor: 'bg-amber-50',
+      color: 'text-amber-600',
+    },
     {
       title: 'Merge PDF',
       description: 'Combine PDFs into a single document.',
