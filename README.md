@@ -8,6 +8,7 @@ La idea del proyecto es ofrecer una alternativa abierta a las páginas online de
 
 Actualmente OpenPDF incluye estas herramientas:
 
+- **Comprimir PDFs**: reduce el tamaño de archivos PDF optimizando la calidad visual 100% en el navegador.
 - **Unir PDFs**: combina varios archivos PDF en un solo documento.
 - **Dividir PDFs**: separa páginas o rangos de páginas en archivos nuevos.
 - **Organizar PDFs**: reordena, rota y elimina páginas antes de descargar el archivo final.
