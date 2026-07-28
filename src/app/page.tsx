@@ -1,9 +1,14 @@
+'use client';
+
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, Split } from 'lucide-react';
+import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, Search, Split } from 'lucide-react';
 import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
 
 export default function Home() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const tools = [
     {
       title: 'Compress PDF',
@@ -63,6 +68,23 @@ export default function Home() {
     },
   ];
 
+  const query = searchQuery.trim().toLowerCase();
+  const filteredTools = query
+    ? tools.filter((tool) => `${tool.title} ${tool.description}`.toLowerCase().includes(query))
+    : tools;
+
+  useEffect(() => {
+    const focusSearch = (event: globalThis.KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', focusSearch);
+    return () => window.removeEventListener('keydown', focusSearch);
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
@@ -82,14 +104,16 @@ export default function Home() {
           </p>
           <div className="relative max-w-lg mx-auto">
             <div className="flex items-center bg-white border border-gray-200 hover:border-gray-300 rounded-full pl-5 pr-2 py-2 shadow-sm transition-all focus-within:border-blue-400 focus-within:shadow-md">
-              <svg className="w-5 h-5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input 
+              <Search className="w-5 h-5 text-gray-400 shrink-0" aria-hidden="true" />
+              <label className="sr-only" htmlFor="tool-search">Search tools</label>
+              <input
+                ref={searchInputRef}
+                id="tool-search"
                 type="text" 
                 placeholder="Search tools..." 
                 className="flex-1 px-3 py-2 text-sm outline-none text-gray-700 placeholder-gray-400 bg-transparent"
-                readOnly
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
               />
               <kbd className="hidden sm:inline-flex items-center px-2 py-1 text-xs text-gray-400 bg-gray-50 border rounded-md font-mono">Ctrl+K</kbd>
             </div>
@@ -98,9 +122,20 @@ export default function Home() {
 
         <section className="pb-24">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tools.map((tool) => (
-              <ToolCard key={tool.title} {...tool} />
-            ))}
+            {filteredTools.length > 0 ? (
+              filteredTools.map((tool) => <ToolCard key={tool.title} {...tool} />)
+            ) : (
+              <div className="sm:col-span-2 lg:col-span-3 py-12 text-center border border-dashed border-gray-200 rounded-2xl">
+                <p className="text-sm text-gray-500">No tools match your search.</p>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="mt-3 text-sm font-medium text-blue-600 hover:text-blue-700"
+                >
+                  Clear search
+                </button>
+              </div>
+            )}
           </div>
         </section>
 

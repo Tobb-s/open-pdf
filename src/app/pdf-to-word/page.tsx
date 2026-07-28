@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import { Upload, FileText, X, Loader2 } from 'lucide-react';
 
 export default function PdfToWordPage() {
@@ -16,10 +17,8 @@ export default function PdfToWordPage() {
     });
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
+  const selectFile = (selectedFile: File) => {
+    setFile(selectedFile);
   };
 
   const convertToWord = async () => {
@@ -94,11 +93,11 @@ export default function PdfToWordPage() {
         {!resultReady ? (
           <div className="space-y-8">
             {!file ? (
-              <div
+              <PdfDropzone
+                inputId="pdf-to-word-file-input"
                 className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
-                onClick={() => document.getElementById('fileInput')?.click()}
+                onFilesSelected={([selectedFile]) => selectFile(selectedFile)}
               >
-                <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
                 <div className="flex flex-col items-center gap-4">
                   <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                     <Upload className="w-8 h-8" />
@@ -106,7 +105,7 @@ export default function PdfToWordPage() {
                   <p className="text-lg font-semibold">Choose PDF file</p>
                   <p className="text-sm text-gray-500">Your text will be extracted and converted to .docx</p>
                 </div>
-              </div>
+              </PdfDropzone>
             ) : (
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">

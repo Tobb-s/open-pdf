@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import { Upload, FileText, X, Download, Loader2, MousePointerClick, Trash2 } from 'lucide-react';
 
 interface Annotation {
@@ -33,32 +34,29 @@ export default function EditPage() {
     });
   }, []);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      setPdfData(arrayBuffer);
-      
-      const mod = await import('pdfjs-dist');
-      const pdf = await mod.getDocument({ data: arrayBuffer }).promise;
-      setNumPages(pdf.numPages);
-      setCurrentPage(1);
-      setAnnotations([]);
-      setResultPdf(null);
+  const selectFile = async (selectedFile: File) => {
+    setFile(selectedFile);
+    const arrayBuffer = await selectedFile.arrayBuffer();
+    setPdfData(arrayBuffer);
 
-      const pages: Record<number, string> = {};
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 0.7 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvas, viewport }).promise;
-        pages[i] = canvas.toDataURL();
-      }
-      setRenderedPages(pages);
+    const mod = await import('pdfjs-dist');
+    const pdf = await mod.getDocument({ data: arrayBuffer }).promise;
+    setNumPages(pdf.numPages);
+    setCurrentPage(1);
+    setAnnotations([]);
+    setResultPdf(null);
+
+    const pages: Record<number, string> = {};
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 0.7 });
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvas, viewport }).promise;
+      pages[i] = canvas.toDataURL();
     }
+    setRenderedPages(pages);
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -133,9 +131,11 @@ export default function EditPage() {
         </div>
 
         {!file ? (
-          <div className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
-            onClick={() => document.getElementById('fileInput')?.click()}>
-            <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
+          <PdfDropzone
+            inputId="edit-file-input"
+            className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
+            onFilesSelected={([selectedFile]) => void selectFile(selectedFile)}
+          >
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                 <Upload className="w-8 h-8" />
@@ -143,7 +143,7 @@ export default function EditPage() {
               <p className="text-lg font-semibold">Choose PDF file</p>
               <p className="text-sm text-gray-500">to add text annotations</p>
             </div>
-          </div>
+          </PdfDropzone>
         ) : (
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">

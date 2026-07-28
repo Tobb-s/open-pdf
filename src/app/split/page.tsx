@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import { Upload, FileText, X, Download, Loader2, Layers } from 'lucide-react';
 import JSZip from 'jszip';
 
@@ -15,20 +16,17 @@ export default function SplitPage() {
   const [splitEachPage, setSplitEachPage] = useState(false);
   const [resultBlobs, setResultBlobs] = useState<{ name: string; blob: Blob }[] | null>(null);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      
-      try {
-        const arrayBuffer = await selectedFile.arrayBuffer();
-        const pdf = await PDFDocument.load(arrayBuffer);
-        setPageCount(pdf.getPageCount());
-      } catch (error) {
-        console.error('Error loading PDF:', error);
-        alert('Invalid PDF file.');
-        setFile(null);
-      }
+  const selectFile = async (selectedFile: File) => {
+    setFile(selectedFile);
+
+    try {
+      const arrayBuffer = await selectedFile.arrayBuffer();
+      const pdf = await PDFDocument.load(arrayBuffer);
+      setPageCount(pdf.getPageCount());
+    } catch (error) {
+      console.error('Error loading PDF:', error);
+      alert('Invalid PDF file.');
+      setFile(null);
     }
   };
 
@@ -137,11 +135,11 @@ export default function SplitPage() {
         {!resultPdf && !resultBlobs ? (
           <div className="space-y-8">
             {!file ? (
-              <div 
+              <PdfDropzone
+                inputId="split-file-input"
                 className="border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white border-gray-300 hover:border-blue-400"
-                onClick={() => document.getElementById('fileInput')?.click()}
+                onFilesSelected={([selectedFile]) => void selectFile(selectedFile)}
               >
-                <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
                 <div className="flex flex-col items-center gap-4">
                   <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                     <Upload className="w-8 h-8" />
@@ -149,7 +147,7 @@ export default function SplitPage() {
                   <p className="text-lg font-semibold">Choose PDF file</p>
                   <p className="text-sm text-gray-500">or drag and drop it here</p>
                 </div>
-              </div>
+              </PdfDropzone>
             ) : (
               <div className="space-y-6">
                 <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
