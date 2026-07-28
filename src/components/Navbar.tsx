@@ -15,6 +15,7 @@ export default function Navbar() {
             </Link>
           </div>
           <div className="hidden md:flex items-center gap-2 text-sm font-medium">
+            <Link href="/compress" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Compress</Link>
             <Link href="/merge" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Merge</Link>
             <Link href="/split" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Split</Link>
             <Link href="/organize" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Organize</Link>
