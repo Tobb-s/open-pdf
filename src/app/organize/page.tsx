@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { PDFDocument, degrees } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import {
   ArrowLeft,
   ArrowRight,
@@ -47,10 +48,7 @@ export default function OrganizePage() {
     setResultPdf(null);
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0]) return;
-
-    const selectedFile = e.target.files[0];
+  const selectFile = async (selectedFile: File) => {
     setFile(selectedFile);
     setResultPdf(null);
     setIsLoadingPages(true);
@@ -88,7 +86,6 @@ export default function OrganizePage() {
       resetFile();
     } finally {
       setIsLoadingPages(false);
-      e.target.value = '';
     }
   };
 
@@ -184,17 +181,11 @@ export default function OrganizePage() {
         </div>
 
         {!file ? (
-          <div
+          <PdfDropzone
+            inputId="organize-file-input"
             className="border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white border-gray-300 hover:border-blue-400"
-            onClick={() => document.getElementById('organizeFileInput')?.click()}
+            onFilesSelected={([selectedFile]) => void selectFile(selectedFile)}
           >
-            <input
-              id="organizeFileInput"
-              type="file"
-              accept=".pdf"
-              className="hidden"
-              onChange={handleFileChange}
-            />
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                 <Upload className="w-8 h-8" />
@@ -204,7 +195,7 @@ export default function OrganizePage() {
                 <p className="text-sm text-gray-500">or drag and drop it here</p>
               </div>
             </div>
-          </div>
+          </PdfDropzone>
         ) : resultPdf ? (
           <div className="text-center p-12 bg-white border rounded-3xl shadow-sm">
             <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">

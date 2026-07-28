@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { PDFDocument, PDFTextField, PDFCheckBox, PDFDropdown, PDFRadioGroup } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
 
 interface FormField {
@@ -20,15 +21,12 @@ export default function FillFormPage() {
   const [resultPdf, setResultPdf] = useState<Blob | null>(null);
   const [loadingFields, setLoadingFields] = useState(false);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      setFile(selectedFile);
-      setResultPdf(null);
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      setPdfData(arrayBuffer);
-      await detectFormFields(arrayBuffer);
-    }
+  const selectFile = async (selectedFile: File) => {
+    setFile(selectedFile);
+    setResultPdf(null);
+    const arrayBuffer = await selectedFile.arrayBuffer();
+    setPdfData(arrayBuffer);
+    await detectFormFields(arrayBuffer);
   };
 
   const detectFormFields = async (buffer: ArrayBuffer) => {
@@ -127,9 +125,11 @@ export default function FillFormPage() {
         </div>
 
         {!file ? (
-          <div className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
-            onClick={() => document.getElementById('fileInput')?.click()}>
-            <input id="fileInput" type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
+          <PdfDropzone
+            inputId="fill-form-file-input"
+            className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
+            onFilesSelected={([selectedFile]) => void selectFile(selectedFile)}
+          >
             <div className="flex flex-col items-center gap-4">
               <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                 <Upload className="w-8 h-8" />
@@ -137,7 +137,7 @@ export default function FillFormPage() {
               <p className="text-lg font-semibold">Choose PDF form</p>
               <p className="text-sm text-gray-500">Files with fillable form fields</p>
             </div>
-          </div>
+          </PdfDropzone>
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">

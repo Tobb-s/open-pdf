@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -11,11 +12,8 @@ export default function MergePage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultPdf, setResultPdf] = useState<Blob | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setFiles((prev) => [...prev, ...newFiles]);
-    }
+  const addFiles = (newFiles: File[]) => {
+    setFiles((prev) => [...prev, ...newFiles]);
   };
 
   const removeFile = (index: number) => {
@@ -70,21 +68,15 @@ export default function MergePage() {
 
         {!resultPdf ? (
           <div className="space-y-8">
-            <div 
+            <PdfDropzone
+              inputId="merge-file-input"
+              multiple
               className={cn(
                 "border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white",
                 files.length > 0 ? "border-blue-200" : "border-gray-300 hover:border-blue-400"
               )}
-              onClick={() => document.getElementById('fileInput')?.click()}
+              onFilesSelected={addFiles}
             >
-              <input 
-                id="fileInput" 
-                type="file" 
-                multiple 
-                accept=".pdf" 
-                className="hidden" 
-                onChange={handleFileChange} 
-              />
               <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
                   <Upload className="w-8 h-8" />
@@ -94,7 +86,7 @@ export default function MergePage() {
                   <p className="text-sm text-gray-500">or drag and drop them here</p>
                 </div>
               </div>
-            </div>
+            </PdfDropzone>
 
             {files.length > 0 && (
               <div className="space-y-4">

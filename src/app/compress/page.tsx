@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import PdfDropzone from '@/components/PdfDropzone';
 import { FileText, X, Download, Loader2, Minimize2, CheckCircle2, Zap, SlidersHorizontal, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -76,11 +77,9 @@ export default function CompressPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setResultPdf(null);
-    }
+  const selectFile = (selectedFile: File) => {
+    setFile(selectedFile);
+    setResultPdf(null);
   };
 
   const compressPdf = async () => {
@@ -196,17 +195,11 @@ export default function CompressPage() {
         {!resultPdf ? (
           <div className="space-y-8">
             {!file ? (
-              <div
+              <PdfDropzone
+                inputId="compress-file-input"
                 className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-blue-500 hover:shadow-xl transition-all group"
-                onClick={() => document.getElementById('fileInput')?.click()}
+                onFilesSelected={([selectedFile]) => selectFile(selectedFile)}
               >
-                <input
-                  id="fileInput"
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
                 <div className="flex flex-col items-center gap-4">
                   <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
                     <Minimize2 className="w-10 h-10" />
@@ -216,7 +209,7 @@ export default function CompressPage() {
                     <p className="text-sm text-gray-500">or drag and drop your document here</p>
                   </div>
                 </div>
-              </div>
+              </PdfDropzone>
             ) : (
               <div className="space-y-8">
                 {/* File Header */}
