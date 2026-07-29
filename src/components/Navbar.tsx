@@ -23,6 +23,7 @@ export default function Navbar() {
             <Link href="/pdf-to-word" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">PDF to Word</Link>
             <Link href="/edit" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Edit</Link>
             <Link href="/fill-form" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Fill Form</Link>
+            <Link href="/image-pdf" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Images & PDF</Link>
             <div className="h-4 w-px bg-gray-200 mx-2" />
             <Link href="https://github.com/Tobb-s/open-pdf" target="_blank" className="px-3 py-2 text-gray-500 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">
               GitHub

@@ -2,7 +2,7 @@
 
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, ScanText, Search, Split } from 'lucide-react';
+import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, ScanText, Search, Split, ImageIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
@@ -73,6 +73,14 @@ export default function Home() {
       href: '/fill-form',
       bgColor: 'bg-teal-50',
       color: 'text-teal-500',
+    },
+    {
+      title: 'Imágenes y PDF',
+      description: 'Convierte de PDF a JPG o de JPG a PDF en un solo lugar.',
+      icon: ImageIcon,
+      href: '/image-pdf',
+      bgColor: 'bg-yellow-50',
+      color: 'text-yellow-600',
     },
   ];
 
