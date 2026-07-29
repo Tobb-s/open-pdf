@@ -2,7 +2,7 @@
 
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
-import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, Search, Split } from 'lucide-react';
+import { Combine, FileStack, FileType, FormInput, Minimize2, PenSquare, ScanText, Search, Split } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 
@@ -17,6 +17,14 @@ export default function Home() {
       href: '/compress',
       bgColor: 'bg-amber-50',
       color: 'text-amber-600',
+    },
+    {
+      title: 'OCR PDF',
+      description: 'Make scanned PDFs searchable or extract text.',
+      icon: ScanText,
+      href: '/ocr',
+      bgColor: 'bg-orange-50',
+      color: 'text-orange-500',
     },
     {
       title: 'Merge PDF',
