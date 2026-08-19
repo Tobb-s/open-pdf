@@ -102,6 +102,34 @@ export function pdfNameFor(fileName: string): string {
   return `${withoutExtension || fileName}.pdf`;
 }
 
+/**
+ * Gives every entry of a batch a distinct name.
+ *
+ * Two lectures called `Clase 1.pptx` from different folders are ordinary, and a
+ * zip that silently kept only one of them would lose someone's work.
+ */
+export function uniqueNames(fileNames: readonly string[]): string[] {
+  // Keyed on the names actually handed out, not on how often a base repeats.
+  // Counting repeats alone invents a suffix that can collide with a name another
+  // file already owns — `Clase 1.pptx`, `Clase 1.docx`, `Clase 1 (2).pptx` all
+  // wanted `Clase 1 (2).pdf`, and a zip keeps only the last writer.
+  const taken = new Set<string>();
+
+  return fileNames.map((fileName) => {
+    const base = pdfNameFor(fileName);
+    let candidate = base;
+    let suffix = 2;
+
+    while (taken.has(candidate.toLowerCase())) {
+      candidate = base.replace(/\.pdf$/i, ` (${suffix}).pdf`);
+      suffix += 1;
+    }
+
+    taken.add(candidate.toLowerCase());
+    return candidate;
+  });
+}
+
 type EmscriptenFS = {
   writeFile: (path: string, data: Uint8Array) => void;
   readFile: (path: string) => Uint8Array;
@@ -200,30 +228,53 @@ export class OfficeEngine {
     const input = `/tmp/in-${id}${format.extension}`;
     const output = `/tmp/out-${id}.pdf`;
 
+    // A batch shares one signal across every document, so a cancel that landed
+    // between two of them has to be seen here rather than waited for.
+    if (signal?.aborted) {
+      return Promise.reject(new ConversionAbandoned(false, null));
+    }
+
     this.#helper.FS.writeFile(input, bytes);
 
     return new Promise<Uint8Array>((resolve, reject) => {
       // A worker stuck inside LibreOffice cannot be interrupted, so giving up
       // means abandoning this engine rather than reusing it: the next attempt
       // boots a clean one from the cached binaries.
+      const onAbort = () => abandon(false);
+
+      const settle = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', onAbort);
+      };
+
       const abandon = (timedOut: boolean) => {
         const entry = this.#pending.get(id);
         if (!entry) return;
         this.#pending.delete(id);
+        settle();
+        // The worker may still be inside LibreOffice and may yet write its
+        // output; drop the scratch file so an abandoned run does not sit in the
+        // engine's filesystem for the rest of the session.
+        try {
+          this.#helper.FS.unlink(entry.output);
+        } catch {
+          // It was never written, which is the common case.
+        }
         retireEngine();
         reject(new ConversionAbandoned(timedOut, entry.phase));
       };
 
+      // Declared after the helpers above; they only read it once it is set.
       const timer = setTimeout(() => abandon(true), CONVERSION_TIMEOUT_MS);
-      signal?.addEventListener('abort', () => abandon(false), { once: true });
+      signal?.addEventListener('abort', onAbort, { once: true });
 
       this.#pending.set(id, {
         resolve: (value) => {
-          clearTimeout(timer);
+          settle();
           resolve(value);
         },
         reject: (error) => {
-          clearTimeout(timer);
+          settle();
           reject(error);
         },
         output,

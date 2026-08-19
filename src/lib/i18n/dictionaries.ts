@@ -324,6 +324,40 @@ export interface Dictionary {
     doneTitle: string;
     doneBody: (pages: number, size: string) => string;
     another: string;
+
+    // Batch
+    chooseMany: string;
+    addMore: string;
+    removeAll: string;
+    queueHeading: (count: number) => string;
+    moveEarlier: (name: string) => string;
+    moveLater: (name: string) => string;
+    remove: (name: string) => string;
+    outputHeading: string;
+    separateTitle: string;
+    separateBody: string;
+    combinedTitle: string;
+    combinedBody: string;
+    slowdownWarning: string;
+    convertingItem: (index: number, total: number, name: string) => string;
+    combining: string;
+    combiningItem: (index: number, total: number, name: string) => string;
+    zipping: string;
+    cancelledPartial: (converted: number) => string;
+    timedOutItem: string;
+    zipName: string;
+    combinedName: string;
+    statusPending: string;
+    statusDone: (pages: number) => string;
+    statusFailed: string;
+    batchDoneTitle: (converted: number, total: number) => string;
+    batchDoneZip: (files: number, size: string) => string;
+    batchDoneCombined: (pages: number, size: string) => string;
+    batchFailures: (names: string) => string;
+    batchNoneTitle: string;
+    batchNoneBody: string;
+    combineSkipped: (names: string) => string;
+    downloadZip: string;
   };
   errors: {
     encryptedTitle: string;
@@ -802,6 +836,57 @@ export const es: Dictionary = {
     doneBody: (pages, size) =>
       `${pages} ${pages === 1 ? 'página' : 'páginas'} · ${size}. El texto quedó seleccionable y se puede buscar.`,
     another: 'Convertir otro',
+
+    chooseMany: 'Elegí uno o varios documentos',
+    addMore: 'Agregar más',
+    removeAll: 'Quitar todos',
+    queueHeading: (count) =>
+      count === 1
+        ? '1 documento'
+        : `${count} documentos, se convierten en este orden`,
+    moveEarlier: (name) => `Mover ${name} antes`,
+    moveLater: (name) => `Mover ${name} después`,
+    remove: (name) => `Quitar ${name}`,
+    outputHeading: '¿Cómo querés el resultado?',
+    separateTitle: 'Un PDF por documento',
+    separateBody:
+      'Cada uno con el nombre de su archivo. Si hay más de uno se descargan juntos en un ZIP.',
+    combinedTitle: 'Todo en un solo PDF',
+    combinedBody:
+      'Se unen en el orden de la lista. Unir lleva su tiempo: con varias presentaciones largas puede tardar más que la propia conversión.',
+    slowdownWarning:
+      'El motor se pone más lento a medida que convierte: el último archivo de una lista larga puede tardar bastante más que el primero. Si alguno se traba, se salta y los demás siguen.',
+    convertingItem: (index, total, name) => `Convirtiendo ${index} de ${total}: ${name}`,
+    combining: 'Uniendo los PDF…',
+    combiningItem: (index, total, name) => `Uniendo ${index} de ${total}: ${name}`,
+    zipping: 'Armando el ZIP…',
+    cancelledPartial: (converted) =>
+      converted === 0
+        ? 'Cancelaste antes de que se convirtiera ningún documento.'
+        : `Cancelaste después de convertir ${converted} ${converted === 1 ? 'documento' : 'documentos'}; se descartaron.`,
+    timedOutItem: 'Tardó demasiado y se salteó',
+    zipName: 'documentos.zip',
+    combinedName: 'documentos.pdf',
+    statusPending: 'En espera',
+    statusDone: (pages) => `${pages} ${pages === 1 ? 'página' : 'páginas'}`,
+    statusFailed: 'No se pudo',
+    batchDoneTitle: (converted, total) =>
+      converted === total
+        ? total === 1
+          ? 'Se convirtió el documento'
+          : `Se convirtieron los ${total} documentos`
+        : converted === 1
+          ? `Se convirtió 1 de ${total} documentos`
+          : `Se convirtieron ${converted} de ${total} documentos`,
+    batchDoneZip: (files, size) => `${files} PDF en un ZIP · ${size}.`,
+    batchDoneCombined: (pages, size) =>
+      `${pages} ${pages === 1 ? 'página' : 'páginas'} en un solo PDF · ${size}.`,
+    batchFailures: (names) => `No se pudieron convertir: ${names}.`,
+    batchNoneTitle: 'No se pudo convertir ninguno',
+    batchNoneBody:
+      'Ningún documento de la lista llegó a convertirse. Recargá la página y probá de a uno para ver cuál da problema.',
+    combineSkipped: (names) => `Quedaron fuera del PDF combinado: ${names}.`,
+    downloadZip: 'Descargar ZIP',
   },
   errors: {
     encryptedTitle: 'Este PDF está protegido con contraseña',
@@ -1282,6 +1367,51 @@ export const en: Dictionary = {
     doneBody: (pages, size) =>
       `${pages} ${pages === 1 ? 'page' : 'pages'} · ${size}. The text stayed selectable and searchable.`,
     another: 'Convert another',
+
+    chooseMany: 'Choose one or more documents',
+    addMore: 'Add more',
+    removeAll: 'Remove all',
+    queueHeading: (count) =>
+      `${count} ${count === 1 ? 'document' : 'documents'}, converted in this order`,
+    moveEarlier: (name) => `Move ${name} earlier`,
+    moveLater: (name) => `Move ${name} later`,
+    remove: (name) => `Remove ${name}`,
+    outputHeading: 'How do you want the result?',
+    separateTitle: 'One PDF per document',
+    separateBody:
+      'Each named after its source. More than one arrives together in a ZIP.',
+    combinedTitle: 'Everything in one PDF',
+    combinedBody:
+      'Joined in the order of the list. Joining is not instant: with several long decks it can take longer than the conversion itself.',
+    slowdownWarning:
+      'The engine slows down as it converts: the last file in a long list can take considerably longer than the first. If one gets stuck it is skipped and the rest carry on.',
+    convertingItem: (index, total, name) => `Converting ${index} of ${total}: ${name}`,
+    combining: 'Joining the PDFs…',
+    combiningItem: (index, total, name) => `Joining ${index} of ${total}: ${name}`,
+    zipping: 'Building the ZIP…',
+    cancelledPartial: (converted) =>
+      converted === 0
+        ? 'You cancelled before any document was converted.'
+        : `You cancelled after ${converted} ${converted === 1 ? 'document was' : 'documents were'} converted; they were discarded.`,
+    timedOutItem: 'Took too long and was skipped',
+    zipName: 'documents.zip',
+    combinedName: 'documents.pdf',
+    statusPending: 'Waiting',
+    statusDone: (pages) => `${pages} ${pages === 1 ? 'page' : 'pages'}`,
+    statusFailed: 'Failed',
+    batchDoneTitle: (converted, total) =>
+      converted === total
+        ? `All ${total} documents converted`
+        : `${converted} of ${total} documents converted`,
+    batchDoneZip: (files, size) => `${files} ${files === 1 ? 'PDF' : 'PDFs'} in a ZIP · ${size}.`,
+    batchDoneCombined: (pages, size) =>
+      `${pages} ${pages === 1 ? 'page' : 'pages'} in a single PDF · ${size}.`,
+    batchFailures: (names) => `Could not convert: ${names}.`,
+    batchNoneTitle: 'Nothing could be converted',
+    batchNoneBody:
+      'None of the documents in the list converted. Reload the page and try them one at a time to see which one is the problem.',
+    combineSkipped: (names) => `Left out of the combined PDF: ${names}.`,
+    downloadZip: 'Download ZIP',
   },
   errors: {
     encryptedTitle: 'This PDF is password-protected',
