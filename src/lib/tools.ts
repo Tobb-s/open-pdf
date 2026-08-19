@@ -13,7 +13,8 @@ export type ToolSlug =
   | 'pdf-to-word'
   | 'edit'
   | 'fill-form'
-  | 'image-pdf';
+  | 'image-pdf'
+  | 'office-to-pdf';
 
 export interface Tool {
   slug: ToolSlug;
@@ -30,6 +31,7 @@ export const TOOLS: Tool[] = [
   { slug: 'pdf-to-word', color: 'text-indigo-500', bgColor: 'bg-indigo-50' },
   { slug: 'edit', color: 'text-purple-500', bgColor: 'bg-purple-50' },
   { slug: 'fill-form', color: 'text-teal-500', bgColor: 'bg-teal-50' },
+  { slug: 'office-to-pdf', color: 'text-sky-600', bgColor: 'bg-sky-50' },
   { slug: 'image-pdf', color: 'text-yellow-600', bgColor: 'bg-yellow-50' },
 ];
 

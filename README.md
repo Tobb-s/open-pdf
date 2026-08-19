@@ -16,6 +16,7 @@ en la propia página.
 | **PDF a Word** | Extrae el texto a un `.docx` editable. Sólo texto: no conserva imágenes, tablas ni maquetación. |
 | **Editar** | Coloca texto en cualquier punto de una página. |
 | **Rellenar formulario** | Completa los campos interactivos de un formulario PDF. |
+| **PPT y Word a PDF** | Convierte PowerPoint, Word, Excel y sus equivalentes libres a PDF con el motor de LibreOffice compilado a WebAssembly. Requiere descargar el motor una vez (~51 MB), sólo cuando lo pedís. |
 | **Imágenes y PDF** | Convierte cada página en JPG, o une imágenes JPG, PNG y WebP en un PDF. |
 
 ## Idiomas
@@ -30,6 +31,26 @@ herramienta al cambiar. `/` y `/merge` redirigen a `/es` y `/es/merge`.
 
 Todo el texto visible vive en `src/lib/i18n/dictionaries.ts`, tipado con una única
 interfaz `Dictionary`: si a un idioma le falta una clave, no compila.
+
+## El conversor de Office
+
+`PPT y Word a PDF` es la única herramienta que necesita descargar algo pesado, y por eso
+lo pide de forma explícita en vez de hacerlo al abrir la página.
+
+Usa [LibreOffice compilado a WebAssembly](https://github.com/allotropia/zetajs) — el mismo
+motor del escritorio — así que un gráfico sale como gráfico y una tabla como tabla, no como
+captura de pantalla. Son unos 51 MB transferidos (250 MB sin comprimir), una sola vez, con
+caché permanente.
+
+Dos concesiones que conviene conocer, ambas **acotadas a esa ruta**:
+
+- **Aislamiento de origen cruzado.** El motor usa hilos de WebAssembly, que necesitan
+  `SharedArrayBuffer`, que el navegador sólo concede con `COOP` + `COEP`. Sólo es viable
+  porque el sitio ya no carga nada de terceros.
+- **`unsafe-eval` y `data:` en `script-src`.** El cargador de Emscripten evalúa cadenas y
+  zetajs arranca su worker desde un `data:` URL. Las otras diez rutas conservan la política
+  estricta, y en esta siguen cerrados `connect-src`, `img-src` y `form-action`: aunque
+  entrara código, no tendría a dónde mandar un documento.
 
 ## Privacidad
 

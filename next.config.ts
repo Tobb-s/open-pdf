@@ -21,25 +21,38 @@ import type { NextConfig } from 'next';
  * still shut: `connect-src`, `img-src` and `form-action` are all limited to this
  * origin, so injected code has nowhere to send a document.
  */
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
-  // Next.js injects its critical CSS inline.
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' blob: data:",
-  "font-src 'self' data:",
-  "worker-src 'self' blob:",
-  "connect-src 'self' blob: data:",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  // A tool that handles private documents should never be framed by anyone.
-  "frame-ancestors 'none'",
-  'upgrade-insecure-requests',
-].join('; ');
+function contentSecurityPolicy({ allowOfficeEngine = false } = {}) {
+  const scriptSrc = [
+    "'self'",
+    "'unsafe-inline'",
+    "'wasm-unsafe-eval'",
+    // What LibreOffice needs beyond the usual policy: its Emscripten loader
+    // evaluates strings, and zetajs bootstraps its worker from a data: URL.
+    ...(allowOfficeEngine ? ["'unsafe-eval'", 'data:'] : []),
+  ].join(' ');
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc}`,
+    // Next.js injects its critical CSS inline.
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' blob: data:",
+    "font-src 'self' data:",
+    "worker-src 'self' blob:",
+    "connect-src 'self' blob: data:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    // A tool that handles private documents should never be framed by anyone.
+    "frame-ancestors 'none'",
+    'upgrade-insecure-requests',
+  ].join('; ');
+}
+
+/** The route that runs LibreOffice. Its policy is relaxed; nothing else's is. */
+const OFFICE_ROUTE = 'office-to-pdf';
 
 const SECURITY_HEADERS = [
-  { key: 'Content-Security-Policy', value: CONTENT_SECURITY_POLICY },
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
@@ -48,6 +61,27 @@ const SECURITY_HEADERS = [
     value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()',
   },
   { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+];
+
+/**
+ * The LibreOffice engine runs on WebAssembly threads, which need
+ * SharedArrayBuffer, which the browser only grants to a cross-origin isolated
+ * document. Isolation is scoped to the converter route: applying it site-wide
+ * would put the other nine tools at risk for a feature they do not use.
+ *
+ * It is only viable at all because the audit removed every third-party asset —
+ * `require-corp` would block any cross-origin subresource, and there are none
+ * left. `next/font/google` self-hosts its fonts at build time.
+ */
+const ISOLATION_HEADERS = [
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+  // Emscripten's loader evaluates strings, so LibreOffice cannot start under the
+  // site's usual policy. The concession is real but contained: it applies to this
+  // one route, every byte it runs is served from this origin, and `connect-src`,
+  // `img-src` and `form-action` stay locked to 'self' — so even code that did get
+  // in would have nowhere to send a document.
+  { key: 'Content-Security-Policy', value: contentSecurityPolicy({ allowOfficeEngine: true }) },
 ];
 
 const nextConfig: NextConfig = {
@@ -62,7 +96,7 @@ const nextConfig: NextConfig = {
       { source: '/', destination: '/es', permanent: false },
       {
         source:
-          '/:slug(compress|ocr|merge|split|organize|pdf-to-word|edit|fill-form|image-pdf)',
+          '/:slug(compress|ocr|merge|split|organize|pdf-to-word|edit|fill-form|image-pdf|office-to-pdf)',
         destination: '/es/:slug',
         permanent: false,
       },
@@ -75,10 +109,32 @@ const nextConfig: NextConfig = {
         headers: SECURITY_HEADERS,
       },
       {
+        // Everything except the converter gets the strict policy. Expressed as an
+        // exclusion so that exactly one Content-Security-Policy header is ever
+        // sent: two headers are intersected by the browser, which would silently
+        // undo the relaxation below.
+        source: `/((?!(?:es|en)/${OFFICE_ROUTE}$).*)`,
+        headers: [{ key: 'Content-Security-Policy', value: contentSecurityPolicy() }],
+      },
+      {
+        source: `/:lang(es|en)/${OFFICE_ROUTE}`,
+        headers: ISOLATION_HEADERS,
+      },
+      {
         // The vendored engines are content-addressed by the lockfile and change
         // only when a dependency does.
         source: '/vendor/:path*',
-        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+        headers: [
+          { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+          // Lets the isolated converter page load them.
+          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+        ],
+      },
+      {
+        // Emscripten's packed filesystem has no extension the CDN recognises, so
+        // without this it would be served uncompressed — 95 MB instead of 15.
+        source: '/vendor/lowa/soffice.data',
+        headers: [{ key: 'Content-Type', value: 'application/wasm' }],
       },
     ];
   },

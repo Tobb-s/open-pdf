@@ -31,7 +31,24 @@ const COPIES = [
     from: `node_modules/tesseract.js-core/tesseract-core${variant}-lstm.wasm.js`,
     to: `tesseract/core/tesseract-core${variant}-lstm.wasm.js`,
   })),
+  // zetajs drives LibreOffice from JavaScript. It resolves its sibling `zeta.js`
+  // from its own `import.meta.url`, so both files have to be served as static
+  // assets rather than bundled.
+  { from: 'node_modules/zetajs/source/zeta.js', to: 'lowa/zetajs/zeta.js' },
+  { from: 'node_modules/zetajs/source/zetaHelper.js', to: 'lowa/zetajs/zetaHelper.js' },
+  // Our own worker code. It lives in scripts/ so it is versioned, and is copied
+  // here because zetajs loads it by URL from inside the worker.
+  { from: 'scripts/lowa/office_thread.js', to: 'lowa/office_thread.js' },
 ];
+
+/**
+ * The LibreOffice WebAssembly build (LOWA), which converts Office documents to
+ * PDF with the fidelity of the desktop application. Around 51 MB, downloaded
+ * once and cached on disk; the browser only fetches it when a reader explicitly
+ * asks for the converter.
+ */
+const LOWA_BASE = 'https://cdn.zetaoffice.net/zetaoffice_latest';
+const LOWA_FILES = ['soffice.js', 'soffice.wasm', 'soffice.data', 'soffice.data.js.metadata'];
 
 /**
  * Directories pdf.js fetches on demand. Without them it silently falls back to
@@ -109,6 +126,25 @@ async function main() {
     await cp(source, destination, { recursive: true });
     const entries = await readdir(destination);
     manifest.push({ file: `${to}/`, files: entries.length, bytes: 0, source: 'node_modules' });
+  }
+
+  for (const name of LOWA_FILES) {
+    const to = `lowa/${name}`;
+    const destination = join(vendor, to);
+
+    if (await exists(destination)) {
+      const { size } = await stat(destination);
+      manifest.push({ file: to, bytes: size, source: 'cached' });
+      continue;
+    }
+
+    const bytes = await download(`${LOWA_BASE}/${name}`, destination);
+    manifest.push({
+      file: to,
+      bytes: bytes.length,
+      source: 'downloaded',
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    });
   }
 
   for (const lang of LANGUAGES) {

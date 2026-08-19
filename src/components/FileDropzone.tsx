@@ -12,7 +12,7 @@ export interface FileKind {
   /** Accepted MIME types or prefixes, e.g. `image/`. */
   mimePrefixes: string[];
   /** Key into the dictionary for the name of this kind of file. */
-  labelKey: 'kindPdf' | 'kindImage';
+  labelKey: 'kindPdf' | 'kindImage' | 'kindOffice';
 }
 
 export const PDF_FILES: FileKind = {
@@ -27,6 +27,16 @@ export const IMAGE_FILES: FileKind = {
   extensions: ['.jpg', '.jpeg', '.png', '.webp'],
   mimePrefixes: ['image/jpeg', 'image/png', 'image/webp'],
   labelKey: 'kindImage',
+};
+
+export const OFFICE_FILES: FileKind = {
+  accept:
+    '.pptx,.ppt,.odp,.docx,.doc,.odt,.rtf,.xlsx,.xls,.ods,.odg',
+  extensions: ['.pptx', '.ppt', '.odp', '.docx', '.doc', '.odt', '.rtf', '.xlsx', '.xls', '.ods', '.odg'],
+  // Office MIME types are a mess across browsers and operating systems, so the
+  // extension is what decides here.
+  mimePrefixes: [],
+  labelKey: 'kindOffice',
 };
 
 interface FileDropzoneProps {

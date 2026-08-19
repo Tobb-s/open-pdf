@@ -10,16 +10,19 @@ import {
   Image as ImageIcon,
   Minimize2,
   PenSquare,
+  Presentation,
   ScanText,
   Search,
   Split,
+  type LucideIcon,
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
 import { useI18n } from '@/lib/i18n/context';
-import { TOOLS } from '@/lib/tools';
+import { TOOLS, type ToolSlug } from '@/lib/tools';
 
-const ICONS = {
+/** Typed by slug, so adding a tool without an icon fails to compile. */
+const ICONS: Record<ToolSlug, LucideIcon> = {
   compress: Minimize2,
   ocr: ScanText,
   merge: Combine,
@@ -28,8 +31,9 @@ const ICONS = {
   'pdf-to-word': FileType,
   edit: PenSquare,
   'fill-form': FormInput,
+  'office-to-pdf': Presentation,
   'image-pdf': ImageIcon,
-} as const;
+};
 
 export default function Home() {
   const { locale, t } = useI18n();

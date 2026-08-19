@@ -57,6 +57,7 @@ export interface Dictionary {
     skipped: (added: number, kind: string, rejected: number) => string;
     kindPdf: string;
     kindImage: string;
+    kindOffice: string;
   };
   home: {
     badge: string;
@@ -289,6 +290,30 @@ export interface Dictionary {
     changeImages: string;
     removeImage: (name: string) => string;
   };
+  officeToPdf: {
+    heading: string;
+    intro: string;
+    accepts: string;
+    choose: string;
+    families: { presentation: string; document: string; spreadsheet: string; drawing: string };
+    legacyNote: (extension: string) => string;
+    unsupportedTitle: (name: string) => string;
+    unsupportedBody: (list: string) => string;
+    engineTitle: string;
+    engineBody: (size: string) => string;
+    enginePrivacy: string;
+    engineAction: string;
+    engineCached: string;
+    unsupportedBrowserTitle: string;
+    unsupportedBrowserBody: string;
+    downloading: string;
+    starting: string;
+    converting: (name: string) => string;
+    slidesTip: string;
+    doneTitle: string;
+    doneBody: (pages: number, size: string) => string;
+    another: string;
+  };
   errors: {
     encryptedTitle: string;
     encryptedBody: string;
@@ -309,7 +334,15 @@ export interface Dictionary {
     unsupportedImageTitle: (name: string) => string;
     unsupportedImageDecode: string;
     unsupportedImageConvert: string;
-    limitLabels: { ocr: string; compression: string; previews: string; conversion: string };
+    officeFailedTitle: string;
+    officeFailedBody: (detail: string) => string;
+    limitLabels: {
+      ocr: string;
+      compression: string;
+      previews: string;
+      conversion: string;
+      office: string;
+    };
   };
 }
 
@@ -348,6 +381,7 @@ export const es: Dictionary = {
       `Se agregaron ${added} archivo${added === 1 ? '' : 's'} ${kind}; se descartó${rejected === 1 ? '' : 'aron'} ${rejected} que no ${rejected === 1 ? 'era' : 'eran'} compatible${rejected === 1 ? '' : 's'}.`,
     kindPdf: 'PDF',
     kindImage: 'de imagen',
+    kindOffice: 'de Office',
   },
   home: {
     badge: 'Libre y de código abierto',
@@ -437,6 +471,18 @@ export const es: Dictionary = {
       description:
         'Completá los campos interactivos de un formulario PDF y descargá el documento terminado, sin mandarlo a ningún lado.',
       keywords: ['formulario', 'campos', 'completar', 'acroform', 'rellenar'],
+    },
+    'office-to-pdf': {
+      title: 'PPT y Word a PDF',
+      navLabel: 'Office',
+      tagline: 'Convertí presentaciones y documentos a PDF.',
+      description:
+        'Convertí PowerPoint, Word, Excel y sus equivalentes libres a PDF con la fidelidad de LibreOffice, sin subir el archivo a ningún lado.',
+      keywords: [
+        'ppt', 'pptx', 'powerpoint', 'presentacion', 'presentación', 'diapositivas',
+        'word', 'docx', 'documento', 'excel', 'xlsx', 'planilla',
+        'odp', 'odt', 'ods', 'libreoffice', 'office', 'convertir',
+      ],
     },
     'image-pdf': {
       title: 'Imágenes y PDF',
@@ -697,6 +743,42 @@ export const es: Dictionary = {
     changeImages: 'Cambiar las imágenes',
     removeImage: (name) => `Quitar ${name}`,
   },
+  officeToPdf: {
+    heading: 'PPT y Word a PDF',
+    intro:
+      'Convertí presentaciones y documentos a PDF con el motor de LibreOffice, que corre entero dentro de tu navegador.',
+    accepts: 'PowerPoint, Word, Excel y sus equivalentes de LibreOffice.',
+    choose: 'Elegí un documento',
+    families: {
+      presentation: 'Presentación',
+      document: 'Documento',
+      spreadsheet: 'Planilla',
+      drawing: 'Dibujo',
+    },
+    legacyNote: (extension) =>
+      `${extension} es un formato viejo. Se convierte igual, pero si el resultado no te convence, abrilo y volvé a guardarlo en el formato nuevo.`,
+    unsupportedTitle: (name) => `No se puede convertir ${name}`,
+    unsupportedBody: (list) => `Los formatos admitidos son: ${list}.`,
+    engineTitle: 'Hace falta descargar el motor de conversión',
+    engineBody: (size) =>
+      `Son unos ${size}, una sola vez. Es LibreOffice completo: por eso el PDF sale igual que si lo exportaras desde tu computadora, con los gráficos y las tablas de verdad y no como capturas.`,
+    enginePrivacy:
+      'Se descarga desde este mismo sitio y corre en tu navegador. Tu documento no se envía a ningún servidor, ni siquiera al nuestro.',
+    engineAction: 'Descargar el motor y convertir',
+    engineCached: 'El motor ya está cargado.',
+    unsupportedBrowserTitle: 'Tu navegador no puede ejecutar el motor',
+    unsupportedBrowserBody:
+      'La conversión necesita funciones que este navegador no habilita. Probá con una versión reciente de Chrome, Edge o Firefox de escritorio.',
+    downloading: 'Descargando el motor…',
+    starting: 'Iniciando LibreOffice…',
+    converting: (name) => `Convirtiendo ${name}…`,
+    slidesTip:
+      '¿Tenés una presentación en Google Slides? No hace falta pasar por acá: en Slides andá a Archivo → Descargar → Documento PDF.',
+    doneTitle: 'Tu PDF está listo',
+    doneBody: (pages, size) =>
+      `${pages} ${pages === 1 ? 'página' : 'páginas'} · ${size}. El texto quedó seleccionable y se puede buscar.`,
+    another: 'Convertir otro',
+  },
   errors: {
     encryptedTitle: 'Este PDF está protegido con contraseña',
     encryptedBody:
@@ -724,11 +806,15 @@ export const es: Dictionary = {
     unsupportedImageDecode:
       'Este navegador no pudo decodificar la imagen. Guardala como JPG o PNG y volvé a intentar.',
     unsupportedImageConvert: 'El navegador no pudo convertir la imagen.',
+    officeFailedTitle: 'LibreOffice no pudo convertir este documento',
+    officeFailedBody: (detail) =>
+      `El motor devolvió: ${detail}. Si el archivo se abre bien en tu computadora, probá volver a guardarlo antes de convertirlo.`,
     limitLabels: {
       ocr: 'el OCR',
       compression: 'la compresión',
       previews: 'las vistas previas',
       conversion: 'esta conversión',
+      office: 'la conversión a PDF',
     },
   },
 };
@@ -768,6 +854,7 @@ export const en: Dictionary = {
       `Added ${added} ${kind} file${added === 1 ? '' : 's'}; skipped ${rejected} that ${rejected === 1 ? 'was' : 'were'} not supported.`,
     kindPdf: 'PDF',
     kindImage: 'image',
+    kindOffice: 'Office',
   },
   home: {
     badge: 'Free and open source',
@@ -857,6 +944,18 @@ export const en: Dictionary = {
       description:
         'Fill in the interactive fields of a PDF form and download the completed document, without sending it anywhere.',
       keywords: ['form', 'fields', 'complete', 'acroform', 'input'],
+    },
+    'office-to-pdf': {
+      title: 'PPT and Word to PDF',
+      navLabel: 'Office',
+      tagline: 'Convert presentations and documents to PDF.',
+      description:
+        'Convert PowerPoint, Word, Excel and their open equivalents to PDF with LibreOffice fidelity, without uploading the file anywhere.',
+      keywords: [
+        'ppt', 'pptx', 'powerpoint', 'presentation', 'slides', 'deck',
+        'word', 'docx', 'document', 'excel', 'xlsx', 'spreadsheet',
+        'odp', 'odt', 'ods', 'libreoffice', 'office', 'convert',
+      ],
     },
     'image-pdf': {
       title: 'Images & PDF',
@@ -1111,6 +1210,42 @@ export const en: Dictionary = {
     changeImages: 'Change images',
     removeImage: (name) => `Remove ${name}`,
   },
+  officeToPdf: {
+    heading: 'PPT and Word to PDF',
+    intro:
+      'Convert presentations and documents to PDF using the LibreOffice engine, running entirely inside your browser.',
+    accepts: 'PowerPoint, Word, Excel and their LibreOffice equivalents.',
+    choose: 'Choose a document',
+    families: {
+      presentation: 'Presentation',
+      document: 'Document',
+      spreadsheet: 'Spreadsheet',
+      drawing: 'Drawing',
+    },
+    legacyNote: (extension) =>
+      `${extension} is an old format. It still converts, but if the result looks off, open it and save it again in the newer format.`,
+    unsupportedTitle: (name) => `${name} cannot be converted`,
+    unsupportedBody: (list) => `The supported formats are: ${list}.`,
+    engineTitle: 'The conversion engine has to be downloaded',
+    engineBody: (size) =>
+      `About ${size}, once. It is the whole of LibreOffice, which is why the PDF comes out exactly as it would from your own computer — with real charts and tables rather than screenshots of them.`,
+    enginePrivacy:
+      'It downloads from this site and runs in your browser. Your document is not sent to any server, not even ours.',
+    engineAction: 'Download the engine and convert',
+    engineCached: 'The engine is already loaded.',
+    unsupportedBrowserTitle: 'This browser cannot run the engine',
+    unsupportedBrowserBody:
+      'The conversion needs features this browser does not enable. Try a recent desktop Chrome, Edge or Firefox.',
+    downloading: 'Downloading the engine…',
+    starting: 'Starting LibreOffice…',
+    converting: (name) => `Converting ${name}…`,
+    slidesTip:
+      'Working in Google Slides? You do not need this: in Slides, use File → Download → PDF Document.',
+    doneTitle: 'Your PDF is ready',
+    doneBody: (pages, size) =>
+      `${pages} ${pages === 1 ? 'page' : 'pages'} · ${size}. The text stayed selectable and searchable.`,
+    another: 'Convert another',
+  },
   errors: {
     encryptedTitle: 'This PDF is password-protected',
     encryptedBody:
@@ -1138,11 +1273,15 @@ export const en: Dictionary = {
     unsupportedImageDecode:
       'This browser could not decode the image. Save it as JPG or PNG and try again.',
     unsupportedImageConvert: 'The browser could not convert the image.',
+    officeFailedTitle: 'LibreOffice could not convert this document',
+    officeFailedBody: (detail) =>
+      `The engine reported: ${detail}. If the file opens correctly on your computer, try saving it again before converting.`,
     limitLabels: {
       ocr: 'OCR',
       compression: 'compression',
       previews: 'page previews',
       conversion: 'this conversion',
+      office: 'converting to PDF',
     },
   },
 };
