@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Loader2, PauseCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/context';
 
 interface ProgressPanelProps {
   message: string;
@@ -26,6 +27,7 @@ export default function ProgressPanel({
   onCancel,
   accent = 'blue',
 }: ProgressPanelProps) {
+  const { t } = useI18n();
   const [wasBackgrounded, setWasBackgrounded] = useState(false);
 
   useEffect(() => {
@@ -63,9 +65,7 @@ export default function ProgressPanel({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="flex items-center gap-1.5 text-xs text-gray-500">
           <PauseCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          {wasBackgrounded
-            ? 'Processing pauses while this tab is in the background. Keep it visible to finish.'
-            : 'Keep this tab visible — switching away pauses processing.'}
+          {wasBackgrounded ? t.common.processingPaused : t.common.keepTabVisible}
         </p>
         {onCancel && (
           <button
@@ -73,7 +73,7 @@ export default function ProgressPanel({
             onClick={onCancel}
             className="rounded-full px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
           >
-            Cancel
+            {t.common.cancel}
           </button>
         )}
       </div>

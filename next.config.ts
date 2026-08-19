@@ -54,6 +54,20 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  async redirects() {
+    return [
+      // Spanish is the default. A visitor who lands on the bare domain, or on a
+      // tool path without a language, gets the Spanish version; the switcher in
+      // the header takes them to English and keeps them on the same tool.
+      { source: '/', destination: '/es', permanent: false },
+      {
+        source:
+          '/:slug(compress|ocr|merge|split|organize|pdf-to-word|edit|fill-form|image-pdf)',
+        destination: '/es/:slug',
+        permanent: false,
+      },
+    ];
+  },
   async headers() {
     return [
       {

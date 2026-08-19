@@ -2,6 +2,7 @@
 
 import { DragEvent, KeyboardEvent, ReactNode, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/i18n/context';
 
 export interface FileKind {
   /** Value for the input's `accept` attribute. */
@@ -10,22 +11,22 @@ export interface FileKind {
   extensions: string[];
   /** Accepted MIME types or prefixes, e.g. `image/`. */
   mimePrefixes: string[];
-  /** Used in messages: "Choose a PDF file". */
-  label: string;
+  /** Key into the dictionary for the name of this kind of file. */
+  labelKey: 'kindPdf' | 'kindImage';
 }
 
 export const PDF_FILES: FileKind = {
   accept: '.pdf,application/pdf',
   extensions: ['.pdf'],
   mimePrefixes: ['application/pdf'],
-  label: 'PDF',
+  labelKey: 'kindPdf',
 };
 
 export const IMAGE_FILES: FileKind = {
   accept: '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp',
   extensions: ['.jpg', '.jpeg', '.png', '.webp'],
   mimePrefixes: ['image/jpeg', 'image/png', 'image/webp'],
-  label: 'image',
+  labelKey: 'kindImage',
 };
 
 interface FileDropzoneProps {
@@ -57,9 +58,11 @@ export default function FileDropzone({
   disabled = false,
   onFilesSelected,
 }: FileDropzoneProps) {
+  const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [notice, setNotice] = useState('');
+  const kindLabel = t.dropzone[kind.labelKey];
 
   const selectFiles = (files: File[]) => {
     if (files.length === 0) return;
@@ -68,16 +71,12 @@ export default function FileDropzone({
 
     if (accepted.length === 0) {
       const names = files.map((file) => file.name).join(', ');
-      setNotice(`${names} is not a supported ${kind.label} file.`);
+      setNotice(t.dropzone.notSupported(names, kindLabel));
       return;
     }
 
     const rejected = files.length - accepted.length;
-    setNotice(
-      rejected > 0
-        ? `Added ${accepted.length} ${kind.label} file${accepted.length === 1 ? '' : 's'}; skipped ${rejected} that ${rejected === 1 ? 'was' : 'were'} not supported.`
-        : ''
-    );
+    setNotice(rejected > 0 ? t.dropzone.skipped(accepted.length, kindLabel, rejected) : '');
     onFilesSelected(multiple ? accepted : [accepted[0]]);
   };
 

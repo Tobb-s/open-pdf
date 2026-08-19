@@ -18,6 +18,19 @@ en la propia página.
 | **Rellenar formulario** | Completa los campos interactivos de un formulario PDF. |
 | **Imágenes y PDF** | Convierte cada página en JPG, o une imágenes JPG, PNG y WebP en un PDF. |
 
+## Idiomas
+
+El sitio está en **español por defecto** y en inglés. Cada idioma tiene sus propias
+URLs — `/es/merge` y `/en/merge` — y las dos versiones se prerenderizan estáticamente,
+declarando sus traducciones con `hreflang`. Los slugs no se traducen a propósito: así
+los enlaces existentes siguen funcionando y hay una sola ruta por herramienta.
+
+El selector está siempre a la vista en la barra superior y te deja en la misma
+herramienta al cambiar. `/` y `/merge` redirigen a `/es` y `/es/merge`.
+
+Todo el texto visible vive en `src/lib/i18n/dictionaries.ts`, tipado con una única
+interfaz `Dictionary`: si a un idioma le falta una clave, no compila.
+
 ## Privacidad
 
 La promesa es verificable, no declarativa:
@@ -84,7 +97,7 @@ npm test
 
 ```
 src/
-  app/            una ruta por herramienta, más su layout con metadatos
+  app/[lang]/     una ruta por herramienta y por idioma, con su layout de metadatos
   components/     FileDropzone, ErrorNotice, ProgressPanel, Navbar, ToolCard
   lib/
     pdfjs.ts      carga pdf.js con el worker local; copia los bytes antes de
@@ -94,7 +107,11 @@ src/
     pageRange.ts  parseo de "1-3, 7, 12-9"
     errors.ts     traduce excepciones a mensajes con causa y salida
     limits.ts     topes de tamaño y páginas, cancelación
-    tools.ts      catálogo único: home, navegación, sitemap y metadatos
+    tools.ts      catálogo de herramientas: orden y color
+    i18n/
+      dictionaries.ts  todo el texto visible, en español e inglés
+      context.tsx      provee el diccionario al árbol de React
+      metadata.ts      title/description/hreflang por herramienta e idioma
 scripts/
   vendor-assets.mjs   copia las dependencias de runtime a public/vendor/
 tests/            Vitest, en Node

@@ -1,4 +1,5 @@
 import { EncryptedPDFError } from 'pdf-lib';
+import type { Dictionary } from '@/lib/i18n/dictionaries';
 
 export type ToolErrorKind =
   | 'encrypted'
@@ -15,7 +16,12 @@ export interface ToolError {
   detail: string;
 }
 
-/** Thrown by the tools themselves when they can name the problem precisely. */
+/**
+ * Thrown by the tools themselves when they can name the problem precisely.
+ *
+ * The title and detail are already translated by the caller, which has the
+ * dictionary in hand.
+ */
 export class KnownToolError extends Error {
   readonly kind: ToolErrorKind;
   readonly detail: string;
@@ -33,21 +39,22 @@ const PDFJS_INVALID_ERRORS = new Set(['InvalidPDFException', 'UnknownErrorExcept
 
 /**
  * Turns whatever pdf-lib, pdf.js or the network threw into a message that tells
- * the reader what happened and what to do about it.
+ * the reader what happened and what to do about it, in their language.
  */
-export function describeError(error: unknown): ToolError {
+export function describeError(error: unknown, t: Dictionary): ToolError {
+  const messages = t.errors;
+
   if (error instanceof KnownToolError) {
     return { kind: error.kind, title: error.message, detail: error.detail };
   }
 
-  if (error instanceof EncryptedPDFError) {
-    return {
-      kind: 'encrypted',
-      title: 'This PDF is password-protected',
-      detail:
-        'OpenPDF cannot open encrypted documents. Remove the password in your PDF reader, save a copy, and try again.',
-    };
-  }
+  const encrypted: ToolError = {
+    kind: 'encrypted',
+    title: messages.encryptedTitle,
+    detail: messages.encryptedBody,
+  };
+
+  if (error instanceof EncryptedPDFError) return encrypted;
 
   const name = error instanceof Error ? error.name : '';
   const constructorName = (error as { constructor?: { name?: string } })?.constructor?.name;
@@ -61,44 +68,24 @@ export function describeError(error: unknown): ToolError {
     constructorName === 'EncryptedPDFError' ||
     /password|is encrypted/i.test(message)
   ) {
-    return {
-      kind: 'encrypted',
-      title: 'This PDF is password-protected',
-      detail:
-        'OpenPDF cannot open encrypted documents. Remove the password in your PDF reader, save a copy, and try again.',
-    };
+    return encrypted;
   }
 
   if (PDFJS_INVALID_ERRORS.has(name) || /invalid pdf|failed to parse|no pdf header/i.test(message)) {
-    return {
-      kind: 'invalid',
-      title: 'This file is not a readable PDF',
-      detail:
-        'The file may be damaged, incomplete, or saved in another format with a .pdf name. Try re-exporting it from the program that created it.',
-    };
+    return { kind: 'invalid', title: messages.invalidTitle, detail: messages.invalidBody };
   }
 
   if (/fetch|network|load failed|importScripts|worker/i.test(message)) {
-    return {
-      kind: 'assets',
-      title: 'Could not load the PDF engine',
-      detail:
-        'The processing code failed to load. Check your connection and reload the page — everything runs locally once it has loaded.',
-    };
+    return { kind: 'assets', title: messages.assetsTitle, detail: messages.assetsBody };
   }
 
   if (/detached|out of memory|allocation|maximum call stack/i.test(message)) {
-    return {
-      kind: 'too-large',
-      title: 'The browser ran out of memory',
-      detail:
-        'This document is too large to process in one pass. Split it into smaller parts and try again.',
-    };
+    return { kind: 'too-large', title: messages.memoryTitle, detail: messages.memoryBody };
   }
 
   return {
     kind: 'unknown',
-    title: 'Something went wrong',
-    detail: message || 'No further detail is available. The browser console may have more.',
+    title: messages.unknownTitle,
+    detail: message || messages.unknownBody,
   };
 }

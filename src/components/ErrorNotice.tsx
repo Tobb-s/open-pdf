@@ -2,6 +2,7 @@
 
 import { AlertTriangle, X } from 'lucide-react';
 import type { ToolError } from '@/lib/errors';
+import { useI18n } from '@/lib/i18n/context';
 
 interface ErrorNoticeProps {
   error: ToolError | null;
@@ -13,6 +14,7 @@ interface ErrorNoticeProps {
  * names the cause and a line saying what the reader can do next.
  */
 export default function ErrorNotice({ error, onDismiss }: ErrorNoticeProps) {
+  const { t } = useI18n();
   if (!error) return null;
 
   return (
@@ -29,7 +31,7 @@ export default function ErrorNotice({ error, onDismiss }: ErrorNoticeProps) {
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t.common.dismiss}
           className="rounded-full p-1 text-red-400 transition-colors hover:bg-red-100 hover:text-red-700"
         >
           <X className="h-4 w-4" />

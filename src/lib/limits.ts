@@ -1,5 +1,6 @@
 import { KnownToolError } from '@/lib/errors';
 import { formatBytes } from '@/lib/files';
+import type { Dictionary } from '@/lib/i18n/dictionaries';
 
 /**
  * Ceilings that keep a tool from taking the browser tab down with it.
@@ -15,33 +16,38 @@ export const MAX_RENDERED_PAGES = 500;
 /** OCR is roughly a second per page, so the ceiling is lower and time-based. */
 export const MAX_OCR_PAGES = 100;
 
-export function assertFileSize(file: File, limit = MAX_FILE_BYTES): void {
+export type LimitLabel = keyof Dictionary['errors']['limitLabels'];
+
+export function assertFileSize(file: File, t: Dictionary, limit = MAX_FILE_BYTES): void {
   if (file.size <= limit) return;
   throw new KnownToolError(
     'too-large',
-    `${file.name} is too large`,
-    `This tool works on files up to ${formatBytes(limit)}; this one is ${formatBytes(file.size)}. Split it into smaller documents and try again.`
+    t.errors.tooLargeTitle(file.name),
+    t.errors.tooLargeBody(formatBytes(limit), formatBytes(file.size))
   );
 }
 
-export function assertPageCount(pageCount: number, limit: number, what: string): void {
+export function assertPageCount(
+  pageCount: number,
+  limit: number,
+  what: LimitLabel,
+  t: Dictionary
+): void {
   if (pageCount <= limit) return;
   throw new KnownToolError(
     'too-large',
-    `This document has too many pages for ${what}`,
-    `${pageCount} pages exceeds the limit of ${limit}. Use Split PDF to break it into parts first.`
+    t.errors.tooManyPagesTitle(t.errors.limitLabels[what]),
+    t.errors.tooManyPagesBody(pageCount, limit)
   );
 }
 
-export const CANCELLED = new KnownToolError(
-  'cancelled',
-  'Cancelled',
-  'The operation was stopped before it finished.'
-);
+export function cancelled(t: Dictionary): KnownToolError {
+  return new KnownToolError('cancelled', t.errors.cancelledTitle, t.errors.cancelledBody);
+}
 
 /** Call at the top of each iteration of a long loop. */
-export function throwIfCancelled(signal?: AbortSignal): void {
-  if (signal?.aborted) throw CANCELLED;
+export function throwIfCancelled(signal: AbortSignal | undefined, t: Dictionary): void {
+  if (signal?.aborted) throw cancelled(t);
 }
 
 /** Lets the browser paint the progress bar between heavy iterations. */
