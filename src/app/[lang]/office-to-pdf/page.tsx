@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { OFFICE_FILES } from '@/components/FileDropzone';
@@ -22,9 +22,11 @@ import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { downloadBlob, formatBytes } from '@/lib/files';
 import { assertFileSize } from '@/lib/limits';
 import {
+  clearIsolationRetry,
   ConversionAbandoned,
   ENGINE_DOWNLOAD_BYTES,
-  engineSupported,
+  isolationStatus,
+  reloadForIsolation,
   formatForFile,
   getOfficeEngine,
   OFFICE_EXTENSIONS,
@@ -57,11 +59,19 @@ export default function OfficeToPdfPage() {
   // `crossOriginIsolated` does not exist while rendering on the server, so the
   // server assumes support and the client corrects it. Assuming the opposite
   // would flash an error at everyone on first paint.
-  const supported = useSyncExternalStore(
+  const isolation = useSyncExternalStore(
     () => () => {},
-    engineSupported,
-    () => true
+    isolationStatus,
+    () => 'ready' as const
   );
+
+  // Arriving here through a client-side navigation means the document was never
+  // fetched, so the route's isolation headers never applied. One reload picks
+  // them up; the helper refuses to loop if that does not work.
+  useEffect(() => {
+    if (isolation === 'retrying') reloadForIsolation();
+    else if (isolation === 'ready') clearIsolationRetry();
+  }, [isolation]);
 
   const busy = stage !== 'idle';
   const abortRef = useRef<AbortController | null>(null);
@@ -206,7 +216,12 @@ export default function OfficeToPdfPage() {
         </div>
 
         <div className="rounded-3xl border border-gray-100 bg-white p-8 shadow-sm sm:p-10">
-          {!supported ? (
+          {isolation === 'retrying' ? (
+            <div className="flex items-center justify-center gap-3 py-10 text-gray-500">
+              <Loader2 className="h-5 w-5 animate-spin text-sky-600" />
+              <span>{t.officeToPdf.preparing}</span>
+            </div>
+          ) : isolation === 'unsupported' ? (
             <ErrorNotice
               error={{
                 kind: 'assets',

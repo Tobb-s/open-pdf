@@ -306,6 +306,7 @@ export interface Dictionary {
     engineCached: string;
     action: string;
     reuseNote: string;
+    preparing: string;
     unsupportedBrowserTitle: string;
     unsupportedBrowserBody: string;
     downloading: string;
@@ -779,6 +780,7 @@ export const es: Dictionary = {
     action: 'Convertir a PDF',
     reuseNote:
       'El motor sigue cargado, así que esta conversión arranca enseguida. Si convertís varios archivos seguidos se va poniendo más lento: recargá la página para empezar de cero.',
+    preparing: 'Preparando el conversor…',
     unsupportedBrowserTitle: 'Tu navegador no puede ejecutar el motor',
     unsupportedBrowserBody:
       'La conversión necesita funciones que este navegador no habilita. Probá con una versión reciente de Chrome, Edge o Firefox de escritorio.',
@@ -1258,6 +1260,7 @@ export const en: Dictionary = {
     action: 'Convert to PDF',
     reuseNote:
       'The engine is still loaded, so this conversion starts straight away. It gets slower as you convert several files in a row: reload the page for a clean start.',
+    preparing: 'Preparing the converter…',
     unsupportedBrowserTitle: 'This browser cannot run the engine',
     unsupportedBrowserBody:
       'The conversion needs features this browser does not enable. Try a recent desktop Chrome, Edge or Firefox.',

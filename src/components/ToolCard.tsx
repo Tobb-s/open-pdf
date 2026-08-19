@@ -9,19 +9,53 @@ interface ToolCardProps {
   href: string;
   color: string;
   bgColor?: string;
+  /**
+   * Navigate with a plain anchor rather than a client-side transition.
+   *
+   * Needed by tools whose route carries headers the browser only applies to a
+   * document response — a client-side route change never fetches one.
+   */
+  fullReload?: boolean;
 }
 
-export default function ToolCard({ title, description, icon: Icon, href, color, bgColor }: ToolCardProps) {
-  return (
-    <Link 
-      href={href} 
-      className="group relative p-5 bg-white border border-gray-100 rounded-2xl hover:border-gray-200 hover:shadow-md transition-all duration-200 flex flex-col h-full"
-    >
-      <div className={cn("w-10 h-10 rounded-full flex items-center justify-center mb-3 transition-colors", bgColor || "bg-gray-50")}>
-        <Icon className={cn("w-5 h-5", color || "text-gray-600")} />
+const CARD_CLASS =
+  'group relative flex h-full flex-col rounded-2xl border border-gray-100 bg-white p-5 transition-all duration-200 hover:border-gray-200 hover:shadow-md';
+
+export default function ToolCard({
+  title,
+  description,
+  icon: Icon,
+  href,
+  color,
+  bgColor,
+  fullReload = false,
+}: ToolCardProps) {
+  const body = (
+    <>
+      <div
+        className={cn(
+          'mb-3 flex h-10 w-10 items-center justify-center rounded-full transition-colors',
+          bgColor || 'bg-gray-50'
+        )}
+      >
+        <Icon className={cn('h-5 w-5', color || 'text-gray-600')} />
       </div>
-      <h3 className="text-base font-medium text-gray-900 mb-1">{title}</h3>
-      <p className="text-sm text-gray-500 leading-relaxed flex-1">{description}</p>
+      <h3 className="mb-1 text-base font-medium text-gray-900">{title}</h3>
+      <p className="flex-1 text-sm leading-relaxed text-gray-500">{description}</p>
+    </>
+  );
+
+  if (fullReload) {
+    return (
+      <a href={href} className={CARD_CLASS}>
+        {body}
+      </a>
+    );
+  }
+
+  return (
+    <Link href={href} className={CARD_CLASS}>
+      {body}
     </Link>
   );
 }

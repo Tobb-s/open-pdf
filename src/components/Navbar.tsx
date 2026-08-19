@@ -26,15 +26,23 @@ export default function Navbar() {
           </Link>
 
           <div className="hidden min-w-0 flex-1 items-center justify-end gap-1 text-sm font-medium lg:flex">
-            {TOOLS.map((tool) => (
-              <Link
-                key={tool.slug}
-                href={`/${locale}/${tool.slug}`}
-                className="whitespace-nowrap rounded-full px-2.5 py-2 text-gray-600 transition-all hover:bg-gray-50 hover:text-gray-900"
-              >
-                {t.tools[tool.slug].navLabel}
-              </Link>
-            ))}
+            {TOOLS.map((tool) => {
+              const href = `/${locale}/${tool.slug}`;
+              const className =
+                'whitespace-nowrap rounded-full px-2.5 py-2 text-gray-600 transition-all hover:bg-gray-50 hover:text-gray-900';
+
+              // A plain anchor forces a document request, which is the only way
+              // the route's isolation headers reach the browser.
+              return tool.needsFreshDocument ? (
+                <a key={tool.slug} href={href} className={className}>
+                  {t.tools[tool.slug].navLabel}
+                </a>
+              ) : (
+                <Link key={tool.slug} href={href} className={className}>
+                  {t.tools[tool.slug].navLabel}
+                </Link>
+              );
+            })}
             <Link
               href="https://github.com/Tobb-s/open-pdf"
               target="_blank"

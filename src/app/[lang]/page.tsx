@@ -114,6 +114,7 @@ export default function Home() {
                   href={`/${locale}/${tool.slug}`}
                   color={tool.color}
                   bgColor={tool.bgColor}
+                  fullReload={tool.needsFreshDocument}
                 />
               ))
             ) : (

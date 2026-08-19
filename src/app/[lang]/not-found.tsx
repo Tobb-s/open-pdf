@@ -43,6 +43,7 @@ export default function NotFound() {
               href={`/${locale}/${tool.slug}`}
               color={tool.color}
               bgColor={tool.bgColor}
+              fullReload={tool.needsFreshDocument}
             />
           ))}
         </div>

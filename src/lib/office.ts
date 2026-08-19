@@ -353,3 +353,47 @@ export function getOfficeEngine(
 export function engineSupported(): boolean {
   return typeof SharedArrayBuffer !== 'undefined' && globalThis.crossOriginIsolated === true;
 }
+
+const RELOAD_FLAG = 'openpdf:office-reloaded';
+
+export type IsolationStatus = 'ready' | 'retrying' | 'unsupported';
+
+/**
+ * Whether the page can run the engine, and if not, whether it is worth reloading.
+ *
+ * Cross-origin isolation is granted by headers on the document response. Reaching
+ * this route through a client-side navigation means no document was ever fetched,
+ * so the headers never applied and isolation is missing even in a browser that
+ * fully supports it. One reload fixes that; a second would mean the browser
+ * genuinely cannot do it, so the flag stops it looping.
+ */
+export function isolationStatus(): IsolationStatus {
+  if (engineSupported()) return 'ready';
+  try {
+    return sessionStorage.getItem(RELOAD_FLAG) ? 'unsupported' : 'retrying';
+  } catch {
+    // Private modes can refuse sessionStorage; without somewhere to record the
+    // attempt, reloading risks a loop, so treat it as unsupported.
+    return 'unsupported';
+  }
+}
+
+/** Reloads once to pick up the isolation headers. Safe to call repeatedly. */
+export function reloadForIsolation(): void {
+  try {
+    if (sessionStorage.getItem(RELOAD_FLAG)) return;
+    sessionStorage.setItem(RELOAD_FLAG, '1');
+  } catch {
+    return;
+  }
+  location.reload();
+}
+
+/** Clears the guard once isolation is working, so a later session can retry. */
+export function clearIsolationRetry(): void {
+  try {
+    sessionStorage.removeItem(RELOAD_FLAG);
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+}

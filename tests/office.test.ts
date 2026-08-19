@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OFFICE_EXTENSIONS, OFFICE_FORMATS, formatForFile, pdfNameFor } from '@/lib/office';
 import { OFFICE_FILES } from '@/components/FileDropzone';
+import { TOOLS } from '@/lib/tools';
 
 describe('formatForFile', () => {
   it('sends each family to the right LibreOffice filter', () => {
@@ -85,5 +86,22 @@ describe('the picker and the converter agree', () => {
     // fails at the worst moment.
     expect([...OFFICE_FILES.extensions].sort()).toEqual([...OFFICE_EXTENSIONS].sort());
     expect(OFFICE_FILES.accept.split(',').sort()).toEqual([...OFFICE_EXTENSIONS].sort());
+  });
+});
+
+describe('the converter route asks for a fresh document', () => {
+  it('is flagged so links to it do not use a client-side transition', () => {
+    // The bug this guards: cross-origin isolation is granted by headers on the
+    // document response. Clicking a Next.js <Link> never fetches one, so the
+    // page arrived without SharedArrayBuffer and told a perfectly capable
+    // Chrome that it could not run the engine.
+    const office = TOOLS.find((tool) => tool.slug === 'office-to-pdf');
+    expect(office?.needsFreshDocument).toBe(true);
+  });
+
+  it('leaves the other tools on client-side navigation', () => {
+    const others = TOOLS.filter((tool) => tool.slug !== 'office-to-pdf');
+    expect(others.every((tool) => !tool.needsFreshDocument)).toBe(true);
+    expect(others.length).toBeGreaterThan(0);
   });
 });
