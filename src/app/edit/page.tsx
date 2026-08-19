@@ -1,13 +1,24 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import PdfDropzone from '@/components/PdfDropzone';
-import { Upload, FileText, X, Download, Loader2, MousePointerClick, Trash2 } from 'lucide-react';
+import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
+import ErrorNotice from '@/components/ErrorNotice';
+import { Download, FileText, Loader2, MousePointerClick, Trash2, Upload, X } from 'lucide-react';
+import { describeError, type ToolError } from '@/lib/errors';
+import { derivedFileName, downloadBlob } from '@/lib/files';
+import { assertFileSize } from '@/lib/limits';
+import { openPdf, renderPageToCanvas } from '@/lib/pdfjs';
+
+/** Preview scale. Annotation coordinates are stored in PDF points, not pixels. */
+const PREVIEW_SCALE = 1.4;
+const FONT_SIZE = 12;
 
 interface Annotation {
   id: number;
+  /** Position in PDF user space, measured from the bottom-left of the page. */
   x: number;
   y: number;
   text: string;
@@ -16,229 +27,369 @@ interface Annotation {
 
 export default function EditPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
-  const [numPages, setNumPages] = useState(0);
+  const [pageCount, setPageCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [nextId, setNextId] = useState(1);
   const [isPlacingText, setIsPlacingText] = useState(false);
-  const [resultPdf, setResultPdf] = useState<Blob | null>(null);
-  const [renderedPages, setRenderedPages] = useState<Record<number, string>>({});
+  const [isRendering, setIsRendering] = useState(false);
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [result, setResult] = useState<Blob | null>(null);
+  const [error, setError] = useState<ToolError | null>(null);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  /** The original bytes, kept intact for pdf-lib — pdf.js gets its own copy. */
+  const bytesRef = useRef<Uint8Array | null>(null);
+  const documentRef = useRef<PDFDocumentProxy | null>(null);
+  const destroyRef = useRef<(() => Promise<void>) | null>(null);
+  const nextIdRef = useRef(1);
 
-  useEffect(() => {
-    import('pdfjs-dist').then(mod => {
-      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
-    });
-  }, []);
+  useEffect(
+    () => () => {
+      void destroyRef.current?.();
+    },
+    []
+  );
 
-  const selectFile = async (selectedFile: File) => {
-    setFile(selectedFile);
-    const arrayBuffer = await selectedFile.arrayBuffer();
-    setPdfData(arrayBuffer);
-
-    const mod = await import('pdfjs-dist');
-    const pdf = await mod.getDocument({ data: arrayBuffer }).promise;
-    setNumPages(pdf.numPages);
+  const reset = useCallback(() => {
+    void destroyRef.current?.();
+    documentRef.current = null;
+    destroyRef.current = null;
+    bytesRef.current = null;
+    setFile(null);
+    setPageCount(0);
+    setCanvasSize(null);
     setCurrentPage(1);
     setAnnotations([]);
-    setResultPdf(null);
+    setIsPlacingText(false);
+    setResult(null);
+    setError(null);
+  }, []);
 
-    const pages: Record<number, string> = {};
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 0.7 });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvas, viewport }).promise;
-      pages[i] = canvas.toDataURL();
+  const selectFile = async (selected: File) => {
+    reset();
+    try {
+      assertFileSize(selected);
+      const bytes = new Uint8Array(await selected.arrayBuffer());
+      // openPdf copies before handing the bytes to the worker, so this array stays
+      // usable. Passing the same buffer to pdf.js detaches it, which is why saving
+      // used to fail on a zero-length document.
+      const source = await openPdf(bytes);
+
+      bytesRef.current = bytes;
+      documentRef.current = source.document;
+      destroyRef.current = source.destroy;
+
+      setFile(selected);
+      setPageCount(source.document.numPages);
+      setCurrentPage(1);
+    } catch (caught) {
+      setError(describeError(caught));
     }
-    setRenderedPages(pages);
   };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isPlacingText || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setAnnotations(prev => [...prev, { id: nextId, x, y, text: '', pageIndex: currentPage - 1 }]);
-    setNextId(n => n + 1);
+  // Draw the current page onto the canvas the reader actually sees. The previous
+  // version rendered to an off-screen canvas and threw the image away, leaving a
+  // blank 300x150 box and no way to place any text at all.
+  useEffect(() => {
+    const document_ = documentRef.current;
+    const canvas = canvasRef.current;
+    if (!document_ || !canvas) return;
+
+    let cancelled = false;
+    setIsRendering(true);
+
+    (async () => {
+      try {
+        const page = await document_.getPage(currentPage);
+        if (cancelled) return;
+        const size = await renderPageToCanvas(page, canvas, PREVIEW_SCALE);
+        page.cleanup();
+        if (!cancelled) setCanvasSize(size);
+      } catch (caught) {
+        if (!cancelled) setError(describeError(caught));
+      } finally {
+        if (!cancelled) setIsRendering(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPage, pageCount]);
+
+  const placeAnnotation = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!isPlacingText || !canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    // The canvas is displayed at whatever width fits, so convert through its
+    // rendered size rather than assuming pixels map one to one.
+    const xInCanvas = ((event.clientX - rect.left) / rect.width) * canvas.width;
+    const yInCanvas = ((event.clientY - rect.top) / rect.height) * canvas.height;
+
+    setAnnotations((previous) => [
+      ...previous,
+      {
+        id: nextIdRef.current++,
+        x: xInCanvas / PREVIEW_SCALE,
+        y: (canvas.height - yInCanvas) / PREVIEW_SCALE,
+        text: '',
+        pageIndex: currentPage - 1,
+      },
+    ]);
     setIsPlacingText(false);
   };
 
-  const updateAnnotationText = (id: number, text: string) => {
-    setAnnotations(prev => prev.map(a => a.id === id ? { ...a, text } : a));
-  };
+  const save = async () => {
+    const bytes = bytesRef.current;
+    if (!bytes) return;
 
-  const removeAnnotation = (id: number) => {
-    setAnnotations(prev => prev.filter(a => a.id !== id));
-  };
+    const filled = annotations.filter((annotation) => annotation.text.trim() !== '');
+    if (filled.length === 0) {
+      setError({
+        kind: 'unknown',
+        title: 'Nothing to save yet',
+        detail: 'Add some text to at least one of the boxes you placed, then save.',
+      });
+      return;
+    }
 
-  const savePdf = async () => {
-    if (!pdfData) return;
-    setIsProcessing(true);
+    setIsSaving(true);
+    setError(null);
+
     try {
-      const pdfDoc = await PDFDocument.load(pdfData);
-      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      const fontSize = 12;
+      const document_ = await PDFDocument.load(bytes);
+      const font = await document_.embedFont(StandardFonts.Helvetica);
+      const pages = document_.getPages();
 
-      for (const ann of annotations) {
-        if (!ann.text.trim()) continue;
-        const page = pdfDoc.getPages()[ann.pageIndex];
+      for (const annotation of filled) {
+        const page = pages[annotation.pageIndex];
         if (!page) continue;
-        const { width, height } = page.getSize();
-        const canvasEl = canvasRef.current;
-        if (!canvasEl) continue;
-        const canvasW = canvasEl.width;
-        const canvasH = canvasEl.height;
-        const pdfX = (ann.x / canvasW) * width;
-        const pdfY = height - (ann.y / canvasH) * height - fontSize;
-        page.drawText(ann.text, { x: pdfX, y: pdfY, size: fontSize, font, color: rgb(0, 0, 0) });
+        page.drawText(annotation.text, {
+          x: annotation.x,
+          // drawText places the baseline; the click marked the top of the box.
+          y: annotation.y - FONT_SIZE,
+          size: FONT_SIZE,
+          font,
+          color: rgb(0, 0, 0),
+        });
       }
 
-      const pdfBytes = (await pdfDoc.save()).slice();
-      setResultPdf(new Blob([pdfBytes], { type: 'application/pdf' }));
-    } catch (error) {
-      console.error('Error saving PDF:', error);
-      alert('An error occurred while saving the PDF.');
+      const saved = (await document_.save()).slice();
+      setResult(new Blob([saved], { type: 'application/pdf' }));
+    } catch (caught) {
+      setError(describeError(caught));
     } finally {
-      setIsProcessing(false);
+      setIsSaving(false);
     }
   };
 
-  const downloadPdf = () => {
-    if (!resultPdf) return;
-    const url = URL.createObjectURL(resultPdf);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'edited_document.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const pageAnns = annotations.filter(a => a.pageIndex === currentPage - 1);
+  const pageAnnotations = annotations.filter(
+    (annotation) => annotation.pageIndex === currentPage - 1
+  );
 
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
-      <main className="max-w-5xl mx-auto px-4 py-12">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Edit PDF</h1>
-          <p className="text-gray-600">Add text annotations to your PDF pages.</p>
+      <main className="mx-auto max-w-5xl px-4 py-12">
+        <div className="mb-12 text-center">
+          <h1 className="mb-4 text-4xl font-bold text-gray-900">Edit PDF</h1>
+          <p className="text-gray-600">Add text anywhere on a page, then save a new copy.</p>
         </div>
 
         {!file ? (
-          <PdfDropzone
-            inputId="edit-file-input"
-            className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
-            onFilesSelected={([selectedFile]) => void selectFile(selectedFile)}
-          >
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
-                <Upload className="w-8 h-8" />
+          <div className="space-y-6">
+            <FileDropzone
+              inputId="edit-file-input"
+              kind={PDF_FILES}
+              onFilesSelected={([selected]) => void selectFile(selected)}
+              className="cursor-pointer rounded-3xl border-2 border-dashed border-gray-300 bg-white p-12 text-center transition-all hover:border-blue-400"
+            >
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                  <Upload className="h-8 w-8" />
+                </div>
+                <p className="text-lg font-semibold">Choose a PDF file</p>
+                <p className="text-sm text-gray-500">or drop one here</p>
               </div>
-              <p className="text-lg font-semibold">Choose PDF file</p>
-              <p className="text-sm text-gray-500">to add text annotations</p>
-            </div>
-          </PdfDropzone>
+            </FileDropzone>
+            <ErrorNotice error={error} onDismiss={() => setError(null)} />
+          </div>
         ) : (
           <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
-              <div className="flex items-center gap-3">
-                <FileText className="w-6 h-6 text-purple-500 shrink-0" />
-                <span className="font-medium truncate">{file.name}</span>
-                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{numPages} pages</span>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <FileText className="h-6 w-6 shrink-0 text-purple-500" />
+                <span className="truncate font-medium">{file.name}</span>
+                <span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500">
+                  {pageCount} {pageCount === 1 ? 'page' : 'pages'}
+                </span>
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={() => setIsPlacingText(v => !v)}
-                  className={`px-4 py-2 ${isPlacingText ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'} rounded-xl font-medium text-sm flex items-center gap-2 hover:bg-blue-500 hover:text-white transition-all`}>
-                  <MousePointerClick className="w-4 h-4" />
-                  {isPlacingText ? 'Placing text...' : 'Add Text'}
+                <button
+                  type="button"
+                  onClick={() => setIsPlacingText((value) => !value)}
+                  aria-pressed={isPlacingText}
+                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all ${
+                    isPlacingText
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <MousePointerClick className="h-4 w-4" />
+                  {isPlacingText ? 'Click the page…' : 'Add text'}
                 </button>
-                <button onClick={() => { setFile(null); setPdfData(null); setAnnotations([]); }}
-                  className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500">
-                  <X className="w-5 h-5" />
+                <button
+                  type="button"
+                  onClick={reset}
+                  aria-label="Close this file"
+                  className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-red-500"
+                >
+                  <X className="h-5 w-5" />
                 </button>
               </div>
             </div>
 
-            {numPages > 1 && (
-              <div className="flex justify-center items-center gap-4">
-                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}
-                  className="px-4 py-2 bg-white border rounded-xl disabled:opacity-30 hover:bg-white">Previous</button>
-                <span className="font-medium">Page {currentPage} of {numPages}</span>
-                <button onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages}
-                  className="px-4 py-2 bg-white border rounded-xl disabled:opacity-30 hover:bg-white">Next</button>
+            <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+            {pageCount > 1 && (
+              <div className="flex items-center justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded-xl border bg-white px-4 py-2 disabled:opacity-30"
+                >
+                  Previous
+                </button>
+                <span className="font-medium tabular-nums">
+                  Page {currentPage} of {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((page) => Math.min(pageCount, page + 1))}
+                  disabled={currentPage === pageCount}
+                  className="rounded-xl border bg-white px-4 py-2 disabled:opacity-30"
+                >
+                  Next
+                </button>
               </div>
             )}
 
-            <div ref={containerRef} className="relative bg-white border rounded-3xl p-4 shadow-sm flex justify-center overflow-hidden">
-              {renderedPages[currentPage] && (
+            <div className="relative flex justify-center overflow-hidden rounded-3xl border bg-white p-4 shadow-sm">
+              <div className="relative">
                 <canvas
                   ref={canvasRef}
                   className="max-w-full"
-                  onClick={handleCanvasClick}
+                  onClick={placeAnnotation}
                   style={{ cursor: isPlacingText ? 'crosshair' : 'default' }}
                 />
-              )}
-              {pageAnns.map(ann => (
-                <div
-                  key={ann.id}
-                  className="absolute"
-                  style={{ left: ann.x, top: ann.y - 6 }}
-                >
-                  <div className="flex items-center gap-1 bg-white border border-purple-300 rounded-lg shadow-sm">
-                    <input
-                      type="text"
-                      value={ann.text}
-                      onChange={(e) => updateAnnotationText(ann.id, e.target.value)}
-                      placeholder="Type here..."
-                      className="w-40 px-2 py-1 text-sm border-0 outline-none rounded-l-lg"
-                      autoFocus
-                    />
-                    <button onClick={() => removeAnnotation(ann.id)}
-                      className="p-1 text-gray-400 hover:text-red-500">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+
+                {isRendering && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
                   </div>
-                </div>
-              ))}
+                )}
+
+                {canvasSize &&
+                  pageAnnotations.map((annotation) => (
+                    <div
+                      key={annotation.id}
+                      className="absolute"
+                      style={{
+                        left: `${((annotation.x * PREVIEW_SCALE) / canvasSize.width) * 100}%`,
+                        top: `${(1 - (annotation.y * PREVIEW_SCALE) / canvasSize.height) * 100}%`,
+                      }}
+                    >
+                      <div className="flex -translate-y-1/2 items-center gap-1 rounded-lg border border-purple-300 bg-white shadow-sm">
+                        <input
+                          type="text"
+                          value={annotation.text}
+                          onChange={(event) =>
+                            setAnnotations((previous) =>
+                              previous.map((item) =>
+                                item.id === annotation.id
+                                  ? { ...item, text: event.target.value }
+                                  : item
+                              )
+                            )
+                          }
+                          placeholder="Type here…"
+                          aria-label="Annotation text"
+                          className="w-40 rounded-l-lg border-0 px-2 py-1 text-sm outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setAnnotations((previous) =>
+                              previous.filter((item) => item.id !== annotation.id)
+                            )
+                          }
+                          aria-label="Remove this annotation"
+                          className="p-1 text-gray-400 hover:text-red-500"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
             </div>
 
             {isPlacingText && (
-              <p className="text-center text-sm text-purple-600 font-medium animate-pulse">
-                Click anywhere on the page to place a text box
+              <p className="text-center text-sm font-medium text-purple-600">
+                Click anywhere on the page to put a text box there.
               </p>
             )}
 
             <div className="flex justify-center pt-2">
-              <button onClick={savePdf} disabled={isProcessing || annotations.length === 0}
-                className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200">
-                {isProcessing ? <><Loader2 className="w-5 h-5 animate-spin" /> Saving...</> : 'Save PDF'}
+              <button
+                type="button"
+                onClick={save}
+                disabled={isSaving || annotations.length === 0}
+                className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" /> Saving…
+                  </>
+                ) : (
+                  'Save PDF'
+                )}
               </button>
             </div>
           </div>
         )}
 
-        {resultPdf && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
-            <div className="text-center p-12 bg-white border rounded-3xl shadow-xl max-w-md mx-4">
-              <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                <FileText className="w-10 h-10" />
+        {result && file && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+            <div className="max-w-md rounded-3xl border bg-white p-12 text-center shadow-xl">
+              <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
+                <FileText className="h-10 w-10" />
               </div>
-              <h2 className="text-2xl font-bold mb-2">PDF Edited Successfully!</h2>
-              <p className="text-gray-600 mb-8">Your edited document is ready for download.</p>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <button onClick={downloadPdf}
-                  className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 flex items-center gap-2">
-                  <Download className="w-5 h-5" /> Download PDF
+              <h2 className="mb-2 text-2xl font-bold">Your edited PDF is ready</h2>
+              <p className="mb-8 text-gray-600">
+                {annotations.filter((annotation) => annotation.text.trim() !== '').length} text
+                {annotations.filter((annotation) => annotation.text.trim() !== '').length === 1
+                  ? ' box was'
+                  : ' boxes were'}{' '}
+                added.
+              </p>
+              <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => downloadBlob(result, derivedFileName(file.name, '_edited.pdf'))}
+                  className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white hover:bg-blue-700"
+                >
+                  <Download className="h-5 w-5" /> Download
                 </button>
-                <button onClick={() => setResultPdf(null)}
-                  className="px-8 py-4 bg-gray-100 text-gray-700 rounded-full font-bold text-lg hover:bg-gray-200">
-                  Continue editing
+                <button
+                  type="button"
+                  onClick={() => setResult(null)}
+                  className="rounded-full bg-gray-100 px-8 py-4 text-lg font-bold text-gray-700 hover:bg-gray-200"
+                >
+                  Keep editing
                 </button>
               </div>
             </div>

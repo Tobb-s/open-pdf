@@ -1,11 +1,32 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import PdfDropzone from '@/components/PdfDropzone';
-import { FileText, X, Download, Loader2, Minimize2, CheckCircle2, Zap, SlidersHorizontal, Sparkles } from 'lucide-react';
+import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
+import ErrorNotice from '@/components/ErrorNotice';
+import ProgressPanel from '@/components/ProgressPanel';
+import {
+  CheckCircle2,
+  Download,
+  FileText,
+  Info,
+  Minimize2,
+  SlidersHorizontal,
+  Sparkles,
+  X,
+  Zap,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { describeError, type ToolError } from '@/lib/errors';
+import { derivedFileName, downloadBlob, formatBytes } from '@/lib/files';
+import {
+  assertFileSize,
+  assertPageCount,
+  MAX_RENDERED_PAGES,
+  throwIfCancelled,
+} from '@/lib/limits';
+import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 
 type CompressionLevel = 'extreme' | 'recommended' | 'low';
 
@@ -18,353 +39,385 @@ interface CompressionPreset {
   quality: number;
   color: string;
   border: string;
-  bg: string;
 }
 
 const PRESETS: CompressionPreset[] = [
   {
     id: 'extreme',
-    title: 'Extreme Compression',
-    description: 'Less quality, high compression. Maximum space saving.',
+    title: 'Smallest file',
+    description: 'Lowest quality. Use when size matters more than detail.',
     scale: 0.8,
     quality: 0.4,
     color: 'text-amber-600',
-    border: 'border-amber-200 hover:border-amber-400',
-    bg: 'bg-amber-50/50',
+    border: 'border-amber-300 ring-2 ring-amber-500/20',
   },
   {
     id: 'recommended',
-    title: 'Recommended Compression',
-    description: 'Good quality, good compression. Optimal balance.',
-    badge: 'Popular',
+    title: 'Balanced',
+    description: 'Good quality at a much smaller size.',
+    badge: 'Recommended',
     scale: 1.1,
     quality: 0.65,
     color: 'text-blue-600',
     border: 'border-blue-300 ring-2 ring-blue-500/20',
-    bg: 'bg-blue-50/50',
   },
   {
     id: 'low',
-    title: 'Low Compression',
-    description: 'High quality, low compression. Best visual clarity.',
+    title: 'Best quality',
+    description: 'Barely visible loss, more modest savings.',
     scale: 1.5,
     quality: 0.85,
     color: 'text-emerald-600',
-    border: 'border-emerald-200 hover:border-emerald-400',
-    bg: 'bg-emerald-50/50',
+    border: 'border-emerald-300 ring-2 ring-emerald-500/20',
   },
 ];
 
+/** Pages sampled to guess whether the document is mostly real text. */
+const TEXT_SAMPLE_PAGES = 3;
+
+interface CompressionResult {
+  blob: Blob;
+  size: number;
+  pages: number;
+  /** True when the rasterised copy came out no smaller than the original. */
+  grew: boolean;
+}
+
 export default function CompressPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [selectedLevel, setSelectedLevel] = useState<CompressionLevel>('recommended');
+  const [level, setLevel] = useState<CompressionLevel>('recommended');
+  const [hasRealText, setHasRealText] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progressMsg, setProgressMsg] = useState('');
+  const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
-  const [resultPdf, setResultPdf] = useState<{ blob: Blob; size: number } | null>(null);
+  const [result, setResult] = useState<CompressionResult | null>(null);
+  const [error, setError] = useState<ToolError | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    import('pdfjs-dist').then((mod) => {
-      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
-    });
-  }, []);
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  const reset = () => {
+    setFile(null);
+    setResult(null);
+    setError(null);
+    setHasRealText(false);
+    setProgressPercent(0);
   };
 
-  const selectFile = (selectedFile: File) => {
-    setFile(selectedFile);
-    setResultPdf(null);
-  };
+  const selectFile = async (selected: File) => {
+    setFile(selected);
+    setResult(null);
+    setError(null);
+    setHasRealText(false);
 
-  const compressPdf = async () => {
-    if (!file) return;
-
-    setIsProcessing(true);
-    setProgressPercent(5);
-    setProgressMsg('Reading PDF document...');
-
+    // Sample a few pages for a text layer. Rasterising a text document destroys
+    // that layer and often makes the file bigger, so the reader deserves to know
+    // before they start rather than after.
+    let source: Awaited<ReturnType<typeof openPdf>> | null = null;
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfjsLib = await import('pdfjs-dist');
-      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const numPages = pdfDoc.numPages;
+      assertFileSize(selected);
+      source = await openPdf(await selected.arrayBuffer());
+      const sampled = Math.min(TEXT_SAMPLE_PAGES, source.document.numPages);
+      let characters = 0;
 
-      const preset = PRESETS.find((p) => p.id === selectedLevel) || PRESETS[1];
-      const newPdfDoc = await PDFDocument.create();
-
-      for (let i = 1; i <= numPages; i++) {
-        const percent = Math.round((i / numPages) * 90);
-        setProgressPercent(percent);
-        setProgressMsg(`Compressing page ${i} of ${numPages}...`);
-
-        const page = await pdfDoc.getPage(i);
-        const originalViewport = page.getViewport({ scale: 1 });
-        const renderViewport = page.getViewport({ scale: preset.scale });
-
-        const canvas = document.createElement('canvas');
-        canvas.width = renderViewport.width;
-        canvas.height = renderViewport.height;
-        const ctx = canvas.getContext('2d');
-
-        if (!ctx) continue;
-
-        // Render page onto canvas
-        await page.render({
-          canvasContext: ctx,
-          viewport: renderViewport,
-          canvas: canvas,
-        }).promise;
-
-        // Convert canvas to JPEG blob with chosen quality
-        const jpegDataUrl = canvas.toDataURL('image/jpeg', preset.quality);
-        const jpegImageBytes = await fetch(jpegDataUrl).then((res) => res.arrayBuffer());
-
-        // Embed image in pdf-lib document page preserving original dimensions
-        const embeddedImage = await newPdfDoc.embedJpg(jpegImageBytes);
-        const newPage = newPdfDoc.addPage([originalViewport.width, originalViewport.height]);
-
-        newPage.drawImage(embeddedImage, {
-          x: 0,
-          y: 0,
-          width: originalViewport.width,
-          height: originalViewport.height,
-        });
+      for (let pageNumber = 1; pageNumber <= sampled; pageNumber += 1) {
+        const page = await source.document.getPage(pageNumber);
+        const content = await page.getTextContent();
+        characters += content.items.reduce(
+          (total, item) => total + ('str' in item ? item.str.trim().length : 0),
+          0
+        );
+        page.cleanup();
       }
 
-      setProgressPercent(95);
-      setProgressMsg('Finalizing compressed PDF...');
-
-      const compressedBytes = (await newPdfDoc.save()).slice();
-      const compressedBlob = new Blob([compressedBytes], { type: 'application/pdf' });
-
-      setResultPdf({
-        blob: compressedBlob,
-        size: compressedBytes.length,
-      });
-
-      setProgressPercent(100);
-    } catch (error) {
-      console.error('Error compressing PDF:', error);
-      alert('An error occurred while compressing the PDF document.');
+      setHasRealText(characters > 200 * sampled);
+    } catch (caught) {
+      setError(describeError(caught));
+      setFile(null);
     } finally {
+      await source?.destroy().catch(() => {});
+    }
+  };
+
+  const compress = async () => {
+    if (!file) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const preset = PRESETS.find((candidate) => candidate.id === level) ?? PRESETS[1];
+
+    setIsProcessing(true);
+    setError(null);
+    setProgressPercent(4);
+    setProgressMessage('Reading the document…');
+
+    let source: Awaited<ReturnType<typeof openPdf>> | null = null;
+
+    try {
+      source = await openPdf(await file.arrayBuffer());
+      const pageCount = source.document.numPages;
+      assertPageCount(pageCount, MAX_RENDERED_PAGES, 'compression');
+
+      const output = await PDFDocument.create();
+
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        throwIfCancelled(controller.signal);
+        setProgressPercent(4 + (pageNumber / pageCount) * 88);
+        setProgressMessage(`Compressing page ${pageNumber} of ${pageCount}…`);
+
+        const page = await source.document.getPage(pageNumber);
+        const { width: pointWidth, height: pointHeight } = page.getViewport({ scale: 1 });
+        const { blob } = await renderPageToJpeg(page, preset.scale, preset.quality);
+        page.cleanup();
+
+        const image = await output.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+        const newPage = output.addPage([pointWidth, pointHeight]);
+        newPage.drawImage(image, { x: 0, y: 0, width: pointWidth, height: pointHeight });
+      }
+
+      setProgressMessage('Saving…');
+      setProgressPercent(96);
+
+      const bytes = (await output.save()).slice();
+      setResult({
+        blob: new Blob([bytes], { type: 'application/pdf' }),
+        size: bytes.length,
+        pages: pageCount,
+        grew: bytes.length >= file.size,
+      });
+      setProgressPercent(100);
+    } catch (caught) {
+      const described = describeError(caught);
+      if (described.kind !== 'cancelled') setError(described);
+    } finally {
+      abortRef.current = null;
+      await source?.destroy().catch(() => {});
       setIsProcessing(false);
     }
   };
 
-  const downloadPdf = () => {
-    if (!resultPdf || !file) return;
-    const url = URL.createObjectURL(resultPdf.blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const baseName = file.name.replace(/\.pdf$/i, '');
-    a.download = `${baseName}_compressed.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const calculateSavedPercentage = () => {
-    if (!file || !resultPdf) return 0;
-    const diff = file.size - resultPdf.size;
-    if (diff <= 0) return 0;
-    return Math.round((diff / file.size) * 100);
-  };
+  const savedPercent =
+    file && result && !result.grew ? Math.round(((file.size - result.size) / file.size) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-slate-50/50">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-12">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-100/70 text-blue-700 text-xs font-semibold rounded-full mb-3">
-            <Zap className="w-3.5 h-3.5 fill-blue-600 text-blue-600" />
-            100% In-Browser Privacy
+      <main className="mx-auto max-w-4xl px-4 py-12">
+        <div className="mb-10 text-center">
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-blue-100/70 px-3 py-1 text-xs font-semibold text-blue-700">
+            <Zap className="h-3.5 w-3.5 fill-blue-600 text-blue-600" />
+            Runs entirely in your browser
           </div>
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-gray-900 tracking-tight mb-4">
-            Compress PDF File
+          <h1 className="mb-4 text-4xl font-extrabold tracking-tight text-gray-900 sm:text-5xl">
+            Compress PDF
           </h1>
-          <p className="text-lg text-gray-600 max-w-xl mx-auto">
-            Reduce PDF file size while optimizing for maximal visual quality. Zero server uploads.
+          <p className="mx-auto max-w-xl text-lg text-gray-600">
+            Shrink a PDF by re-encoding each page as an image. Best on scans and photo-heavy
+            documents.
           </p>
         </div>
 
-        {!resultPdf ? (
+        {!result ? (
           <div className="space-y-8">
             {!file ? (
-              <PdfDropzone
-                inputId="compress-file-input"
-                className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-blue-500 hover:shadow-xl transition-all group"
-                onFilesSelected={([selectedFile]) => selectFile(selectedFile)}
-              >
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Minimize2 className="w-10 h-10" />
+              <>
+                <FileDropzone
+                  inputId="compress-file-input"
+                  kind={PDF_FILES}
+                  onFilesSelected={([selected]) => void selectFile(selected)}
+                  className="group cursor-pointer rounded-3xl border-2 border-dashed border-gray-300 bg-white p-12 text-center transition-all hover:border-blue-500 hover:shadow-xl"
+                >
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition-transform group-hover:scale-110">
+                      <Minimize2 className="h-10 w-10" />
+                    </div>
+                    <div>
+                      <p className="mb-1 text-xl font-bold text-gray-900">Choose a PDF</p>
+                      <p className="text-sm text-gray-500">or drop one here</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xl font-bold text-gray-900 mb-1">Select PDF file</p>
-                    <p className="text-sm text-gray-500">or drag and drop your document here</p>
-                  </div>
-                </div>
-              </PdfDropzone>
+                </FileDropzone>
+                <ErrorNotice error={error} onDismiss={() => setError(null)} />
+              </>
             ) : (
               <div className="space-y-8">
-                {/* File Header */}
-                <div className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-2xl shadow-sm">
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-10 h-10 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0">
-                      <FileText className="w-5 h-5" />
+                <div className="flex items-center justify-between rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
+                      <FileText className="h-5 w-5" />
                     </div>
-                    <div className="truncate">
-                      <p className="font-semibold text-gray-900 truncate">{file.name}</p>
-                      <p className="text-xs text-gray-500">{formatSize(file.size)}</p>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-gray-900">{file.name}</p>
+                      <p className="text-xs text-gray-500">{formatBytes(file.size)}</p>
                     </div>
                   </div>
                   <button
-                    onClick={() => setFile(null)}
-                    className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors"
+                    type="button"
+                    onClick={reset}
+                    aria-label="Remove this file"
+                    className="rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-red-500"
                   >
-                    <X className="w-5 h-5" />
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
 
-                {/* Compression Presets */}
-                <div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <SlidersHorizontal className="w-4 h-4 text-blue-600" />
-                    <h3 className="font-bold text-gray-900 text-lg">Choose Compression Level</h3>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {PRESETS.map((preset) => (
-                      <div
-                        key={preset.id}
-                        onClick={() => setSelectedLevel(preset.id)}
-                        className={cn(
-                          'relative border rounded-2xl p-5 cursor-pointer transition-all bg-white flex flex-col justify-between',
-                          selectedLevel === preset.id
-                            ? preset.border + ' shadow-md scale-[1.02]'
-                            : 'border-gray-200 hover:border-gray-300 opacity-80 hover:opacity-100'
-                        )}
-                      >
-                        {preset.badge && (
-                          <span className="absolute -top-3 right-4 px-2.5 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wider shadow-sm">
-                            {preset.badge}
-                          </span>
-                        )}
-                        <div>
-                          <div className="flex items-center justify-between mb-2">
-                            <span className={cn('font-bold text-base', preset.color)}>
-                              {preset.title}
-                            </span>
-                            <input
-                              type="radio"
-                              name="compressionLevel"
-                              checked={selectedLevel === preset.id}
-                              onChange={() => setSelectedLevel(preset.id)}
-                              className="w-4 h-4 text-blue-600 accent-blue-600"
-                            />
-                          </div>
-                          <p className="text-xs text-gray-500 leading-relaxed">
-                            {preset.description}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Processing status */}
-                {isProcessing && (
-                  <div className="bg-white border border-blue-100 p-6 rounded-2xl space-y-3">
-                    <div className="flex items-center justify-between text-sm font-semibold text-gray-700">
-                      <span className="flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
-                        {progressMsg}
-                      </span>
-                      <span className="text-blue-600">{progressPercent}%</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                      <div
-                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                        style={{ width: `${progressPercent}%` }}
-                      />
+                {hasRealText && (
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <Info
+                      className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
+                      aria-hidden="true"
+                    />
+                    <div className="text-sm text-amber-900">
+                      <p className="font-semibold">This document contains real text.</p>
+                      <p className="mt-1 leading-relaxed">
+                        Compression turns every page into an image, so the text will stop being
+                        selectable and searchable — and text pages often get{' '}
+                        <em>larger</em> as pictures. You will see the final size before you
+                        download anything.
+                      </p>
                     </div>
                   </div>
                 )}
 
-                {/* Compress Button */}
+                <div>
+                  <div className="mb-4 flex items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4 text-blue-600" />
+                    <h2 className="text-lg font-bold text-gray-900">How hard should it squeeze?</h2>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    {PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setLevel(preset.id)}
+                        aria-pressed={level === preset.id}
+                        className={cn(
+                          'relative flex flex-col justify-between rounded-2xl border bg-white p-5 text-left transition-all',
+                          level === preset.id
+                            ? `${preset.border} shadow-md`
+                            : 'border-gray-200 opacity-80 hover:border-gray-300 hover:opacity-100'
+                        )}
+                      >
+                        {preset.badge && (
+                          <span className="absolute -top-3 right-4 rounded-full bg-blue-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-sm">
+                            {preset.badge}
+                          </span>
+                        )}
+                        <span className={cn('mb-2 block text-base font-bold', preset.color)}>
+                          {preset.title}
+                        </span>
+                        <span className="text-xs leading-relaxed text-gray-500">
+                          {preset.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+                {isProcessing && (
+                  <ProgressPanel
+                    message={progressMessage}
+                    percent={progressPercent}
+                    onCancel={() => abortRef.current?.abort()}
+                  />
+                )}
+
                 <div className="flex justify-center pt-2">
                   <button
-                    onClick={compressPdf}
+                    type="button"
+                    onClick={compress}
                     disabled={isProcessing}
-                    className="px-10 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-3 shadow-xl shadow-blue-200"
+                    className="flex items-center gap-3 rounded-full bg-blue-600 px-10 py-4 text-lg font-bold text-white shadow-xl shadow-blue-200 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                        Compressing...
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-5 h-5" />
-                        Compress PDF
-                      </>
-                    )}
+                    <Sparkles className="h-5 w-5" />
+                    {isProcessing ? 'Compressing…' : 'Compress PDF'}
                   </button>
                 </div>
               </div>
             )}
           </div>
         ) : (
-          /* Result Ready Dashboard */
-          <div className="bg-white border border-gray-200 rounded-3xl p-8 sm:p-12 shadow-sm text-center">
-            <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle2 className="w-10 h-10" />
+          <div className="rounded-3xl border border-gray-200 bg-white p-8 text-center shadow-sm sm:p-12">
+            <div
+              className={cn(
+                'mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full',
+                result.grew ? 'bg-amber-100 text-amber-600' : 'bg-emerald-100 text-emerald-600'
+              )}
+            >
+              {result.grew ? <Info className="h-10 w-10" /> : <CheckCircle2 className="h-10 w-10" />}
             </div>
-            <h2 className="text-3xl font-extrabold text-gray-900 mb-2">
-              PDF Compressed Successfully!
+
+            <h2 className="mb-2 text-3xl font-extrabold text-gray-900">
+              {result.grew ? 'Compression would not help here' : 'Compressed'}
             </h2>
-            <p className="text-gray-500 mb-8">
-              Your document is ready to download with reduced file size.
+            <p className="mx-auto mb-8 max-w-lg text-gray-500">
+              {result.grew
+                ? 'The rasterised copy came out no smaller than the original, which is what usually happens with text documents. Keep your original — it is smaller and its text is still selectable.'
+                : `${result.pages} ${result.pages === 1 ? 'page' : 'pages'} re-encoded. Text on those pages is now part of the image.`}
             </p>
 
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-xl mx-auto mb-10 bg-slate-50 p-6 rounded-2xl border border-gray-100">
+            <div className="mx-auto mb-10 grid max-w-xl grid-cols-1 gap-4 rounded-2xl border border-gray-100 bg-slate-50 p-6 sm:grid-cols-3">
               <div className="flex flex-col">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Original Size</span>
-                <span className="text-lg font-bold text-gray-700">{formatSize(file?.size || 0)}</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Original
+                </span>
+                <span className="text-lg font-bold tabular-nums text-gray-700">
+                  {formatBytes(file?.size ?? 0)}
+                </span>
               </div>
-              <div className="flex flex-col border-y sm:border-y-0 sm:border-x border-gray-200 py-3 sm:py-0">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Compressed Size</span>
-                <span className="text-lg font-bold text-blue-600">{formatSize(resultPdf.size)}</span>
+              <div className="flex flex-col border-y border-gray-200 py-3 sm:border-x sm:border-y-0 sm:py-0">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Compressed
+                </span>
+                <span className="text-lg font-bold tabular-nums text-blue-600">
+                  {formatBytes(result.size)}
+                </span>
               </div>
               <div className="flex flex-col">
-                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Saved Space</span>
-                <span className="text-lg font-extrabold text-emerald-600">
-                  {calculateSavedPercentage()}% OFF
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                  Saved
+                </span>
+                <span
+                  className={cn(
+                    'text-lg font-extrabold tabular-nums',
+                    result.grew ? 'text-amber-600' : 'text-emerald-600'
+                  )}
+                >
+                  {result.grew ? 'nothing' : `${savedPercent}%`}
                 </span>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+              {!result.grew && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    file && downloadBlob(result.blob, derivedFileName(file.name, '_compressed.pdf'))
+                  }
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-9 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 sm:w-auto"
+                >
+                  <Download className="h-5 w-5" />
+                  Download
+                </button>
+              )}
+              {result.grew && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    file && downloadBlob(result.blob, derivedFileName(file.name, '_compressed.pdf'))
+                  }
+                  className="w-full rounded-full bg-gray-100 px-8 py-4 text-base font-semibold text-gray-700 transition-all hover:bg-gray-200 sm:w-auto"
+                >
+                  Download it anyway
+                </button>
+              )}
               <button
-                onClick={downloadPdf}
-                className="w-full sm:w-auto px-9 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200"
+                type="button"
+                onClick={reset}
+                className="w-full rounded-full bg-gray-100 px-8 py-4 text-lg font-bold text-gray-700 transition-all hover:bg-gray-200 sm:w-auto"
               >
-                <Download className="w-5 h-5" />
-                Download Compressed PDF
-              </button>
-              <button
-                onClick={() => {
-                  setResultPdf(null);
-                  setFile(null);
-                }}
-                className="w-full sm:w-auto px-8 py-4 bg-gray-100 text-gray-700 rounded-full font-bold text-lg hover:bg-gray-200 transition-all"
-              >
-                Compress Another PDF
+                Compress another
               </button>
             </div>
           </div>

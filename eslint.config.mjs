@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party bundles copied in by scripts/vendor-assets.mjs.
+    "public/vendor/**",
   ]),
 ]);
 

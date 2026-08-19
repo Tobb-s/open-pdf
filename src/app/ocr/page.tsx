@@ -1,20 +1,23 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { PDFDocument, rgb } from 'pdf-lib';
-import Navbar from '@/components/Navbar';
-import { FileText, Download, Loader2, ScanText, CheckCircle2, Languages, Type } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useRef, useState } from 'react';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { createWorker } from 'tesseract.js';
+import Navbar from '@/components/Navbar';
+import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
+import ErrorNotice from '@/components/ErrorNotice';
+import ProgressPanel from '@/components/ProgressPanel';
+import { CheckCircle2, Download, FileText, Languages, ScanText, Type } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
+import { derivedFileName, downloadBlob } from '@/lib/files';
+import { assertFileSize, assertPageCount, MAX_OCR_PAGES, throwIfCancelled } from '@/lib/limits';
+import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
 
-type OcrLanguage = 'eng' | 'spa' | 'fra' | 'deu' | 'ita' | 'por';
+type OcrLanguage = 'spa' | 'eng' | 'fra' | 'deu' | 'ita' | 'por';
 
-interface LanguageOption {
-  code: OcrLanguage;
-  name: string;
-}
-
-const LANGUAGES: LanguageOption[] = [
+const LANGUAGES: { code: OcrLanguage; name: string }[] = [
   { code: 'spa', name: 'Spanish' },
   { code: 'eng', name: 'English' },
   { code: 'fra', name: 'French' },
@@ -23,372 +26,359 @@ const LANGUAGES: LanguageOption[] = [
   { code: 'por', name: 'Portuguese' },
 ];
 
+/** Rendering scale for recognition. Tesseract needs roughly 300 dpi to read well. */
+const OCR_SCALE = 2;
+
+/** Everything the OCR engine loads is served from this origin, never a CDN. */
+const TESSERACT_PATHS = {
+  workerPath: '/vendor/tesseract/worker.min.js',
+  corePath: '/vendor/tesseract/core',
+  langPath: '/vendor/tesseract/lang',
+};
+
+interface OcrResult {
+  pdf: Blob;
+  text: string;
+  pages: number;
+  wordsFound: number;
+}
+
 export default function OcrPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [selectedLang, setSelectedLang] = useState<OcrLanguage>('spa');
+  const [language, setLanguage] = useState<OcrLanguage>('spa');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [progressMsg, setProgressMsg] = useState('');
+  const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
-  
-  const [resultPdf, setResultPdf] = useState<Blob | null>(null);
-  const [extractedText, setExtractedText] = useState<string>('');
+  const [result, setResult] = useState<OcrResult | null>(null);
+  const [error, setError] = useState<ToolError | null>(null);
+  const [copied, setCopied] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    import('pdfjs-dist').then((mod) => {
-      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
-    });
-  }, []);
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      setResultPdf(null);
-      setExtractedText('');
-    }
+  const reset = () => {
+    setFile(null);
+    setResult(null);
+    setError(null);
+    setProgressPercent(0);
+    setProgressMessage('');
   };
 
-  const processOcr = async () => {
+  const selectFile = (selected: File) => {
+    setFile(selected);
+    setResult(null);
+    setError(null);
+  };
+
+  const runOcr = async () => {
     if (!file) return;
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     setIsProcessing(true);
+    setError(null);
     setProgressPercent(2);
-    setProgressMsg('Initializing OCR Engine...');
+    setProgressMessage('Starting the OCR engine…');
+
+    let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
+    let pdfSource: Awaited<ReturnType<typeof openPdf>> | null = null;
 
     try {
-      const worker = await createWorker(selectedLang, 1, {
-        logger: (m) => {
-          if (m.status === 'recognizing text') {
-            // we will update progress inside our page loop, but can use this for minor updates
-          }
-        },
-      });
+      assertFileSize(file);
 
-      setProgressPercent(10);
-      setProgressMsg('Reading PDF document...');
+      worker = await createWorker(language, 1, TESSERACT_PATHS);
+      throwIfCancelled(signal);
 
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfjsLib = await import('pdfjs-dist');
-      const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const numPages = pdfDoc.numPages;
+      setProgressPercent(8);
+      setProgressMessage('Reading the document…');
 
-      // Create new PDF for the searchable output
-      const newPdfDoc = await PDFDocument.create();
-      
-      let fullExtractedText = '';
+      pdfSource = await openPdf(await file.arrayBuffer());
+      const pageCount = pdfSource.document.numPages;
+      assertPageCount(pageCount, MAX_OCR_PAGES, 'OCR');
 
-      for (let i = 1; i <= numPages; i++) {
-        setProgressPercent(10 + ((i - 1) / numPages) * 80);
-        setProgressMsg(`Processing page ${i} of ${numPages}...`);
+      const output = await PDFDocument.create();
+      const font = await output.embedFont(StandardFonts.Helvetica);
+      const measure = (text: string, size: number) => font.widthOfTextAtSize(text, size);
 
-        const page = await pdfDoc.getPage(i);
-        const viewport = page.getViewport({ scale: 2.0 }); // Higher scale for better OCR
-        
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) continue;
+      let fullText = '';
+      let wordsFound = 0;
 
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        throwIfCancelled(signal);
+        setProgressPercent(8 + ((pageNumber - 1) / pageCount) * 86);
+        setProgressMessage(`Reading page ${pageNumber} of ${pageCount}…`);
 
-        await page.render({
-          canvasContext: context,
-          viewport: viewport,
-          canvas: canvas,
-        }).promise;
+        const page = await pdfSource.document.getPage(pageNumber);
 
-        const dataUrl = canvas.toDataURL('image/png');
+        // JPEG rather than PNG: a page of scanned text as lossless PNG is roughly
+        // ten times the size, which is how the "searchable" copy used to come back
+        // an order of magnitude heavier than the original.
+        const { blob, width, height } = await renderPageToJpeg(page, OCR_SCALE, 0.82);
+        page.cleanup();
 
-        // Run OCR on this page image
-        const { data } = await worker.recognize(dataUrl);
-        const text = data.text;
-        const words = (data as any).words || [];
-        fullExtractedText += `--- Page ${i} ---\n${text}\n\n`;
+        const imageBytes = new Uint8Array(await blob.arrayBuffer());
+        const { data } = await worker.recognize(blob, {}, RECOGNIZE_OUTPUT);
+        throwIfCancelled(signal);
 
-        // Add page to new searchable PDF
-        const pdfImage = await newPdfDoc.embedPng(dataUrl);
-        const { width, height } = pdfImage.scale(0.5); // scale back down by 2.0
-        
-        const newPage = newPdfDoc.addPage([width, height]);
-        newPage.drawImage(pdfImage, {
-          x: 0,
-          y: 0,
-          width,
-          height,
-        });
+        fullText += `--- Page ${pageNumber} ---\n${data.text.trim()}\n\n`;
 
-        // Overlay transparent text for searching
-        for (const word of words) {
-          const { text: wordText, bbox } = word;
-          // bbox coordinates are based on the canvas size (scale 2.0)
-          // We must scale them back to PDF points
-          const x = bbox.x0 / 2.0;
-          const y = height - (bbox.y1 / 2.0); // PDF y-axis is bottom-up
-          const wordWidth = (bbox.x1 - bbox.x0) / 2.0;
-          const wordHeight = (bbox.y1 - bbox.y0) / 2.0;
+        const image = await output.embedJpg(imageBytes);
+        const pageWidth = width / OCR_SCALE;
+        const pageHeight = height / OCR_SCALE;
+        const newPage = output.addPage([pageWidth, pageHeight]);
+        newPage.drawImage(image, { x: 0, y: 0, width: pageWidth, height: pageHeight });
 
-          // Estimate font size based on bounding box height
-          const fontSize = wordHeight * 0.8;
+        // The invisible text layer. This is what makes the output searchable, and
+        // it is what silently never ran before: tesseract.js only returns `blocks`
+        // when asked, so the old `data.words` was always undefined.
+        for (const word of extractOcrWords(data)) {
+          const text = toWinAnsi(word.text);
+          if (text === '') continue;
 
-          try {
-            newPage.drawText(wordText, {
-              x,
-              y,
-              size: fontSize,
-              opacity: 0, // Transparent text!
-              color: rgb(0, 0, 0),
-            });
-          } catch (e) {
-            // Ignore characters that might not exist in standard fonts
-          }
+          const size = fitFontSize(word, OCR_SCALE, measure);
+          newPage.drawText(text, {
+            x: word.left / OCR_SCALE,
+            // PDF coordinates start at the bottom; tesseract measures from the top.
+            y: pageHeight - word.bottom / OCR_SCALE,
+            size,
+            font,
+            color: rgb(0, 0, 0),
+            opacity: 0,
+          });
+          wordsFound += 1;
         }
       }
 
-      setProgressMsg('Finalizing document...');
-      setProgressPercent(95);
+      setProgressMessage('Assembling the searchable PDF…');
+      setProgressPercent(96);
 
-      await worker.terminate();
+      const bytes = (await output.save()).slice();
 
-      const pdfBytes = (await newPdfDoc.save()).slice();
-      const pdfBlob = new Blob([pdfBytes], { type: 'application/pdf' });
-      
-      setResultPdf(pdfBlob);
-      setExtractedText(fullExtractedText);
-      
+      if (wordsFound === 0) {
+        throw new KnownToolError(
+          'unknown',
+          'No text was recognised',
+          'The pages came back empty. Check that the selected language matches the document, and that the scan is straight and legible.'
+        );
+      }
+
+      setResult({
+        pdf: new Blob([bytes], { type: 'application/pdf' }),
+        text: fullText.trim(),
+        pages: pageCount,
+        wordsFound,
+      });
       setProgressPercent(100);
-      setProgressMsg('Completed!');
-
-    } catch (error) {
-      console.error('Error processing OCR:', error);
-      alert('An error occurred while processing the PDF.');
+    } catch (caught) {
+      const described = describeError(caught);
+      if (described.kind !== 'cancelled') setError(described);
     } finally {
+      abortRef.current = null;
+      await worker?.terminate().catch(() => {});
+      await pdfSource?.destroy().catch(() => {});
       setIsProcessing(false);
     }
   };
 
-  const handleDownloadPdf = () => {
-    if (!resultPdf || !file) return;
-    const url = URL.createObjectURL(resultPdf);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name.replace('.pdf', '_searchable.pdf');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadText = () => {
-    if (!extractedText || !file) return;
-    const blob = new Blob([extractedText], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name.replace('.pdf', '_extracted.txt');
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleCopyToClipboard = () => {
-    if (!extractedText) return;
-    navigator.clipboard.writeText(extractedText);
-    alert('Text copied to clipboard!');
+  const copyText = async () => {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setError({
+        kind: 'unknown',
+        title: 'Could not copy to the clipboard',
+        detail: 'Your browser blocked clipboard access. Use the .txt download instead.',
+      });
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="flex min-h-screen flex-col bg-gray-50">
       <Navbar />
-      
-      <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-12">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-orange-100 text-orange-600 mb-4 shadow-sm">
-            <ScanText className="w-8 h-8" />
+
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-orange-100 text-orange-600 shadow-sm">
+            <ScanText className="h-8 w-8" />
           </div>
-          <h1 className="text-4xl font-semibold text-gray-900 mb-3 tracking-tight">OCR PDF</h1>
-          <p className="text-gray-500 max-w-xl mx-auto">
-            Extract text from scanned PDFs or make them searchable.
-            Processed locally in your browser for total privacy.
+          <h1 className="mb-3 text-4xl font-semibold tracking-tight text-gray-900">OCR PDF</h1>
+          <p className="mx-auto max-w-xl text-gray-500">
+            Read the text off a scanned PDF and get back a copy you can search and select.
+            Everything runs on your device.
           </p>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
-          {!resultPdf ? (
+        <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
+          {!result ? (
             <div className="p-8 sm:p-12">
-              <div className="max-w-xl mx-auto space-y-8">
-                
-                {/* File Selection */}
+              <div className="mx-auto max-w-xl space-y-8">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">1. Select PDF Document</label>
-                  <div className="relative group">
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleFileChange}
-                      className="hidden"
-                      id="file-upload"
-                      disabled={isProcessing}
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    1. Choose a PDF
+                  </label>
+                  <FileDropzone
+                    inputId="ocr-file-input"
+                    kind={PDF_FILES}
+                    disabled={isProcessing}
+                    onFilesSelected={([selected]) => selectFile(selected)}
+                    className={cn(
+                      'flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-all',
+                      file
+                        ? 'border-orange-500 bg-orange-50/50'
+                        : 'border-gray-300 bg-gray-50 hover:border-orange-400 hover:bg-gray-100'
+                    )}
+                  >
+                    <FileText
+                      className={cn('mb-3 h-8 w-8', file ? 'text-orange-600' : 'text-gray-400')}
                     />
-                    <label
-                      htmlFor="file-upload"
-                      className={cn(
-                        "flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-2xl cursor-pointer transition-all",
-                        file 
-                          ? "border-orange-500 bg-orange-50/50" 
-                          : "border-gray-300 bg-gray-50 hover:bg-gray-100 hover:border-orange-400"
-                      )}
-                    >
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <FileText className={cn("w-8 h-8 mb-3", file ? "text-orange-600" : "text-gray-400")} />
-                        <p className="text-sm font-medium text-gray-700">
-                          {file ? file.name : "Click to upload or drag and drop"}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {file ? "Click to change file" : "PDF files only"}
-                        </p>
-                      </div>
-                    </label>
-                  </div>
+                    <p className="px-4 text-center text-sm font-medium text-gray-700">
+                      {file ? file.name : 'Click to choose a file, or drop one here'}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {file ? 'Click to choose a different file' : `Up to ${MAX_OCR_PAGES} pages`}
+                    </p>
+                  </FileDropzone>
                 </div>
 
-                {/* Language Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    2. Select Document Language
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    2. Choose the document language
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {LANGUAGES.map((lang) => (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {LANGUAGES.map((option) => (
                       <button
-                        key={lang.code}
-                        onClick={() => setSelectedLang(lang.code)}
+                        key={option.code}
+                        type="button"
+                        onClick={() => setLanguage(option.code)}
                         disabled={isProcessing}
+                        aria-pressed={language === option.code}
                         className={cn(
-                          "flex items-center justify-center gap-2 px-4 py-3 rounded-xl border text-sm font-medium transition-all",
-                          selectedLang === lang.code
-                            ? "border-orange-500 bg-orange-50 text-orange-700"
-                            : "border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:bg-gray-50"
+                          'flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all',
+                          language === option.code
+                            ? 'border-orange-500 bg-orange-50 text-orange-700'
+                            : 'border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:bg-gray-50'
                         )}
                       >
-                        <Languages className="w-4 h-4" />
-                        {lang.name}
+                        <Languages className="h-4 w-4" />
+                        {option.name}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                {/* Action Button & Progress */}
-                <div className="pt-4">
+                <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+                <div className="space-y-6 pt-2">
                   <button
-                    onClick={processOcr}
+                    type="button"
+                    onClick={runOcr}
                     disabled={!file || isProcessing}
-                    className="w-full py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white rounded-2xl font-medium text-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl bg-orange-600 px-6 py-4 text-lg font-medium text-white shadow-sm transition-colors hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <ScanText className="w-5 h-5" />
-                        Start OCR Processing
-                      </>
-                    )}
+                    <ScanText className="h-5 w-5" />
+                    {isProcessing ? 'Reading…' : 'Start OCR'}
                   </button>
 
                   {isProcessing && (
-                    <div className="mt-6 space-y-2">
-                      <div className="flex justify-between text-sm font-medium text-gray-600">
-                        <span>{progressMsg}</span>
-                        <span>{Math.round(progressPercent)}%</span>
-                      </div>
-                      <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-orange-500 transition-all duration-300 ease-out rounded-full"
-                          style={{ width: `${progressPercent}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-center text-orange-600 mt-2 font-medium">
-                        Please do not close this tab. Processing may take a few minutes.
-                      </p>
-                    </div>
+                    <ProgressPanel
+                      accent="orange"
+                      message={progressMessage}
+                      percent={progressPercent}
+                      onCancel={() => abortRef.current?.abort()}
+                    />
                   )}
                 </div>
-
               </div>
             </div>
           ) : (
             <div className="p-8 sm:p-12">
-              <div className="max-w-2xl mx-auto">
-                <div className="flex items-center justify-center w-16 h-16 rounded-full bg-green-100 text-green-600 mx-auto mb-6">
-                  <CheckCircle2 className="w-8 h-8" />
+              <div className="mx-auto max-w-2xl">
+                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
+                  <CheckCircle2 className="h-8 w-8" />
                 </div>
-                <h2 className="text-2xl font-semibold text-center text-gray-900 mb-2">
-                  OCR Completed Successfully!
+                <h2 className="mb-2 text-center text-2xl font-semibold text-gray-900">
+                  Recognised {result.wordsFound.toLocaleString()} words
                 </h2>
-                <p className="text-gray-500 text-center mb-10">
-                  Your document has been processed. You can download the searchable PDF or extract the raw text.
+                <p className="mb-10 text-center text-gray-500">
+                  Across {result.pages} {result.pages === 1 ? 'page' : 'pages'}. The PDF below
+                  carries an invisible text layer, so you can search and select it.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <button
-                    onClick={handleDownloadPdf}
-                    className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 rounded-2xl transition-colors group"
+                    type="button"
+                    onClick={() =>
+                      file && downloadBlob(result.pdf, derivedFileName(file.name, '_searchable.pdf'))
+                    }
+                    className="group flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-orange-200 bg-orange-50 p-6 transition-colors hover:bg-orange-100"
                   >
-                    <div className="p-3 bg-white rounded-xl shadow-sm text-orange-600 group-hover:scale-110 transition-transform">
-                      <Download className="w-6 h-6" />
+                    <div className="rounded-xl bg-white p-3 text-orange-600 shadow-sm transition-transform group-hover:scale-110">
+                      <Download className="h-6 w-6" />
                     </div>
                     <div className="text-center">
-                      <span className="block font-semibold text-orange-900 mb-1">Searchable PDF</span>
-                      <span className="text-xs text-orange-700 opacity-80">Download the PDF with selectable text</span>
+                      <span className="mb-1 block font-semibold text-orange-900">
+                        Searchable PDF
+                      </span>
+                      <span className="text-xs text-orange-700 opacity-80">
+                        The scan, plus selectable text
+                      </span>
                     </div>
                   </button>
 
                   <button
-                    onClick={handleDownloadText}
-                    className="flex flex-col items-center justify-center gap-3 p-6 border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 rounded-2xl transition-colors group"
+                    type="button"
+                    onClick={() =>
+                      file &&
+                      downloadBlob(
+                        new Blob([result.text], { type: 'text/plain;charset=utf-8' }),
+                        derivedFileName(file.name, '_extracted.txt')
+                      )
+                    }
+                    className="group flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-blue-200 bg-blue-50 p-6 transition-colors hover:bg-blue-100"
                   >
-                    <div className="p-3 bg-white rounded-xl shadow-sm text-blue-600 group-hover:scale-110 transition-transform">
-                      <Type className="w-6 h-6" />
+                    <div className="rounded-xl bg-white p-3 text-blue-600 shadow-sm transition-transform group-hover:scale-110">
+                      <Type className="h-6 w-6" />
                     </div>
                     <div className="text-center">
-                      <span className="block font-semibold text-blue-900 mb-1">Plain Text (.txt)</span>
-                      <span className="text-xs text-blue-700 opacity-80">Download the extracted text</span>
+                      <span className="mb-1 block font-semibold text-blue-900">Plain text</span>
+                      <span className="text-xs text-blue-700 opacity-80">Just the words, .txt</span>
                     </div>
                   </button>
                 </div>
 
-                <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 mb-8">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-medium text-gray-900 flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-gray-500" />
-                      Extracted Text Preview
+                <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+                <div className="mb-8 mt-6 rounded-2xl border border-gray-200 bg-gray-50 p-6">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h3 className="flex items-center gap-2 font-medium text-gray-900">
+                      <FileText className="h-4 w-4 text-gray-500" />
+                      Recognised text
                     </h3>
                     <button
-                      onClick={handleCopyToClipboard}
-                      className="text-sm text-orange-600 hover:text-orange-700 font-medium"
+                      type="button"
+                      onClick={copyText}
+                      className="text-sm font-medium text-orange-600 transition-colors hover:text-orange-700"
                     >
-                      Copy to Clipboard
+                      {copied ? 'Copied' : 'Copy'}
                     </button>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-xl p-4 h-64 overflow-y-auto">
-                    <pre className="text-xs text-gray-700 whitespace-pre-wrap font-sans">
-                      {extractedText}
+                  <div className="h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-4">
+                    <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700">
+                      {result.text}
                     </pre>
                   </div>
                 </div>
 
                 <div className="text-center">
                   <button
-                    onClick={() => {
-                      setFile(null);
-                      setResultPdf(null);
-                      setExtractedText('');
-                      setProgressPercent(0);
-                    }}
-                    className="text-gray-500 hover:text-gray-700 font-medium text-sm transition-colors"
+                    type="button"
+                    onClick={reset}
+                    className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-700"
                   >
-                    Process another document
+                    Read another document
                   </button>
                 </div>
               </div>

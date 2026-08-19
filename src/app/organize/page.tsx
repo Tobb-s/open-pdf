@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PDFDocument, degrees } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import PdfDropzone from '@/components/PdfDropzone';
+import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
+import ErrorNotice from '@/components/ErrorNotice';
+import ProgressPanel from '@/components/ProgressPanel';
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,204 +18,208 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { describeError, type ToolError } from '@/lib/errors';
+import { derivedFileName, downloadBlob } from '@/lib/files';
+import {
+  assertFileSize,
+  assertPageCount,
+  MAX_RENDERED_PAGES,
+  throwIfCancelled,
+} from '@/lib/limits';
+import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 
 interface OrganizedPage {
   id: string;
-  pageIndex: number;
+  sourceIndex: number;
   pageNumber: number;
-  thumbnail: string;
+  previewUrl: string;
+  /** Extra rotation the reader applied, in degrees clockwise. */
   rotation: number;
+  /** Aspect ratio of the rendered thumbnail, used to scale rotated previews. */
+  aspect: number;
 }
+
+const THUMBNAIL_SCALE = 0.3;
 
 export default function OrganizePage() {
   const [file, setFile] = useState<File | null>(null);
-  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null);
   const [pages, setPages] = useState<OrganizedPage[]>([]);
-  const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
-  const [isLoadingPages, setIsLoadingPages] = useState(false);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadMessage, setLoadMessage] = useState('');
+  const [loadPercent, setLoadPercent] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [resultPdf, setResultPdf] = useState<Blob | null>(null);
+  const [result, setResult] = useState<Blob | null>(null);
+  const [error, setError] = useState<ToolError | null>(null);
 
+  const bytesRef = useRef<Uint8Array | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const pagesRef = useRef<OrganizedPage[]>([]);
   useEffect(() => {
-    import('pdfjs-dist').then((mod) => {
-      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
-    });
-  }, []);
+    pagesRef.current = pages;
+  }, [pages]);
 
-  const resetFile = () => {
+  useEffect(
+    () => () => {
+      for (const page of pagesRef.current) URL.revokeObjectURL(page.previewUrl);
+    },
+    []
+  );
+
+  const reset = () => {
+    for (const page of pagesRef.current) URL.revokeObjectURL(page.previewUrl);
+    bytesRef.current = null;
     setFile(null);
-    setPdfData(null);
     setPages([]);
-    setDraggedPageId(null);
-    setResultPdf(null);
+    setDraggedId(null);
+    setResult(null);
+    setError(null);
+    setLoadPercent(0);
   };
 
-  const selectFile = async (selectedFile: File) => {
-    setFile(selectedFile);
-    setResultPdf(null);
-    setIsLoadingPages(true);
+  const selectFile = async (selected: File) => {
+    reset();
+    setFile(selected);
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    let source: Awaited<ReturnType<typeof openPdf>> | null = null;
+    const built: OrganizedPage[] = [];
 
     try {
-      const arrayBuffer = await selectedFile.arrayBuffer();
-      setPdfData(arrayBuffer);
+      assertFileSize(selected);
+      const bytes = new Uint8Array(await selected.arrayBuffer());
+      bytesRef.current = bytes;
 
-      const pdfjs = await import('pdfjs-dist');
-      const pdf = await pdfjs.getDocument({ data: arrayBuffer.slice(0) }).promise;
-      const renderedPages: OrganizedPage[] = [];
+      source = await openPdf(bytes);
+      const pageCount = source.document.numPages;
+      assertPageCount(pageCount, MAX_RENDERED_PAGES, 'page previews');
 
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 0.22 });
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        throwIfCancelled(controller.signal);
+        setLoadPercent((pageNumber / pageCount) * 100);
+        setLoadMessage(`Rendering page ${pageNumber} of ${pageCount}…`);
 
-        await page.render({ canvas, viewport }).promise;
+        const page = await source.document.getPage(pageNumber);
+        // JPEG object URLs rather than PNG data URLs: a data URL keeps the whole
+        // image alive as a base64 string in React state, which is what made long
+        // documents unusable here.
+        const { blob, width, height } = await renderPageToJpeg(page, THUMBNAIL_SCALE, 0.7);
+        page.cleanup();
 
-        renderedPages.push({
-          id: `${selectedFile.name}-${i}-${Date.now()}`,
-          pageIndex: i - 1,
-          pageNumber: i,
-          thumbnail: canvas.toDataURL('image/png'),
+        built.push({
+          id: `page-${pageNumber}`,
+          sourceIndex: pageNumber - 1,
+          pageNumber,
+          previewUrl: URL.createObjectURL(blob),
           rotation: 0,
+          aspect: width / height,
         });
       }
 
-      setPages(renderedPages);
-    } catch (error) {
-      console.error('Error loading PDF:', error);
-      alert('Invalid PDF file.');
-      resetFile();
+      setPages(built);
+    } catch (caught) {
+      for (const page of built) URL.revokeObjectURL(page.previewUrl);
+      const described = describeError(caught);
+      if (described.kind !== 'cancelled') setError(described);
+      setFile(null);
     } finally {
-      setIsLoadingPages(false);
+      abortRef.current = null;
+      await source?.destroy().catch(() => {});
+      setIsLoading(false);
     }
   };
 
-  const movePage = (sourceId: string, targetId: string) => {
-    if (sourceId === targetId) return;
-
-    setPages((prev) => {
-      const sourceIndex = prev.findIndex((page) => page.id === sourceId);
-      const targetIndex = prev.findIndex((page) => page.id === targetId);
-
-      if (sourceIndex === -1 || targetIndex === -1) return prev;
-
-      const next = [...prev];
-      const [movedPage] = next.splice(sourceIndex, 1);
-      next.splice(targetIndex, 0, movedPage);
+  const movePage = (from: number, to: number) => {
+    setPages((previous) => {
+      if (to < 0 || to >= previous.length || from === to) return previous;
+      const next = [...previous];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
       return next;
     });
   };
 
-  const movePageByIndex = (index: number, direction: -1 | 1) => {
-    setPages((prev) => {
-      const targetIndex = index + direction;
-      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
-
-      const next = [...prev];
-      const [movedPage] = next.splice(index, 1);
-      next.splice(targetIndex, 0, movedPage);
-      return next;
-    });
-  };
-
-  const rotatePage = (id: string) => {
-    setPages((prev) =>
-      prev.map((page) =>
-        page.id === id ? { ...page, rotation: (page.rotation + 90) % 360 } : page
-      )
-    );
-  };
-
-  const removePage = (id: string) => {
-    setPages((prev) => prev.filter((page) => page.id !== id));
-  };
-
-  const organizePdf = async () => {
-    if (!pdfData || pages.length === 0) {
-      alert('Please keep at least one page in the document.');
-      return;
-    }
+  const save = async () => {
+    const bytes = bytesRef.current;
+    if (!bytes || pages.length === 0) return;
 
     setIsProcessing(true);
+    setError(null);
 
     try {
-      const sourcePdf = await PDFDocument.load(pdfData);
-      const organizedPdf = await PDFDocument.create();
+      const source = await PDFDocument.load(bytes);
+      const output = await PDFDocument.create();
 
       for (const page of pages) {
-        const [copiedPage] = await organizedPdf.copyPages(sourcePdf, [page.pageIndex]);
-        const currentAngle = copiedPage.getRotation().angle;
-        copiedPage.setRotation(degrees((currentAngle + page.rotation) % 360));
-        organizedPdf.addPage(copiedPage);
+        const [copied] = await output.copyPages(source, [page.sourceIndex]);
+        copied.setRotation(degrees((copied.getRotation().angle + page.rotation) % 360));
+        output.addPage(copied);
       }
 
-      const pdfBytes = (await organizedPdf.save()).slice();
-      setResultPdf(new Blob([pdfBytes], { type: 'application/pdf' }));
-    } catch (error) {
-      console.error('Error organizing PDF:', error);
-      alert('An error occurred while organizing the PDF.');
+      const saved = (await output.save()).slice();
+      setResult(new Blob([saved], { type: 'application/pdf' }));
+    } catch (caught) {
+      setError(describeError(caught));
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const downloadPdf = () => {
-    if (!resultPdf) return;
-
-    const url = URL.createObjectURL(resultPdf);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'organized_document.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
-      <main className="max-w-6xl mx-auto px-4 py-12">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Organize PDF pages</h1>
+      <main className="mx-auto max-w-6xl px-4 py-12">
+        <div className="mb-12 text-center">
+          <h1 className="mb-4 text-4xl font-bold text-gray-900">Organize PDF pages</h1>
           <p className="text-gray-600">
-            Reorder, rotate, and remove pages from your PDF before downloading it.
+            Reorder, rotate and remove pages, then save the result as a new document.
           </p>
         </div>
 
         {!file ? (
-          <PdfDropzone
-            inputId="organize-file-input"
-            className="border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white border-gray-300 hover:border-blue-400"
-            onFilesSelected={([selectedFile]) => void selectFile(selectedFile)}
-          >
-            <div className="flex flex-col items-center gap-4">
-              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
-                <Upload className="w-8 h-8" />
+          <div className="space-y-6">
+            <FileDropzone
+              inputId="organize-file-input"
+              kind={PDF_FILES}
+              onFilesSelected={([selected]) => void selectFile(selected)}
+              className="cursor-pointer rounded-3xl border-2 border-dashed border-gray-300 bg-white p-12 text-center transition-all hover:border-blue-400"
+            >
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                  <Upload className="h-8 w-8" />
+                </div>
+                <div>
+                  <p className="text-lg font-semibold">Choose a PDF file</p>
+                  <p className="text-sm text-gray-500">or drop one here</p>
+                </div>
               </div>
-              <div>
-                <p className="text-lg font-semibold">Choose PDF file</p>
-                <p className="text-sm text-gray-500">or drag and drop it here</p>
-              </div>
+            </FileDropzone>
+            <ErrorNotice error={error} onDismiss={() => setError(null)} />
+          </div>
+        ) : result ? (
+          <div className="rounded-3xl border bg-white p-12 text-center shadow-sm">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
+              <FileText className="h-10 w-10" />
             </div>
-          </PdfDropzone>
-        ) : resultPdf ? (
-          <div className="text-center p-12 bg-white border rounded-3xl shadow-sm">
-            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-10 h-10" />
-            </div>
-            <h2 className="text-2xl font-bold mb-2">PDF Organized Successfully!</h2>
-            <p className="text-gray-600 mb-8">Your updated document is ready for download.</p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <h2 className="mb-2 text-2xl font-bold">
+              {pages.length} {pages.length === 1 ? 'page' : 'pages'}, in your order
+            </h2>
+            <p className="mb-8 text-gray-600">Your updated document is ready.</p>
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <button
-                onClick={downloadPdf}
-                className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
+                type="button"
+                onClick={() => downloadBlob(result, derivedFileName(file.name, '_organized.pdf'))}
+                className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700"
               >
-                <Download className="w-5 h-5" />
-                Download PDF
+                <Download className="h-5 w-5" />
+                Download
               </button>
               <button
-                onClick={resetFile}
-                className="px-8 py-4 bg-gray-100 text-gray-700 rounded-full font-bold text-lg hover:bg-gray-200 transition-all"
+                type="button"
+                onClick={reset}
+                className="rounded-full bg-gray-100 px-8 py-4 text-lg font-bold text-gray-700 transition-all hover:bg-gray-200"
               >
                 Organize another file
               </button>
@@ -221,117 +227,152 @@ export default function OrganizePage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
-              <div className="flex items-center gap-3 overflow-hidden">
-                <FileText className="w-6 h-6 text-blue-500 shrink-0" />
-                <span className="font-medium truncate">{file.name}</span>
-                <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                  {pages.length} pages
+            <div className="flex items-center justify-between rounded-2xl border bg-white p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <FileText className="h-6 w-6 shrink-0 text-blue-500" />
+                <span className="truncate font-medium">{file.name}</span>
+                <span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-500">
+                  {pages.length} {pages.length === 1 ? 'page' : 'pages'}
                 </span>
               </div>
               <button
-                onClick={resetFile}
-                className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-blue-500 transition-colors"
+                type="button"
+                onClick={reset}
+                aria-label="Remove this file"
+                className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-red-500"
               >
-                <X className="w-5 h-5" />
+                <X className="h-5 w-5" />
               </button>
             </div>
 
-            {isLoadingPages ? (
-              <div className="p-12 bg-white border rounded-3xl text-center">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-                <p className="font-medium text-gray-700">Preparing page previews...</p>
-              </div>
+            <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+            {isLoading ? (
+              <ProgressPanel
+                message={loadMessage || 'Preparing page previews…'}
+                percent={loadPercent}
+                onCancel={() => abortRef.current?.abort()}
+              />
             ) : (
               <>
-                <div className="bg-white border rounded-3xl p-5 shadow-sm">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                    {pages.map((page, index) => (
-                      <div
-                        key={page.id}
-                        draggable
-                        onDragStart={() => setDraggedPageId(page.id)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={() => {
-                          if (draggedPageId) movePage(draggedPageId, page.id);
-                          setDraggedPageId(null);
-                        }}
-                        onDragEnd={() => setDraggedPageId(null)}
-                        className="group border rounded-2xl bg-gray-50 p-3 transition-all hover:border-blue-200 hover:bg-blue-50"
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-xs font-semibold text-gray-500">
-                            Page {page.pageNumber}
-                          </span>
-                          <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-blue-400 cursor-grab" />
-                        </div>
+                <div className="rounded-3xl border bg-white p-5 shadow-sm">
+                  <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                    {pages.map((page, index) => {
+                      const quarterTurn = page.rotation % 180 !== 0;
+                      return (
+                        <li
+                          key={page.id}
+                          draggable
+                          onDragStart={() => setDraggedId(page.id)}
+                          onDragOver={(event) => event.preventDefault()}
+                          onDrop={() => {
+                            if (draggedId) {
+                              movePage(
+                                pages.findIndex((item) => item.id === draggedId),
+                                index
+                              );
+                            }
+                            setDraggedId(null);
+                          }}
+                          onDragEnd={() => setDraggedId(null)}
+                          className="group rounded-2xl border bg-gray-50 p-3 transition-all hover:border-blue-200 hover:bg-blue-50"
+                        >
+                          <div className="mb-3 flex items-center justify-between">
+                            <span className="text-xs font-semibold tabular-nums text-gray-500">
+                              Page {page.pageNumber}
+                            </span>
+                            <GripVertical className="h-4 w-4 cursor-grab text-gray-300 group-hover:text-blue-400" />
+                          </div>
 
-                        <div className="aspect-[3/4] bg-white border rounded-xl flex items-center justify-center overflow-hidden mb-3">
-                          <div
-                            aria-label={`Page ${page.pageNumber}`}
-                            className="w-full h-full bg-contain bg-center bg-no-repeat transition-transform"
-                            role="img"
-                            style={{
-                              backgroundImage: `url(${page.thumbnail})`,
-                              transform: `rotate(${page.rotation}deg)`,
-                            }}
-                          />
-                        </div>
+                          <div className="mb-3 flex aspect-[3/4] items-center justify-center overflow-hidden rounded-xl border bg-white">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- a local blob: URL, which next/image cannot optimise */}
+                            <img
+                              src={page.previewUrl}
+                              alt={`Page ${page.pageNumber}`}
+                              className="max-h-full max-w-full object-contain transition-transform"
+                              style={{
+                                transform: `rotate(${page.rotation}deg)`,
+                                // A quarter turn swaps width and height, so the
+                                // preview has to shrink to stay inside its frame.
+                                maxWidth: quarterTurn ? `${page.aspect * 100}%` : '100%',
+                                maxHeight: quarterTurn ? `${(1 / page.aspect) * 100}%` : '100%',
+                              }}
+                            />
+                          </div>
 
-                        <div className="grid grid-cols-4 gap-1">
-                          <button
-                            onClick={() => movePageByIndex(index, -1)}
-                            disabled={index === 0}
-                            className="p-2 rounded-lg bg-white border text-gray-500 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            title="Move left"
-                          >
-                            <ArrowLeft className="w-4 h-4 mx-auto" />
-                          </button>
-                          <button
-                            onClick={() => movePageByIndex(index, 1)}
-                            disabled={index === pages.length - 1}
-                            className="p-2 rounded-lg bg-white border text-gray-500 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            title="Move right"
-                          >
-                            <ArrowRight className="w-4 h-4 mx-auto" />
-                          </button>
-                          <button
-                            onClick={() => rotatePage(page.id)}
-                            className="p-2 rounded-lg bg-white border text-gray-500 hover:text-blue-600 transition-colors"
-                            title="Rotate page"
-                          >
-                            <RotateCw className="w-4 h-4 mx-auto" />
-                          </button>
-                          <button
-                            onClick={() => removePage(page.id)}
-                            disabled={pages.length === 1}
-                            className="p-2 rounded-lg bg-white border text-gray-500 hover:text-red-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                            title="Remove page"
-                          >
-                            <Trash2 className="w-4 h-4 mx-auto" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                          <div className="grid grid-cols-4 gap-1">
+                            <button
+                              type="button"
+                              onClick={() => movePage(index, index - 1)}
+                              disabled={index === 0}
+                              aria-label={`Move page ${page.pageNumber} earlier`}
+                              className="rounded-lg border bg-white p-2 text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <ArrowLeft className="mx-auto h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => movePage(index, index + 1)}
+                              disabled={index === pages.length - 1}
+                              aria-label={`Move page ${page.pageNumber} later`}
+                              className="rounded-lg border bg-white p-2 text-gray-500 transition-colors hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <ArrowRight className="mx-auto h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPages((previous) =>
+                                  previous.map((item) =>
+                                    item.id === page.id
+                                      ? { ...item, rotation: (item.rotation + 90) % 360 }
+                                      : item
+                                  )
+                                )
+                              }
+                              aria-label={`Rotate page ${page.pageNumber}`}
+                              className="rounded-lg border bg-white p-2 text-gray-500 transition-colors hover:text-blue-600"
+                            >
+                              <RotateCw className="mx-auto h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPages((previous) => {
+                                  const target = previous.find((item) => item.id === page.id);
+                                  if (target) URL.revokeObjectURL(target.previewUrl);
+                                  return previous.filter((item) => item.id !== page.id);
+                                })
+                              }
+                              disabled={pages.length === 1}
+                              aria-label={`Remove page ${page.pageNumber}`}
+                              className="rounded-lg border bg-white p-2 text-gray-500 transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Trash2 className="mx-auto h-4 w-4" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
 
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
                   <p className="text-sm text-gray-500">
-                    Drag pages to reorder them, or use the buttons under each preview.
+                    Drag a page to move it, or use the arrows under each preview.
                   </p>
                   <button
-                    onClick={organizePdf}
+                    type="button"
+                    onClick={save}
                     disabled={pages.length === 0 || isProcessing}
-                    className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
+                    className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
                     {isProcessing ? (
                       <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Organizing...
+                        <Loader2 className="h-5 w-5 animate-spin" /> Saving…
                       </>
                     ) : (
-                      'Organize PDF'
+                      'Save PDF'
                     )}
                   </button>
                 </div>

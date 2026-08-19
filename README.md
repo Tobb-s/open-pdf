@@ -1,98 +1,110 @@
 # OpenPDF
 
-OpenPDF es una herramienta web para trabajar con archivos PDF de forma simple, rápida y privada.
+Herramientas de PDF que se ejecutan enteras en el navegador. Sin subir archivos, sin
+servidor al que subirlos: la aplicación son ficheros estáticos y el motor de PDF corre
+en la propia página.
 
-La idea del proyecto es ofrecer una alternativa abierta a las páginas online de PDF, pero con una diferencia importante: los archivos se procesan en el navegador. Eso significa que, en condiciones normales de uso, tus documentos no necesitan subirse a un servidor externo para ser editados.
+## Herramientas
 
-## Qué se puede hacer
+| Herramienta | Qué hace |
+| --- | --- |
+| **Comprimir** | Reduce el tamaño reconvirtiendo cada página a imagen. Avisa cuando el documento tiene texto real, porque en ese caso suele crecer en vez de encoger. |
+| **OCR** | Reconoce el texto de un PDF escaneado y devuelve una copia con capa de texto buscable, más el texto plano. Seis idiomas. |
+| **Unir** | Combina varios PDF en uno, en el orden que elijas. |
+| **Dividir** | Extrae un rango de páginas, o parte cada página en su propio archivo. |
+| **Organizar** | Reordena, rota y elimina páginas, con vista previa de cada una. |
+| **PDF a Word** | Extrae el texto a un `.docx` editable. Sólo texto: no conserva imágenes, tablas ni maquetación. |
+| **Editar** | Coloca texto en cualquier punto de una página. |
+| **Rellenar formulario** | Completa los campos interactivos de un formulario PDF. |
+| **Imágenes y PDF** | Convierte cada página en JPG, o une imágenes JPG, PNG y WebP en un PDF. |
 
-Actualmente OpenPDF incluye estas herramientas:
+## Privacidad
 
-- **Comprimir PDFs**: reduce el tamaño de archivos PDF optimizando la calidad visual 100% en el navegador.
-- **Unir PDFs**: combina varios archivos PDF en un solo documento.
-- **Dividir PDFs**: separa páginas o rangos de páginas en archivos nuevos.
-- **Organizar PDFs**: reordena, rota y elimina páginas antes de descargar el archivo final.
-- **Editar PDFs**: agrega texto sobre un PDF existente.
-- **Completar formularios PDF**: detecta campos interactivos y permite llenarlos.
-- **Convertir PDF a Word**: genera un archivo `.docx` a partir del contenido del PDF.
+La promesa es verificable, no declarativa:
 
-## Por qué es útil
+- **No hay rutas de servidor.** El build produce sólo páginas estáticas. No existe ningún
+  endpoint al que se pueda enviar un archivo.
+- **No se carga código de terceros.** El worker de pdf.js y el motor de OCR se copian
+  desde `node_modules` a `public/vendor/` durante el build y se sirven desde el propio
+  dominio. La `Content-Security-Policy` es `script-src 'self' 'wasm-unsafe-eval'`: el
+  navegador rechaza cualquier script de otro origen.
+- **Funciona sin conexión** una vez cargada la página.
 
-Muchas herramientas online de PDF son cómodas, pero obligan a subir documentos a servidores de terceros. Eso puede ser un problema si el archivo contiene información personal, laboral o sensible.
-
-OpenPDF busca resolver ese problema con una experiencia parecida, pero priorizando:
-
-- **Privacidad**: el procesamiento ocurre del lado del navegador.
-- **Transparencia**: el código es abierto y se puede revisar.
-- **Simplicidad**: cada herramienta está pensada para hacer una tarea concreta.
-- **Velocidad**: no hace falta esperar una carga a un servidor para operaciones comunes.
-
-## Tecnologías utilizadas
-
-El proyecto está construido con:
-
-- [Next.js](https://nextjs.org/) como framework principal.
-- [React](https://react.dev/) para la interfaz.
-- [TypeScript](https://www.typescriptlang.org/) para escribir código más seguro.
-- [Tailwind CSS](https://tailwindcss.com/) para los estilos.
-- [pdf-lib](https://pdf-lib.js.org/) y [pdfjs-dist](https://mozilla.github.io/pdf.js/) para trabajar con PDFs.
-- [docx](https://www.npmjs.com/package/docx) para generar documentos de Word.
+Esto importa porque el riesgo real de una herramienta así no es que suba tu archivo, sino
+que ejecute código ajeno en la misma pestaña donde está el documento. Con la política
+anterior no podía hacerlo.
 
 ## Requisitos
 
-Para correr el proyecto localmente necesitas:
+- Node.js 20.9 o superior — la versión exacta está en `.nvmrc`.
+- npm 10 o superior.
 
-- Node.js `24.18.0` o superior.
-- npm `11.16.0` o superior.
+## Cómo ejecutarlo
 
-El repo incluye un archivo `.nvmrc` para que puedas usar la misma versión de Node recomendada.
+```bash
+git clone https://github.com/Tobb-s/open-pdf.git
+cd open-pdf
+npm ci
+npm run dev
+```
 
-## Cómo ejecutar el proyecto
+Y abrir `http://localhost:3000`.
 
-1. Clonar el repositorio:
+La primera ejecución de `npm run dev` o `npm run build` dispara `npm run vendor`, que
+copia el worker de pdf.js y el motor de OCR a `public/vendor/` y descarga los modelos de
+idioma de Tesseract (unos 10 MB, una sola vez; después quedan en disco). Ese directorio
+está en `.gitignore`: se regenera, no se versiona.
 
-   ```bash
-   git clone https://github.com/Tobb-s/open-pdf.git
-   cd open-pdf
-   ```
+## Scripts
 
-2. Instalar dependencias:
+| Script | Qué hace |
+| --- | --- |
+| `npm run dev` | Servidor de desarrollo. |
+| `npm run build` | Build de producción. |
+| `npm start` | Sirve el build de producción. |
+| `npm run lint` | ESLint. |
+| `npm test` | Tests con Vitest. |
+| `npm run vendor` | Regenera `public/vendor/` a mano. |
 
-   ```bash
-   npm ci
-   ```
+## Tests
 
-3. Iniciar el servidor de desarrollo:
+Los tests cubren la lógica donde un fallo es silencioso: la extracción de palabras del
+resultado del OCR, el reensamblado de párrafos al convertir a Word, el parseo de rangos
+de páginas, los nombres de archivo y la clasificación de errores.
 
-   ```bash
-   npm run dev
-   ```
+Es deliberado que sean esas: un OCR que devuelve un PDF sin capa de texto, o un `.docx`
+con las palabras pegadas, no lanza ninguna excepción — la interfaz anuncia éxito igual.
+Sólo un test que afirme algo sobre el *resultado* detecta ese tipo de fallo.
 
-4. Abrir la app en el navegador:
+```bash
+npm test
+```
 
-   ```text
-   http://localhost:3000
-   ```
+## Arquitectura
 
-## Scripts disponibles
+```
+src/
+  app/            una ruta por herramienta, más su layout con metadatos
+  components/     FileDropzone, ErrorNotice, ProgressPanel, Navbar, ToolCard
+  lib/
+    pdfjs.ts      carga pdf.js con el worker local; copia los bytes antes de
+                  pasarlos al worker, que los transfiere y deja el original vacío
+    ocr.ts        extrae palabras de blocks → paragraphs → lines → words
+    textLayout.ts reconstruye líneas y párrafos a partir de fragmentos sueltos
+    pageRange.ts  parseo de "1-3, 7, 12-9"
+    errors.ts     traduce excepciones a mensajes con causa y salida
+    limits.ts     topes de tamaño y páginas, cancelación
+    tools.ts      catálogo único: home, navegación, sitemap y metadatos
+scripts/
+  vendor-assets.mjs   copia las dependencias de runtime a public/vendor/
+tests/            Vitest, en Node
+```
 
-- `npm run dev`: inicia el proyecto en modo desarrollo.
-- `npm run build`: genera una versión optimizada para producción.
-- `npm run start`: ejecuta la versión de producción.
-- `npm run lint`: revisa problemas de estilo y calidad en el código.
+## Integración continua
 
-## Calidad y seguridad
-
-El proyecto tiene un workflow de GitHub Actions que revisa automáticamente los cambios cuando se abre un pull request.
-
-Ese control ejecuta:
-
-- instalación limpia de dependencias con `npm ci`;
-- revisión de código con `npm run lint`;
-- build de producción con `npm run build`.
-
-Esto ayuda a detectar errores antes de mezclar cambios en la rama principal.
+Cada push y cada pull request pasa por `npm ci`, `npm run lint`, `npm test`,
+`npm run build` y `npm audit --omit=dev --audit-level=high`.
 
 ## Licencia
 
-Este proyecto está distribuido bajo licencia MIT. Puedes ver más detalles en el archivo `LICENSE`.
+MIT. Ver `LICENSE`.

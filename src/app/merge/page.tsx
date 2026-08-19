@@ -1,157 +1,276 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
-import PdfDropzone from '@/components/PdfDropzone';
-import { Upload, FileText, X, Download, Loader2 } from 'lucide-react';
+import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
+import ErrorNotice from '@/components/ErrorNotice';
+import ProgressPanel from '@/components/ProgressPanel';
+import {
+  ArrowDown,
+  ArrowUp,
+  Download,
+  FileText,
+  Info,
+  Loader2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { describeError, type ToolError } from '@/lib/errors';
+import { downloadBlob, formatBytes } from '@/lib/files';
+import { assertFileSize, throwIfCancelled } from '@/lib/limits';
+
+interface Entry {
+  id: number;
+  file: File;
+}
 
 export default function MergePage() {
-  const [files, setFiles] = useState<File[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [resultPdf, setResultPdf] = useState<Blob | null>(null);
+  const [progressMessage, setProgressMessage] = useState('');
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [result, setResult] = useState<{ blob: Blob; pages: number } | null>(null);
+  const [hadForms, setHadForms] = useState(false);
+  const [error, setError] = useState<ToolError | null>(null);
+  const nextId = useRef(1);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const addFiles = (newFiles: File[]) => {
-    setFiles((prev) => [...prev, ...newFiles]);
+  const addFiles = (files: File[]) => {
+    setError(null);
+    setEntries((previous) => [
+      ...previous,
+      ...files.map((file) => ({ id: nextId.current++, file })),
+    ]);
   };
 
-  const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+  const move = (index: number, direction: -1 | 1) => {
+    setEntries((previous) => {
+      const target = index + direction;
+      if (target < 0 || target >= previous.length) return previous;
+      const next = [...previous];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
   };
 
-  const mergePdfs = async () => {
-    if (files.length < 2) {
-      alert('Please upload at least two PDF files to merge.');
-      return;
-    }
+  const merge = async () => {
+    if (entries.length < 2) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setIsProcessing(true);
+    setError(null);
+    setProgressPercent(4);
+
     try {
-      const mergedPdf = await PDFDocument.create();
-      
-      for (const file of files) {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await PDFDocument.load(arrayBuffer);
-        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-        copiedPages.forEach((page) => mergedPdf.addPage(page));
+      const merged = await PDFDocument.create();
+      let sawForm = false;
+
+      for (const [index, entry] of entries.entries()) {
+        throwIfCancelled(controller.signal);
+        setProgressPercent(4 + (index / entries.length) * 88);
+        setProgressMessage(`Adding ${entry.file.name}…`);
+
+        assertFileSize(entry.file);
+        const source = await PDFDocument.load(new Uint8Array(await entry.file.arrayBuffer()));
+
+        // copyPages carries pages, not the document's interactive form, so a form
+        // that goes in comes out as flat pages. Worth telling the reader rather
+        // than letting them discover it in the downloaded file.
+        if (source.getForm().getFields().length > 0) sawForm = true;
+
+        const copied = await merged.copyPages(source, source.getPageIndices());
+        for (const page of copied) merged.addPage(page);
       }
 
-      const pdfBytes = (await mergedPdf.save()).slice();
-      setResultPdf(new Blob([pdfBytes], { type: 'application/pdf' }));
-    } catch (error) {
-      console.error('Error merging PDFs:', error);
-      alert('An error occurred while merging the PDFs.');
+      setProgressMessage('Saving…');
+      setProgressPercent(96);
+
+      const bytes = (await merged.save()).slice();
+      setHadForms(sawForm);
+      setResult({
+        blob: new Blob([bytes], { type: 'application/pdf' }),
+        pages: merged.getPageCount(),
+      });
+      setProgressPercent(100);
+    } catch (caught) {
+      const described = describeError(caught);
+      if (described.kind !== 'cancelled') setError(described);
     } finally {
+      abortRef.current = null;
       setIsProcessing(false);
     }
-  };
-
-  const downloadPdf = () => {
-    if (!resultPdf) return;
-    const url = URL.createObjectURL(resultPdf);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'merged_document.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-12">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Merge PDF files</h1>
-          <p className="text-gray-600">Combine multiple PDF documents into one single PDF file.</p>
+      <main className="mx-auto max-w-4xl px-4 py-12">
+        <div className="mb-12 text-center">
+          <h1 className="mb-4 text-4xl font-bold text-gray-900">Merge PDF files</h1>
+          <p className="text-gray-600">Combine several PDFs into one, in the order you choose.</p>
         </div>
 
-        {!resultPdf ? (
+        {!result ? (
           <div className="space-y-8">
-            <PdfDropzone
+            <FileDropzone
               inputId="merge-file-input"
+              kind={PDF_FILES}
               multiple
-              className={cn(
-                "border-2 border-dashed rounded-3xl p-12 text-center transition-all cursor-pointer bg-white",
-                files.length > 0 ? "border-blue-200" : "border-gray-300 hover:border-blue-400"
-              )}
+              disabled={isProcessing}
               onFilesSelected={addFiles}
+              className={cn(
+                'cursor-pointer rounded-3xl border-2 border-dashed bg-white p-12 text-center transition-all',
+                entries.length > 0 ? 'border-blue-200' : 'border-gray-300 hover:border-blue-400'
+              )}
             >
               <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
-                  <Upload className="w-8 h-8" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                  <Upload className="h-8 w-8" />
                 </div>
                 <div>
                   <p className="text-lg font-semibold">Choose PDF files</p>
-                  <p className="text-sm text-gray-500">or drag and drop them here</p>
+                  <p className="text-sm text-gray-500">or drop them here</p>
                 </div>
               </div>
-            </PdfDropzone>
+            </FileDropzone>
 
-            {files.length > 0 && (
+            <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+            {entries.length > 0 && (
               <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="font-medium text-gray-700">{files.length} files selected</h3>
-                  <button 
-                    onClick={() => setFiles([])}
+                <div className="flex items-center justify-between">
+                  <h2 className="font-medium text-gray-700">
+                    {entries.length} {entries.length === 1 ? 'file' : 'files'}, merged top to bottom
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setEntries([])}
                     className="text-sm text-blue-600 hover:underline"
                   >
-                    Clear all
+                    Remove all
                   </button>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {files.map((file, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-white border rounded-xl">
-                      <div className="flex items-center gap-3 overflow-hidden">
-                        <FileText className="w-5 h-5 text-gray-400 shrink-0" />
-                        <span className="text-sm truncate">{file.name}</span>
+
+                <ol className="space-y-2">
+                  {entries.map((entry, index) => (
+                    <li
+                      key={entry.id}
+                      className="flex items-center gap-3 rounded-xl border bg-white p-3"
+                    >
+                      <span className="w-6 shrink-0 text-center text-sm tabular-nums text-gray-400">
+                        {index + 1}
+                      </span>
+                      <FileText className="h-5 w-5 shrink-0 text-gray-400" />
+                      <span className="min-w-0 flex-1 truncate text-sm">{entry.file.name}</span>
+                      <span className="hidden shrink-0 text-xs tabular-nums text-gray-400 sm:inline">
+                        {formatBytes(entry.file.size)}
+                      </span>
+                      <div className="flex shrink-0 items-center">
+                        <button
+                          type="button"
+                          onClick={() => move(index, -1)}
+                          disabled={index === 0}
+                          aria-label={`Move ${entry.file.name} earlier`}
+                          className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 disabled:opacity-30"
+                        >
+                          <ArrowUp className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => move(index, 1)}
+                          disabled={index === entries.length - 1}
+                          aria-label={`Move ${entry.file.name} later`}
+                          className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 disabled:opacity-30"
+                        >
+                          <ArrowDown className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEntries((previous) =>
+                              previous.filter((item) => item.id !== entry.id)
+                            )
+                          }
+                          aria-label={`Remove ${entry.file.name}`}
+                          className="rounded-full p-1.5 text-gray-400 hover:bg-gray-100 hover:text-red-500"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => removeFile(index)}
-                        className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-blue-500 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
+                    </li>
                   ))}
-                </div>
-                <div className="flex justify-center pt-6">
-                  <button 
-                    onClick={mergePdfs}
-                    disabled={files.length < 2 || isProcessing}
-                    className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
+                </ol>
+
+                {isProcessing && (
+                  <ProgressPanel
+                    message={progressMessage}
+                    percent={progressPercent}
+                    onCancel={() => abortRef.current?.abort()}
+                  />
+                )}
+
+                <div className="flex justify-center pt-4">
+                  <button
+                    type="button"
+                    onClick={merge}
+                    disabled={entries.length < 2 || isProcessing}
+                    className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
                     {isProcessing ? (
                       <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Processing...
+                        <Loader2 className="h-5 w-5 animate-spin" /> Merging…
                       </>
                     ) : (
-                      'Merge PDF'
+                      'Merge PDFs'
                     )}
                   </button>
                 </div>
+                {entries.length < 2 && (
+                  <p className="text-center text-sm text-gray-500">Add at least two files.</p>
+                )}
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center p-12 bg-white border rounded-3xl shadow-sm">
-            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-10 h-10" />
+          <div className="rounded-3xl border bg-white p-12 text-center shadow-sm">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
+              <FileText className="h-10 w-10" />
             </div>
-            <h2 className="text-2xl font-bold mb-2">PDFs Merged Successfully!</h2>
-            <p className="text-gray-600 mb-8">Your combined document is ready for download.</p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button 
-                onClick={downloadPdf}
-                className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
+            <h2 className="mb-2 text-2xl font-bold">
+              {result.pages} {result.pages === 1 ? 'page' : 'pages'} in one document
+            </h2>
+            <p className="mb-6 text-gray-600">{formatBytes(result.blob.size)}</p>
+
+            {hadForms && (
+              <div className="mx-auto mb-8 flex max-w-lg items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                <p className="text-sm text-amber-900">
+                  One of these files had fillable form fields. Merging keeps the pages but not the
+                  fields, so the combined document is no longer interactive.
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => downloadBlob(result.blob, 'merged.pdf')}
+                className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700"
               >
-                <Download className="w-5 h-5" />
-                Download PDF
+                <Download className="h-5 w-5" />
+                Download
               </button>
-              <button 
-                onClick={() => setResultPdf(null)}
-                className="px-8 py-4 bg-gray-100 text-gray-700 rounded-full font-bold text-lg hover:bg-gray-200 transition-all"
+              <button
+                type="button"
+                onClick={() => {
+                  setResult(null);
+                  setHadForms(false);
+                }}
+                className="rounded-full bg-gray-100 px-8 py-4 text-lg font-bold text-gray-700 transition-all hover:bg-gray-200"
               >
                 Merge more files
               </button>

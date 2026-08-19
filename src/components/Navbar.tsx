@@ -1,31 +1,41 @@
 import Link from 'next/link';
 import { FileText } from 'lucide-react';
+import { TOOLS } from '@/lib/tools';
 
 export default function Navbar() {
   return (
-    <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-      <div className="max-w-7xl mx-auto px-6 sm:px-8">
-        <div className="flex justify-between h-16 items-center">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2 font-google text-xl text-gray-800 tracking-tight">
-              <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600 border border-blue-100">
-                <FileText className="w-5 h-5" />
-              </div>
-              <span className="font-semibold text-gray-900">Open<span className="font-normal text-gray-500">PDF</span></span>
-            </Link>
-          </div>
-          <div className="hidden md:flex items-center gap-2 text-sm font-medium">
-            <Link href="/compress" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Compress</Link>
-            <Link href="/ocr" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">OCR</Link>
-            <Link href="/merge" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Merge</Link>
-            <Link href="/split" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Split</Link>
-            <Link href="/organize" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Organize</Link>
-            <Link href="/pdf-to-word" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">PDF to Word</Link>
-            <Link href="/edit" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Edit</Link>
-            <Link href="/fill-form" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Fill Form</Link>
-            <Link href="/image-pdf" className="px-4 py-2 text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">Images & PDF</Link>
-            <div className="h-4 w-px bg-gray-200 mx-2" />
-            <Link href="https://github.com/Tobb-s/open-pdf" target="_blank" className="px-3 py-2 text-gray-500 hover:bg-gray-50 hover:text-gray-900 rounded-full transition-all">
+    <nav className="sticky top-0 z-50 border-b border-gray-100 bg-white">
+      <div className="mx-auto max-w-7xl px-6 sm:px-8">
+        <div className="flex h-16 items-center justify-between gap-4">
+          <Link
+            href="/"
+            className="flex shrink-0 items-center gap-2 text-xl tracking-tight text-gray-800"
+          >
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+              <FileText className="h-5 w-5" />
+            </div>
+            <span className="font-semibold text-gray-900">
+              Open<span className="font-normal text-gray-500">PDF</span>
+            </span>
+          </Link>
+
+          <div className="hidden items-center gap-1 overflow-x-auto text-sm font-medium md:flex">
+            {TOOLS.map((tool) => (
+              <Link
+                key={tool.slug}
+                href={`/${tool.slug}`}
+                className="whitespace-nowrap rounded-full px-3 py-2 text-gray-600 transition-all hover:bg-gray-50 hover:text-gray-900"
+              >
+                {tool.navLabel}
+              </Link>
+            ))}
+            <div className="mx-2 h-4 w-px bg-gray-200" />
+            <Link
+              href="https://github.com/Tobb-s/open-pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="whitespace-nowrap rounded-full px-3 py-2 text-gray-500 transition-all hover:bg-gray-50 hover:text-gray-900"
+            >
               GitHub
             </Link>
           </div>

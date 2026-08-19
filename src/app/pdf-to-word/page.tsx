@@ -1,82 +1,101 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import Navbar from '@/components/Navbar';
-import PdfDropzone from '@/components/PdfDropzone';
-import { Upload, FileText, X, Loader2 } from 'lucide-react';
+import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
+import ErrorNotice from '@/components/ErrorNotice';
+import ProgressPanel from '@/components/ProgressPanel';
+import { FileText, Upload, X } from 'lucide-react';
+import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
+import { derivedFileName, downloadBlob } from '@/lib/files';
+import { assertFileSize, throwIfCancelled } from '@/lib/limits';
+import { openPdf } from '@/lib/pdfjs';
+import { extractParagraphs, toTextFragments } from '@/lib/textLayout';
+
+interface ConversionResult {
+  blob: Blob;
+  paragraphs: number;
+  pages: number;
+}
 
 export default function PdfToWordPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [resultReady, setResultReady] = useState(false);
+  const [progressMessage, setProgressMessage] = useState('');
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [result, setResult] = useState<ConversionResult | null>(null);
+  const [error, setError] = useState<ToolError | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    import('pdfjs-dist').then(mod => {
-      mod.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${mod.version}/pdf.worker.min.mjs`;
-    });
-  }, []);
-
-  const selectFile = (selectedFile: File) => {
-    setFile(selectedFile);
-  };
-
-  const convertToWord = async () => {
+  const convert = async () => {
     if (!file) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsProcessing(true);
+    setError(null);
+    setProgressPercent(4);
+    setProgressMessage('Reading the document…');
+
+    let source: Awaited<ReturnType<typeof openPdf>> | null = null;
+
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const mod = await import('pdfjs-dist');
-      const pdf = await mod.getDocument({ data: arrayBuffer }).promise;
+      assertFileSize(file);
+      source = await openPdf(await file.arrayBuffer());
+      const pageCount = source.document.numPages;
+
       const paragraphs: Paragraph[] = [];
+      let paragraphCount = 0;
 
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1 });
-        const textContent = await page.getTextContent();
-        let currentText = '';
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        throwIfCancelled(controller.signal);
+        setProgressPercent(4 + (pageNumber / pageCount) * 88);
+        setProgressMessage(`Extracting page ${pageNumber} of ${pageCount}…`);
 
-        const items = textContent.items;
-        for (let j = 0; j < items.length; j++) {
-          const item = items[j];
-          if ('str' in item) {
-            currentText += item.str;
-            const nextItem = items[j + 1];
-            if (nextItem && 'transform' in nextItem && 'transform' in item) {
-              const currentY = item.transform[5];
-              const nextY = nextItem.transform[5];
-              if (Math.abs(nextY - currentY) > viewport.height * 0.02) {
-                paragraphs.push(new Paragraph({ children: [new TextRun({ text: currentText })] }));
-                currentText = '';
-              }
-            }
-          }
+        const page = await source.document.getPage(pageNumber);
+        const content = await page.getTextContent();
+        page.cleanup();
+
+        for (const text of extractParagraphs(toTextFragments(content.items))) {
+          paragraphs.push(new Paragraph({ children: [new TextRun({ text })] }));
+          paragraphCount += 1;
         }
-        if (currentText.trim()) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text: currentText })] }));
-        }
-        if (i < pdf.numPages) {
+
+        if (pageNumber < pageCount) {
           paragraphs.push(new Paragraph({ children: [] }));
         }
       }
 
-      const doc = new Document({
-        title: file.name.replace('.pdf', ''),
-        sections: [{ children: paragraphs }],
-      });
+      // A scanned PDF has no text layer at all. Handing back an empty .docx and
+      // calling it a success is what sent people away thinking the tool worked.
+      if (paragraphCount === 0) {
+        throw new KnownToolError(
+          'unknown',
+          'This PDF has no text to extract',
+          'It is most likely a scan — a picture of a page rather than text. Run it through OCR PDF first, then convert the searchable copy.'
+        );
+      }
 
-      const blob = await Packer.toBlob(doc);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name.replace('.pdf', '.docx');
-      a.click();
-      URL.revokeObjectURL(url);
-      setResultReady(true);
-    } catch (error) {
-      console.error('Error:', error);
-      alert('An error occurred while converting the PDF.');
+      setProgressMessage('Building the Word document…');
+      setProgressPercent(96);
+
+      const blob = await Packer.toBlob(
+        new Document({
+          title: derivedFileName(file.name, ''),
+          sections: [{ children: paragraphs }],
+        })
+      );
+
+      setResult({ blob, paragraphs: paragraphCount, pages: pageCount });
+      setProgressPercent(100);
+    } catch (caught) {
+      const described = describeError(caught);
+      if (described.kind !== 'cancelled') setError(described);
     } finally {
+      abortRef.current = null;
+      await source?.destroy().catch(() => {});
       setIsProcessing(false);
     }
   };
@@ -84,69 +103,113 @@ export default function PdfToWordPage() {
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
-      <main className="max-w-4xl mx-auto px-4 py-12">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">PDF to Word</h1>
-          <p className="text-gray-600">Convert PDF files to editable Word documents.</p>
+      <main className="mx-auto max-w-4xl px-4 py-12">
+        <div className="mb-12 text-center">
+          <h1 className="mb-4 text-4xl font-bold text-gray-900">PDF to Word</h1>
+          <p className="mx-auto max-w-xl text-gray-600">
+            Pull the text out of a PDF into an editable .docx. Text only — images, tables and
+            layout are not carried over.
+          </p>
         </div>
 
-        {!resultReady ? (
+        {!result ? (
           <div className="space-y-8">
             {!file ? (
-              <PdfDropzone
-                inputId="pdf-to-word-file-input"
-                className="border-2 border-dashed rounded-3xl p-12 text-center cursor-pointer bg-white border-gray-300 hover:border-red-400 transition-all"
-                onFilesSelected={([selectedFile]) => selectFile(selectedFile)}
-              >
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center">
-                    <Upload className="w-8 h-8" />
+              <>
+                <FileDropzone
+                  inputId="pdf-to-word-file-input"
+                  kind={PDF_FILES}
+                  onFilesSelected={([selected]) => {
+                    setFile(selected);
+                    setError(null);
+                  }}
+                  className="cursor-pointer rounded-3xl border-2 border-dashed border-gray-300 bg-white p-12 text-center transition-all hover:border-blue-400"
+                >
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                      <Upload className="h-8 w-8" />
+                    </div>
+                    <p className="text-lg font-semibold">Choose a PDF file</p>
+                    <p className="text-sm text-gray-500">or drop one here</p>
                   </div>
-                  <p className="text-lg font-semibold">Choose PDF file</p>
-                  <p className="text-sm text-gray-500">Your text will be extracted and converted to .docx</p>
-                </div>
-              </PdfDropzone>
+                </FileDropzone>
+                <ErrorNotice error={error} onDismiss={() => setError(null)} />
+              </>
             ) : (
               <div className="space-y-6">
-                <div className="flex items-center justify-between p-4 bg-white border rounded-2xl">
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-6 h-6 text-blue-500 shrink-0" />
-                    <span className="font-medium truncate">{file.name}</span>
+                <div className="flex items-center justify-between rounded-2xl border bg-white p-4">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <FileText className="h-6 w-6 shrink-0 text-blue-500" />
+                    <span className="truncate font-medium">{file.name}</span>
                   </div>
                   <button
-                    onClick={() => { setFile(null); setResultReady(false); }}
-                    className="p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-red-500"
+                    type="button"
+                    onClick={() => {
+                      setFile(null);
+                      setError(null);
+                    }}
+                    aria-label="Remove this file"
+                    className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-red-500"
                   >
-                    <X className="w-5 h-5" />
+                    <X className="h-5 w-5" />
                   </button>
                 </div>
-                <div className="flex justify-center pt-4">
+
+                <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+                {isProcessing && (
+                  <ProgressPanel
+                    message={progressMessage}
+                    percent={progressPercent}
+                    onCancel={() => abortRef.current?.abort()}
+                  />
+                )}
+
+                <div className="flex justify-center pt-2">
                   <button
-                    onClick={convertToWord}
+                    type="button"
+                    onClick={convert}
                     disabled={isProcessing}
-                    className="px-8 py-4 bg-blue-600 text-white rounded-full font-bold text-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-lg shadow-blue-200"
+                    className="flex items-center gap-2 rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
-                    {isProcessing ? (
-                      <><Loader2 className="w-5 h-5 animate-spin" /> Converting...</>
-                    ) : 'Convert to Word'}
+                    {isProcessing ? 'Converting…' : 'Convert to Word'}
                   </button>
                 </div>
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center p-12 bg-white border rounded-3xl shadow-sm">
-            <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-6">
-              <FileText className="w-10 h-10" />
+          <div className="rounded-3xl border bg-white p-12 text-center shadow-sm">
+            <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
+              <FileText className="h-10 w-10" />
             </div>
-            <h2 className="text-2xl font-bold mb-2">Word Document Ready!</h2>
-            <p className="text-gray-600 mb-8">The download should start automatically.</p>
-            <button
-              onClick={() => { setResultReady(false); setFile(null); }}
-              className="px-8 py-4 bg-gray-100 text-gray-700 rounded-full font-bold text-lg hover:bg-gray-200"
-            >
-              Convert another file
-            </button>
+            <h2 className="mb-2 text-2xl font-bold">Your Word document is ready</h2>
+            <p className="mb-8 text-gray-600">
+              {result.paragraphs.toLocaleString()}{' '}
+              {result.paragraphs === 1 ? 'paragraph' : 'paragraphs'} from {result.pages}{' '}
+              {result.pages === 1 ? 'page' : 'pages'}.
+            </p>
+            <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+              <button
+                type="button"
+                onClick={() =>
+                  file && downloadBlob(result.blob, derivedFileName(file.name, '.docx'))
+                }
+                className="rounded-full bg-blue-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-blue-200 hover:bg-blue-700"
+              >
+                Download .docx
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setResult(null);
+                  setFile(null);
+                }}
+                className="rounded-full bg-gray-100 px-8 py-4 text-lg font-bold text-gray-700 hover:bg-gray-200"
+              >
+                Convert another
+              </button>
+            </div>
           </div>
         )}
       </main>
