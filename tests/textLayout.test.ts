@@ -32,6 +32,28 @@ describe('extractParagraphs', () => {
     ).toEqual(['Total 42']);
   });
 
+  it('does not turn letter positioning into a space', () => {
+    // A gap of 0.22 em is narrower than any real space, so it is positioning,
+    // not a word break. The old 0.20 em threshold sat below the width of an
+    // actual space and could read one as the other.
+    expect(
+      extractParagraphs([
+        fragment({ str: 'aprenderem', x: 0, width: 50, height: 10 }),
+        fragment({ str: 'os', x: 52.2, height: 10 }),
+      ])
+    ).toEqual(['aprenderemos']);
+  });
+
+  it('still finds a space at the width of a real one', () => {
+    // 0.28 em is a Helvetica space; it has to survive the stricter threshold.
+    expect(
+      extractParagraphs([
+        fragment({ str: 'Lo', x: 0, width: 12, height: 10 }),
+        fragment({ str: 'que', x: 14.8, height: 10 }),
+      ])
+    ).toEqual(['Lo que']);
+  });
+
   it('leaves kerning splits inside a word alone', () => {
     expect(
       extractParagraphs([

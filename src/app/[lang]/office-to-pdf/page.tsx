@@ -32,7 +32,7 @@ import {
   type OfficeFormat,
 } from '@/lib/office';
 
-type Stage = 'idle' | 'downloading' | 'starting' | 'converting';
+type Stage = 'idle' | 'downloading' | 'starting' | 'converting' | 'opening' | 'exporting';
 
 interface Result {
   blob: Blob;
@@ -46,7 +46,12 @@ export default function OfficeToPdfPage() {
   const [format, setFormat] = useState<OfficeFormat | null>(null);
   const [stage, setStage] = useState<Stage>('idle');
   const [percent, setPercent] = useState(0);
-  const [engineReady, setEngineReady] = useState(false);
+  // The engine is kept alive between conversions. It does slow down as it is
+  // reused — the same deck took 17 s first and 38 s second — but starting a
+  // second one is worse: the first is never truly torn down, so the new boot
+  // competes with it for memory and took over a minute and a half. Reuse is the
+  // fast path; the timeout below is what stops a degraded engine hanging.
+  const [engineCached, setEngineCached] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<ToolError | null>(null);
   // `crossOriginIsolated` does not exist while rendering on the server, so the
@@ -93,7 +98,7 @@ export default function OfficeToPdfPage() {
     if (!file || !format) return;
 
     setError(null);
-    setStage(engineReady ? 'converting' : 'downloading');
+    setStage(engineCached ? 'converting' : 'downloading');
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -109,11 +114,13 @@ export default function OfficeToPdfPage() {
           setStage('starting');
         }
       });
-      setEngineReady(true);
+      setEngineCached(true);
 
       setStage('converting');
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const pdf = await engine.convert(file, bytes, format, controller.signal);
+      const pdf = await engine.convert(file, bytes, format, controller.signal, (phase) =>
+        setStage(phase)
+      );
 
       // Reading the page count back is a cheap sanity check: an engine that
       // returns bytes which are not a PDF should not reach the success screen.
@@ -142,7 +149,9 @@ export default function OfficeToPdfPage() {
             ? {
                 kind: 'unknown',
                 title: t.officeToPdf.abandonedTitle,
-                detail: t.officeToPdf.abandonedBody,
+                detail: caught.phase
+                  ? `${t.officeToPdf.abandonedWhile(t.officeToPdf.phases[caught.phase])} ${t.officeToPdf.abandonedBody}`
+                  : t.officeToPdf.abandonedBody,
               }
             : {
                 kind: 'cancelled',
@@ -150,8 +159,6 @@ export default function OfficeToPdfPage() {
                 detail: t.officeToPdf.cancelledBody,
               }
         );
-        // The abandoned engine is gone, so the next run boots a fresh one.
-        setEngineReady(false);
         return;
       }
 
@@ -172,12 +179,17 @@ export default function OfficeToPdfPage() {
     }
   };
 
+  const name = file?.name ?? '';
   const stageMessage =
     stage === 'downloading'
       ? t.officeToPdf.downloading
       : stage === 'starting'
         ? t.officeToPdf.starting
-        : t.officeToPdf.converting(file?.name ?? '');
+        : stage === 'opening'
+          ? t.officeToPdf.opening(name)
+          : stage === 'exporting'
+            ? t.officeToPdf.exporting(name)
+            : t.officeToPdf.converting(name);
 
   return (
     <div className="min-h-screen bg-slate-50/50">
@@ -286,7 +298,7 @@ export default function OfficeToPdfPage() {
 
               <ErrorNotice error={error} onDismiss={() => setError(null)} />
 
-              {file && !engineReady && (
+              {file && !engineCached && (
                 <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-5">
                   <h2 className="mb-2 font-semibold text-sky-950">
                     {t.officeToPdf.engineTitle}
@@ -321,7 +333,7 @@ export default function OfficeToPdfPage() {
                       style={{ width: stage === 'downloading' ? `${percent}%` : '100%' }}
                     />
                   </div>
-                  {stage === 'converting' && (
+                  {stage !== 'downloading' && stage !== 'starting' && (
                     <div className="flex justify-end">
                       <button
                         type="button"
@@ -343,9 +355,15 @@ export default function OfficeToPdfPage() {
                     disabled={busy}
                     className="flex items-center gap-2 rounded-full bg-sky-600 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-sky-200 transition-all hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-gray-300"
                   >
-                    {engineReady ? t.officeToPdf.engineCached : t.officeToPdf.engineAction}
+                    {engineCached ? t.officeToPdf.action : t.officeToPdf.engineAction}
                   </button>
                 </div>
+              )}
+
+              {file && engineCached && !busy && (
+                <p className="text-center text-xs leading-relaxed text-gray-500">
+                  {t.officeToPdf.reuseNote}
+                </p>
               )}
 
               <p className="border-t border-gray-100 pt-5 text-sm leading-relaxed text-gray-500">

@@ -10,8 +10,13 @@
  * It speaks a tiny protocol with the page:
  *   in   { cmd: 'convert', id, from, to, filter }
  *   out  { cmd: 'ready' }
+ *        { cmd: 'phase', id, phase: 'opening' | 'exporting' }
  *        { cmd: 'converted', id }
  *        { cmd: 'failed', id, message }
+ *
+ * The phase messages matter more than they look: when a document wedges the
+ * engine, knowing whether it died opening the file or writing the PDF is the
+ * difference between a useful message and a shrug.
  */
 
 import { ZetaHelperThread } from './zetajs/zetaHelper.js';
@@ -43,11 +48,13 @@ function convert({ id, from, to, filter }) {
   const overwrite = new css.beans.PropertyValue({ Name: 'Overwrite', Value: true });
   const exportFilter = new css.beans.PropertyValue({ Name: 'FilterName', Value: filter });
 
+  zetajs.mainPort.postMessage({ cmd: 'phase', id, phase: 'opening' });
   openDocument = zHT.desktop.loadComponentFromURL(`file://${from}`, '_blank', 0, [hidden]);
   if (!openDocument) {
     throw new Error('LibreOffice could not open the document.');
   }
 
+  zetajs.mainPort.postMessage({ cmd: 'phase', id, phase: 'exporting' });
   openDocument.storeToURL(`file://${to}`, [overwrite, exportFilter]);
   closeOpenDocument();
 

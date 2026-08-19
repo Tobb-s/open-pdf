@@ -20,6 +20,14 @@ export interface TextFragment {
   hasEOL: boolean;
 }
 
+/**
+ * How wide a gap has to be, relative to the type size, before it counts as a
+ * space rather than as positioning. Measured against the standard fonts: a
+ * space is 0.250 em in Times and 0.278 em in Helvetica, while the adjustments
+ * inside a word are an order of magnitude smaller.
+ */
+const SPACE_GAP_EM = 0.24;
+
 /** A run whose text is only whitespace still tells us a break happened. */
 const isBlank = (value: string) => value.trim() === '';
 
@@ -91,10 +99,12 @@ function joinLine(line: TextFragment[]): string {
     const alreadySpaced = /\s$/.test(fragment.str) || /^\s/.test(next.str);
     if (alreadySpaced) continue;
 
-    // Runs are frequently split mid-word for kerning, so only a gap wide enough
-    // to be a real space becomes one.
+    // Only a gap wide enough to be a real space becomes one. The threshold sits
+    // just under the narrowest space in the standard fonts — 0.250 em in Times,
+    // 0.278 em in Helvetica — because anything lower risks reading ordinary
+    // letter positioning as a word break.
     const gap = next.x - (fragment.x + fragment.width);
-    if (gap > Math.max(fragment.height, next.height) * 0.2) {
+    if (gap > Math.max(fragment.height, next.height) * SPACE_GAP_EM) {
       text += ' ';
     }
   }

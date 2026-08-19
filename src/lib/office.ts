@@ -27,13 +27,19 @@ const ENGINE_START_TIMEOUT_MS = 180_000;
  */
 const CONVERSION_TIMEOUT_MS = 5 * 60_000;
 
+/** Which half of the work the engine is in. */
+export type ConversionPhase = 'opening' | 'exporting';
+
 /** Thrown when a conversion is abandoned, by the clock or by the reader. */
 export class ConversionAbandoned extends Error {
   readonly timedOut: boolean;
-  constructor(timedOut: boolean) {
+  /** Where it got stuck, when the engine got far enough to say. */
+  readonly phase: ConversionPhase | null;
+  constructor(timedOut: boolean, phase: ConversionPhase | null) {
     super(timedOut ? 'conversion-timeout' : 'conversion-cancelled');
     this.name = 'ConversionAbandoned';
     this.timedOut = timedOut;
+    this.phase = phase;
   }
 }
 
@@ -123,7 +129,16 @@ let enginePromise: Promise<OfficeEngine> | null = null;
 export class OfficeEngine {
   #helper: ZetaHelperMainLike;
   #nextId = 1;
-  #pending = new Map<number, { resolve: (bytes: Uint8Array) => void; reject: (e: Error) => void; output: string }>();
+  #pending = new Map<
+    number,
+    {
+      resolve: (bytes: Uint8Array) => void;
+      reject: (e: Error) => void;
+      output: string;
+      phase: ConversionPhase | null;
+      onPhase?: (phase: ConversionPhase) => void;
+    }
+  >();
 
   private constructor(helper: ZetaHelperMainLike) {
     this.#helper = helper;
@@ -131,13 +146,25 @@ export class OfficeEngine {
   }
 
   #onMessage(event: MessageEvent) {
-    const message = event.data as { cmd: string; id?: number; message?: string };
+    const message = event.data as {
+      cmd: string;
+      id?: number;
+      message?: string;
+      phase?: ConversionPhase;
+    };
     if (message.cmd === 'ready') return;
 
     const id = message.id;
     if (typeof id !== 'number') return;
     const pending = this.#pending.get(id);
     if (!pending) return;
+
+    if (message.cmd === 'phase' && message.phase) {
+      pending.phase = message.phase;
+      pending.onPhase?.(message.phase);
+      return;
+    }
+
     this.#pending.delete(id);
 
     if (message.cmd === 'converted') {
@@ -165,7 +192,8 @@ export class OfficeEngine {
     file: File,
     bytes: Uint8Array,
     format: OfficeFormat,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onPhase?: (phase: ConversionPhase) => void
   ): Promise<Uint8Array> {
     const id = this.#nextId++;
     // Names inside the engine's own in-memory filesystem, not the user's disk.
@@ -175,15 +203,15 @@ export class OfficeEngine {
     this.#helper.FS.writeFile(input, bytes);
 
     return new Promise<Uint8Array>((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject, output });
-
       // A worker stuck inside LibreOffice cannot be interrupted, so giving up
       // means abandoning this engine rather than reusing it: the next attempt
       // boots a clean one from the cached binaries.
       const abandon = (timedOut: boolean) => {
-        if (!this.#pending.delete(id)) return;
+        const entry = this.#pending.get(id);
+        if (!entry) return;
+        this.#pending.delete(id);
         retireEngine();
-        reject(new ConversionAbandoned(timedOut));
+        reject(new ConversionAbandoned(timedOut, entry.phase));
       };
 
       const timer = setTimeout(() => abandon(true), CONVERSION_TIMEOUT_MS);
@@ -199,6 +227,8 @@ export class OfficeEngine {
           reject(error);
         },
         output,
+        phase: null,
+        onPhase,
       });
 
       this.#helper.thrPort.postMessage({

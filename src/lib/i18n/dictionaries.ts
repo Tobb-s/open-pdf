@@ -304,14 +304,20 @@ export interface Dictionary {
     enginePrivacy: string;
     engineAction: string;
     engineCached: string;
+    action: string;
+    reuseNote: string;
     unsupportedBrowserTitle: string;
     unsupportedBrowserBody: string;
     downloading: string;
     starting: string;
     converting: (name: string) => string;
+    opening: (name: string) => string;
+    exporting: (name: string) => string;
     slidesTip: string;
     abandonedTitle: string;
     abandonedBody: string;
+    abandonedWhile: (phase: string) => string;
+    phases: { opening: string; exporting: string };
     cancelledTitle: string;
     cancelledBody: string;
     doneTitle: string;
@@ -770,17 +776,24 @@ export const es: Dictionary = {
       'Se descarga desde este mismo sitio y corre en tu navegador. Tu documento no se envía a ningún servidor, ni siquiera al nuestro.',
     engineAction: 'Descargar el motor y convertir',
     engineCached: 'El motor ya está cargado.',
+    action: 'Convertir a PDF',
+    reuseNote:
+      'El motor sigue cargado, así que esta conversión arranca enseguida. Si convertís varios archivos seguidos se va poniendo más lento: recargá la página para empezar de cero.',
     unsupportedBrowserTitle: 'Tu navegador no puede ejecutar el motor',
     unsupportedBrowserBody:
       'La conversión necesita funciones que este navegador no habilita. Probá con una versión reciente de Chrome, Edge o Firefox de escritorio.',
     downloading: 'Descargando el motor…',
     starting: 'Iniciando LibreOffice…',
     converting: (name) => `Convirtiendo ${name}…`,
+    opening: (name) => `Abriendo ${name}…`,
+    exporting: (name) => `Exportando ${name} a PDF…`,
     slidesTip:
       '¿Tenés una presentación en Google Slides? No hace falta pasar por acá: en Slides andá a Archivo → Descargar → Documento PDF.',
     abandonedTitle: 'La conversión tardó demasiado y se abandonó',
     abandonedBody:
-      'LibreOffice se quedó trabado con este documento. Suele destrabarse si lo abrís en PowerPoint y lo volvés a guardar, o si separás las diapositivas problemáticas en un archivo aparte.',
+      'Recargá la página y probá de nuevo: el motor se vuelve más lento cuanto más se usa, y a veces alcanza con empezar de cero. Si vuelve a pasar, suele destrabarse abriendo el archivo en PowerPoint y volviéndolo a guardar.',
+    abandonedWhile: (phase) => `Se quedó en la etapa de ${phase}.`,
+    phases: { opening: 'abrir el archivo', exporting: 'exportar a PDF' },
     cancelledTitle: 'Conversión cancelada',
     cancelledBody: 'Podés volver a intentarlo cuando quieras; el motor ya está descargado.',
     doneTitle: 'Tu PDF está listo',
@@ -1242,17 +1255,24 @@ export const en: Dictionary = {
       'It downloads from this site and runs in your browser. Your document is not sent to any server, not even ours.',
     engineAction: 'Download the engine and convert',
     engineCached: 'The engine is already loaded.',
+    action: 'Convert to PDF',
+    reuseNote:
+      'The engine is still loaded, so this conversion starts straight away. It gets slower as you convert several files in a row: reload the page for a clean start.',
     unsupportedBrowserTitle: 'This browser cannot run the engine',
     unsupportedBrowserBody:
       'The conversion needs features this browser does not enable. Try a recent desktop Chrome, Edge or Firefox.',
     downloading: 'Downloading the engine…',
     starting: 'Starting LibreOffice…',
     converting: (name) => `Converting ${name}…`,
+    opening: (name) => `Opening ${name}…`,
+    exporting: (name) => `Exporting ${name} to PDF…`,
     slidesTip:
       'Working in Google Slides? You do not need this: in Slides, use File → Download → PDF Document.',
     abandonedTitle: 'The conversion took too long and was abandoned',
     abandonedBody:
-      'LibreOffice got stuck on this document. Opening it in PowerPoint and saving it again usually clears it, as does splitting the awkward slides into their own file.',
+      'Reload the page and try again: the engine gets slower the more it is used, and a clean start is often enough. If it happens again, opening the file in PowerPoint and saving it once usually clears it.',
+    abandonedWhile: (phase) => `It stopped while ${phase}.`,
+    phases: { opening: 'opening the file', exporting: 'exporting to PDF' },
     cancelledTitle: 'Conversion cancelled',
     cancelledBody: 'You can try again whenever you like; the engine is already downloaded.',
     doneTitle: 'Your PDF is ready',
