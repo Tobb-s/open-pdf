@@ -24,7 +24,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { downloadBlob, formatBytes } from '@/lib/files';
-import { assertFileSize } from '@/lib/limits';
+import { assertFileSize, MAX_BATCH_OUTPUT_BYTES } from '@/lib/limits';
 import { combinePdfs } from '@/lib/combine';
 import {
   clearIsolationRetry,
@@ -70,6 +70,8 @@ interface BatchResult {
   failed: string[];
   /** Documents that converted but could not be appended to the combined PDF. */
   skipped: string[];
+  /** Set when the batch stopped itself before reaching the end of the queue. */
+  stoppedNote: string | null;
   downloadName: string;
 }
 
@@ -188,6 +190,9 @@ export default function OfficeToPdfPage() {
     const items = [...queue];
     const converted: { item: QueueItem; pdf: Uint8Array; pages: number }[] = [];
     const failed: string[] = [];
+    let heldBytes = 0;
+    // Set when the batch stops itself short of exhausting the tab.
+    let stoppedEarly = false;
 
     try {
       await acquireEngine();
@@ -221,7 +226,16 @@ export default function OfficeToPdfPage() {
           const pages = (await PDFDocument.load(pdf)).getPageCount();
 
           converted.push({ item, pdf, pages });
+          heldBytes += pdf.byteLength;
           markItem(item.id, { status: 'done', pages });
+
+          // Every converted PDF stays in memory until the batch ends, and the
+          // join or the zip then needs room for the lot again. Stopping with
+          // something in hand beats running out and losing all of it.
+          if (heldBytes > MAX_BATCH_OUTPUT_BYTES && index < items.length - 1) {
+            stoppedEarly = true;
+            break;
+          }
         } catch (caught) {
           // Cancelling stops the batch; one document wedging the engine does not.
           if (caught instanceof ConversionAbandoned && !caught.timedOut) throw caught;
@@ -256,6 +270,10 @@ export default function OfficeToPdfPage() {
         );
       }
 
+      const stoppedNote = stoppedEarly
+        ? t.officeToPdf.batchStopped(converted.length, formatBytes(heldBytes))
+        : null;
+
       if (mode === 'combined') {
         setStage('combining');
         const combined = await combinePdfs(
@@ -283,6 +301,7 @@ export default function OfficeToPdfPage() {
           pages: combined.pages,
           failed,
           skipped: combined.skipped,
+          stoppedNote,
           downloadName:
             converted.length === 1
               ? pdfNameFor(converted[0].item.file.name)
@@ -301,6 +320,7 @@ export default function OfficeToPdfPage() {
           pages: only.pages,
           failed,
           skipped: [],
+          stoppedNote,
           downloadName: pdfNameFor(only.item.file.name),
         });
         return;
@@ -328,6 +348,7 @@ export default function OfficeToPdfPage() {
         total: items.length,
         failed,
         skipped: [],
+        stoppedNote,
         downloadName: t.officeToPdf.zipName,
       });
     } catch (caught) {
@@ -429,12 +450,12 @@ export default function OfficeToPdfPage() {
               <div
                 className={cn(
                   'mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full',
-                  result.failed.length > 0
+                  result.failed.length > 0 || result.stoppedNote
                     ? 'bg-amber-100 text-amber-600'
                     : 'bg-emerald-100 text-emerald-600'
                 )}
               >
-                {result.failed.length > 0 ? (
+                {result.failed.length > 0 || result.stoppedNote ? (
                   <AlertTriangle className="h-10 w-10" />
                 ) : (
                   <CheckCircle2 className="h-10 w-10" />
@@ -452,8 +473,11 @@ export default function OfficeToPdfPage() {
                   : t.officeToPdf.batchDoneZip(result.converted, formatBytes(result.blob.size))}
               </p>
 
-              {(result.failed.length > 0 || result.skipped.length > 0) && (
+              {(result.failed.length > 0 ||
+                result.skipped.length > 0 ||
+                result.stoppedNote) && (
                 <div className="mx-auto mb-8 max-w-lg space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                  {result.stoppedNote && <p>{result.stoppedNote}</p>}
                   {result.failed.length > 0 && (
                     <p>{t.officeToPdf.batchFailures(result.failed.join(', '))}</p>
                   )}

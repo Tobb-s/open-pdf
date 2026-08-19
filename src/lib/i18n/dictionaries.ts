@@ -347,13 +347,13 @@ export interface Dictionary {
     timedOutItem: string;
     zipName: string;
     combinedName: string;
-    statusPending: string;
     statusDone: (pages: number) => string;
     statusFailed: string;
     batchDoneTitle: (converted: number, total: number) => string;
     batchDoneZip: (files: number, size: string) => string;
     batchDoneCombined: (pages: number, size: string) => string;
     batchFailures: (names: string) => string;
+    batchStopped: (converted: number, size: string) => string;
     batchNoneTitle: string;
     batchNoneBody: string;
     combineSkipped: (names: string) => string;
@@ -867,7 +867,6 @@ export const es: Dictionary = {
     timedOutItem: 'Tardó demasiado y se salteó',
     zipName: 'documentos.zip',
     combinedName: 'documentos.pdf',
-    statusPending: 'En espera',
     statusDone: (pages) => `${pages} ${pages === 1 ? 'página' : 'páginas'}`,
     statusFailed: 'No se pudo',
     batchDoneTitle: (converted, total) =>
@@ -882,6 +881,8 @@ export const es: Dictionary = {
     batchDoneCombined: (pages, size) =>
       `${pages} ${pages === 1 ? 'página' : 'páginas'} en un solo PDF · ${size}.`,
     batchFailures: (names) => `No se pudieron convertir: ${names}.`,
+    batchStopped: (converted, size) =>
+      `Se paró después de ${converted} ${converted === 1 ? 'documento' : 'documentos'} (${size}) para no quedarse sin memoria. Abajo está lo convertido; el resto conviene hacerlo en otra tanda.`,
     batchNoneTitle: 'No se pudo convertir ninguno',
     batchNoneBody:
       'Ningún documento de la lista llegó a convertirse. Recargá la página y probá de a uno para ver cuál da problema.',
@@ -1396,7 +1397,6 @@ export const en: Dictionary = {
     timedOutItem: 'Took too long and was skipped',
     zipName: 'documents.zip',
     combinedName: 'documents.pdf',
-    statusPending: 'Waiting',
     statusDone: (pages) => `${pages} ${pages === 1 ? 'page' : 'pages'}`,
     statusFailed: 'Failed',
     batchDoneTitle: (converted, total) =>
@@ -1407,6 +1407,8 @@ export const en: Dictionary = {
     batchDoneCombined: (pages, size) =>
       `${pages} ${pages === 1 ? 'page' : 'pages'} in a single PDF · ${size}.`,
     batchFailures: (names) => `Could not convert: ${names}.`,
+    batchStopped: (converted, size) =>
+      `Stopped after ${converted} ${converted === 1 ? 'document' : 'documents'} (${size}) to stay clear of running out of memory. What converted is below; the rest is best done as a second batch.`,
     batchNoneTitle: 'Nothing could be converted',
     batchNoneBody:
       'None of the documents in the list converted. Reload the page and try them one at a time to see which one is the problem.',

@@ -16,6 +16,16 @@ export const MAX_RENDERED_PAGES = 500;
 /** OCR is roughly a second per page, so the ceiling is lower and time-based. */
 export const MAX_OCR_PAGES = 100;
 
+/**
+ * How much converted PDF a single batch may hold before it stops.
+ *
+ * Every document's PDF stays in memory until the batch finishes, and the join
+ * or the zip then needs room for the whole thing again. Being slow is fine;
+ * running the tab out of memory halfway through and losing the lot is not, so
+ * the batch stops cleanly and hands over what it already has.
+ */
+export const MAX_BATCH_OUTPUT_BYTES = 300 * 1024 * 1024;
+
 export type LimitLabel = keyof Dictionary['errors']['limitLabels'];
 
 export function assertFileSize(file: File, t: Dictionary, limit = MAX_FILE_BYTES): void {
