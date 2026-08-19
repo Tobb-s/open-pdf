@@ -19,6 +19,24 @@ export const ENGINE_DOWNLOAD_BYTES = 78_035_286;
 /** Booting takes ~20 s on a fast machine; well past this, something is wrong. */
 const ENGINE_START_TIMEOUT_MS = 180_000;
 
+/**
+ * Most decks convert in well under a minute — 39 slides with charts took 17 s.
+ * But some documents send LibreOffice somewhere it never comes back from, and
+ * a spinner that turns forever is the worst possible answer. Five minutes is
+ * generous enough for a genuinely heavy file and short enough to stay honest.
+ */
+const CONVERSION_TIMEOUT_MS = 5 * 60_000;
+
+/** Thrown when a conversion is abandoned, by the clock or by the reader. */
+export class ConversionAbandoned extends Error {
+  readonly timedOut: boolean;
+  constructor(timedOut: boolean) {
+    super(timedOut ? 'conversion-timeout' : 'conversion-cancelled');
+    this.name = 'ConversionAbandoned';
+    this.timedOut = timedOut;
+  }
+}
+
 export interface OfficeFormat {
   /** Lower-case extension, with the dot. */
   extension: string;
@@ -31,16 +49,34 @@ export interface OfficeFormat {
 }
 
 export const OFFICE_FORMATS: OfficeFormat[] = [
+  // Presentations. `.ppsx` and `.pps` are the "show" variants: identical files
+  // that happen to open straight into the slideshow. Lecturers hand those out
+  // constantly, and leaving them off the list rejected most real coursework.
   { extension: '.pptx', filter: 'impress_pdf_Export', family: 'presentation' },
+  { extension: '.ppsx', filter: 'impress_pdf_Export', family: 'presentation' },
+  { extension: '.pptm', filter: 'impress_pdf_Export', family: 'presentation' },
+  { extension: '.ppsm', filter: 'impress_pdf_Export', family: 'presentation' },
+  { extension: '.potx', filter: 'impress_pdf_Export', family: 'presentation' },
   { extension: '.ppt', filter: 'impress_pdf_Export', family: 'presentation', legacy: true },
+  { extension: '.pps', filter: 'impress_pdf_Export', family: 'presentation', legacy: true },
   { extension: '.odp', filter: 'impress_pdf_Export', family: 'presentation' },
+  { extension: '.fodp', filter: 'impress_pdf_Export', family: 'presentation' },
+
   { extension: '.docx', filter: 'writer_pdf_Export', family: 'document' },
+  { extension: '.docm', filter: 'writer_pdf_Export', family: 'document' },
+  { extension: '.dotx', filter: 'writer_pdf_Export', family: 'document' },
   { extension: '.doc', filter: 'writer_pdf_Export', family: 'document', legacy: true },
   { extension: '.odt', filter: 'writer_pdf_Export', family: 'document' },
+  { extension: '.fodt', filter: 'writer_pdf_Export', family: 'document' },
   { extension: '.rtf', filter: 'writer_pdf_Export', family: 'document' },
+
   { extension: '.xlsx', filter: 'calc_pdf_Export', family: 'spreadsheet' },
+  { extension: '.xlsm', filter: 'calc_pdf_Export', family: 'spreadsheet' },
+  { extension: '.xltx', filter: 'calc_pdf_Export', family: 'spreadsheet' },
   { extension: '.xls', filter: 'calc_pdf_Export', family: 'spreadsheet', legacy: true },
   { extension: '.ods', filter: 'calc_pdf_Export', family: 'spreadsheet' },
+  { extension: '.fods', filter: 'calc_pdf_Export', family: 'spreadsheet' },
+
   { extension: '.odg', filter: 'draw_pdf_Export', family: 'drawing' },
 ];
 
@@ -125,7 +161,12 @@ export class OfficeEngine {
   }
 
   /** Converts one document and resolves with the PDF bytes. */
-  convert(file: File, bytes: Uint8Array, format: OfficeFormat): Promise<Uint8Array> {
+  convert(
+    file: File,
+    bytes: Uint8Array,
+    format: OfficeFormat,
+    signal?: AbortSignal
+  ): Promise<Uint8Array> {
     const id = this.#nextId++;
     // Names inside the engine's own in-memory filesystem, not the user's disk.
     const input = `/tmp/in-${id}${format.extension}`;
@@ -135,6 +176,31 @@ export class OfficeEngine {
 
     return new Promise<Uint8Array>((resolve, reject) => {
       this.#pending.set(id, { resolve, reject, output });
+
+      // A worker stuck inside LibreOffice cannot be interrupted, so giving up
+      // means abandoning this engine rather than reusing it: the next attempt
+      // boots a clean one from the cached binaries.
+      const abandon = (timedOut: boolean) => {
+        if (!this.#pending.delete(id)) return;
+        retireEngine();
+        reject(new ConversionAbandoned(timedOut));
+      };
+
+      const timer = setTimeout(() => abandon(true), CONVERSION_TIMEOUT_MS);
+      signal?.addEventListener('abort', () => abandon(false), { once: true });
+
+      this.#pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+        output,
+      });
+
       this.#helper.thrPort.postMessage({
         cmd: 'convert',
         id,
@@ -234,6 +300,11 @@ async function warmCache(onProgress: (progress: EngineProgress) => void): Promis
       }
     })
   );
+}
+
+/** Drops the shared engine so the next caller boots a clean one. */
+export function retireEngine(): void {
+  enginePromise = null;
 }
 
 /** Boots the engine once and hands the same instance to every later caller. */

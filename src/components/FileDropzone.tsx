@@ -3,6 +3,7 @@
 import { DragEvent, KeyboardEvent, ReactNode, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/context';
+import { OFFICE_EXTENSIONS } from '@/lib/office';
 
 export interface FileKind {
   /** Value for the input's `accept` attribute. */
@@ -30,9 +31,10 @@ export const IMAGE_FILES: FileKind = {
 };
 
 export const OFFICE_FILES: FileKind = {
-  accept:
-    '.pptx,.ppt,.odp,.docx,.doc,.odt,.rtf,.xlsx,.xls,.ods,.odg',
-  extensions: ['.pptx', '.ppt', '.odp', '.docx', '.doc', '.odt', '.rtf', '.xlsx', '.xls', '.ods', '.odg'],
+  // Kept in step with OFFICE_FORMATS by the test suite, so a format cannot be
+  // convertible but unselectable.
+  accept: OFFICE_EXTENSIONS.join(','),
+  extensions: [...OFFICE_EXTENSIONS],
   // Office MIME types are a mess across browsers and operating systems, so the
   // extension is what decides here.
   mimePrefixes: [],

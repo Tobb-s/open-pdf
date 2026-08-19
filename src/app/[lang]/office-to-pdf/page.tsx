@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { OFFICE_FILES } from '@/components/FileDropzone';
@@ -22,6 +22,7 @@ import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { downloadBlob, formatBytes } from '@/lib/files';
 import { assertFileSize } from '@/lib/limits';
 import {
+  ConversionAbandoned,
   ENGINE_DOWNLOAD_BYTES,
   engineSupported,
   formatForFile,
@@ -58,6 +59,7 @@ export default function OfficeToPdfPage() {
   );
 
   const busy = stage !== 'idle';
+  const abortRef = useRef<AbortController | null>(null);
 
   const reset = () => {
     setFile(null);
@@ -93,6 +95,9 @@ export default function OfficeToPdfPage() {
     setError(null);
     setStage(engineReady ? 'converting' : 'downloading');
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       assertFileSize(file, t);
 
@@ -108,7 +113,7 @@ export default function OfficeToPdfPage() {
 
       setStage('converting');
       const bytes = new Uint8Array(await file.arrayBuffer());
-      const pdf = await engine.convert(file, bytes, format);
+      const pdf = await engine.convert(file, bytes, format, controller.signal);
 
       // Reading the page count back is a cheap sanity check: an engine that
       // returns bytes which are not a PDF should not reach the success screen.
@@ -129,6 +134,27 @@ export default function OfficeToPdfPage() {
         name: pdfNameFor(file.name),
       });
     } catch (caught) {
+      // A document that wedged the engine, or one the reader gave up on, is not
+      // a generic failure and should not read like one.
+      if (caught instanceof ConversionAbandoned) {
+        setError(
+          caught.timedOut
+            ? {
+                kind: 'unknown',
+                title: t.officeToPdf.abandonedTitle,
+                detail: t.officeToPdf.abandonedBody,
+              }
+            : {
+                kind: 'cancelled',
+                title: t.officeToPdf.cancelledTitle,
+                detail: t.officeToPdf.cancelledBody,
+              }
+        );
+        // The abandoned engine is gone, so the next run boots a fresh one.
+        setEngineReady(false);
+        return;
+      }
+
       const described = describeError(caught, t);
       setError(
         described.kind === 'unknown'
@@ -140,6 +166,7 @@ export default function OfficeToPdfPage() {
           : described
       );
     } finally {
+      abortRef.current = null;
       setStage('idle');
       setPercent(0);
     }
@@ -294,6 +321,17 @@ export default function OfficeToPdfPage() {
                       style={{ width: stage === 'downloading' ? `${percent}%` : '100%' }}
                     />
                   </div>
+                  {stage === 'converting' && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => abortRef.current?.abort()}
+                        className="rounded-full px-4 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+                      >
+                        {t.common.cancel}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { formatForFile, OFFICE_FORMATS, pdfNameFor } from '@/lib/office';
+import { OFFICE_EXTENSIONS, OFFICE_FORMATS, formatForFile, pdfNameFor } from '@/lib/office';
+import { OFFICE_FILES } from '@/components/FileDropzone';
 
 describe('formatForFile', () => {
   it('sends each family to the right LibreOffice filter', () => {
@@ -19,6 +20,21 @@ describe('formatForFile', () => {
     // Uploads from Windows and from phones arrive with every casing there is.
     expect(formatForFile('CLASE 7.PPTX')?.filter).toBe('impress_pdf_Export');
     expect(formatForFile('Informe.Docx')?.family).toBe('document');
+  });
+
+  it('accepts the slideshow variants lecturers actually hand out', () => {
+    // .ppsx is a .pptx that opens straight into the slideshow. Leaving it off
+    // the list rejected three of the first four real files tried.
+    expect(formatForFile('Clase.ppsx')?.filter).toBe('impress_pdf_Export');
+    expect(formatForFile('Clase.pps')?.legacy).toBe(true);
+    expect(formatForFile('Clase.ppsm')?.family).toBe('presentation');
+  });
+
+  it('accepts macro-enabled and template files', () => {
+    // The macros never run: LibreOffice opens the document, not the code.
+    expect(formatForFile('planilla.xlsm')?.filter).toBe('calc_pdf_Export');
+    expect(formatForFile('informe.docm')?.filter).toBe('writer_pdf_Export');
+    expect(formatForFile('plantilla.potx')?.family).toBe('presentation');
   });
 
   it('flags the legacy binary formats without refusing them', () => {
@@ -59,5 +75,15 @@ describe('pdfNameFor', () => {
 
   it('copes with a name that has no extension', () => {
     expect(pdfNameFor('presentacion')).toBe('presentacion.pdf');
+  });
+});
+
+describe('the picker and the converter agree', () => {
+  it('offers exactly the formats it can convert', () => {
+    // Guards the gap that .ppsx fell through: a format that converts but cannot
+    // be picked is invisible, and one that can be picked but has no filter
+    // fails at the worst moment.
+    expect([...OFFICE_FILES.extensions].sort()).toEqual([...OFFICE_EXTENSIONS].sort());
+    expect(OFFICE_FILES.accept.split(',').sort()).toEqual([...OFFICE_EXTENSIONS].sort());
   });
 });

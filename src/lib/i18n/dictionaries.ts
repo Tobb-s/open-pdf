@@ -310,6 +310,10 @@ export interface Dictionary {
     starting: string;
     converting: (name: string) => string;
     slidesTip: string;
+    abandonedTitle: string;
+    abandonedBody: string;
+    cancelledTitle: string;
+    cancelledBody: string;
     doneTitle: string;
     doneBody: (pages: number, size: string) => string;
     another: string;
@@ -774,6 +778,11 @@ export const es: Dictionary = {
     converting: (name) => `Convirtiendo ${name}…`,
     slidesTip:
       '¿Tenés una presentación en Google Slides? No hace falta pasar por acá: en Slides andá a Archivo → Descargar → Documento PDF.',
+    abandonedTitle: 'La conversión tardó demasiado y se abandonó',
+    abandonedBody:
+      'LibreOffice se quedó trabado con este documento. Suele destrabarse si lo abrís en PowerPoint y lo volvés a guardar, o si separás las diapositivas problemáticas en un archivo aparte.',
+    cancelledTitle: 'Conversión cancelada',
+    cancelledBody: 'Podés volver a intentarlo cuando quieras; el motor ya está descargado.',
     doneTitle: 'Tu PDF está listo',
     doneBody: (pages, size) =>
       `${pages} ${pages === 1 ? 'página' : 'páginas'} · ${size}. El texto quedó seleccionable y se puede buscar.`,
@@ -1241,6 +1250,11 @@ export const en: Dictionary = {
     converting: (name) => `Converting ${name}…`,
     slidesTip:
       'Working in Google Slides? You do not need this: in Slides, use File → Download → PDF Document.',
+    abandonedTitle: 'The conversion took too long and was abandoned',
+    abandonedBody:
+      'LibreOffice got stuck on this document. Opening it in PowerPoint and saving it again usually clears it, as does splitting the awkward slides into their own file.',
+    cancelledTitle: 'Conversion cancelled',
+    cancelledBody: 'You can try again whenever you like; the engine is already downloaded.',
     doneTitle: 'Your PDF is ready',
     doneBody: (pages, size) =>
       `${pages} ${pages === 1 ? 'page' : 'pages'} · ${size}. The text stayed selectable and searchable.`,
