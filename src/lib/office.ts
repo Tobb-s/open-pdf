@@ -8,8 +8,13 @@
 
 const LOWA_BASE = '/vendor/lowa/';
 
-/** Roughly what the browser transfers, compressed. Shown before the download starts. */
-export const ENGINE_DOWNLOAD_BYTES = 51 * 1024 * 1024;
+/**
+ * What the browser actually transfers, measured against the deployed site:
+ * 52.4 MB of WebAssembly, 25.5 MB of packed filesystem and 0.2 MB of loader,
+ * after compression. Shown before the download starts, because understating it
+ * to someone on a phone plan is worse than not offering the tool.
+ */
+export const ENGINE_DOWNLOAD_BYTES = 78_035_286;
 
 /** Booting takes ~20 s on a fast machine; well past this, something is wrong. */
 const ENGINE_START_TIMEOUT_MS = 180_000;
