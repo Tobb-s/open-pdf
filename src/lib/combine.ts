@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { loadPdf, savePdf } from '@/lib/pdfio';
 
 export interface CombinePart {
   /** A PDF produced earlier in the batch. */
@@ -41,7 +42,7 @@ export async function combinePdfs(
     try {
       // Slide decks arrive with a lot of embedded imagery, and parsing every
       // piece of metadata on top of that is time the reader can feel.
-      const source = await PDFDocument.load(part.bytes, { updateMetadata: false });
+      const source = await loadPdf(part.bytes, { updateMetadata: false });
       const copied = await combined.copyPages(source, source.getPageIndices());
       for (const page of copied) combined.addPage(page);
     } catch {
@@ -65,7 +66,7 @@ export async function combinePdfs(
   //
   // No copy of the result: pdf-lib hands back a buffer it does not reuse, and
   // duplicating a megabyte at the moment memory is highest helps nobody.
-  const bytes = await combined.save();
+  const bytes = await savePdf(combined);
 
   return { bytes, pages: combined.getPageCount(), skipped };
 }

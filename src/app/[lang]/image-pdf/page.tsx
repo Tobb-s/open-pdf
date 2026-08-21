@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PDFDocument, PageSizes } from 'pdf-lib';
+import { savePdf } from '@/lib/pdfio';
 import JSZip from 'jszip';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { IMAGE_FILES, PDF_FILES } from '@/components/FileDropzone';
@@ -263,7 +264,7 @@ export default function ImagePdfPage() {
 
       setProgressMessage(t.imagePdf.saving);
       setProgressPercent(96);
-      const bytes = (await document_.save()).slice();
+      const bytes = (await savePdf(document_)).slice();
 
       setPdfResult(new Blob([bytes], { type: 'application/pdf' }));
       setProgressPercent(100);

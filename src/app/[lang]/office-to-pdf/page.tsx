@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { PDFDocument } from 'pdf-lib';
+import { loadPdf } from '@/lib/pdfio';
 import JSZip from 'jszip';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { OFFICE_FILES } from '@/components/FileDropzone';
@@ -223,7 +223,7 @@ export default function OfficeToPdfPage() {
 
           // A document that came back as something other than a PDF must not be
           // counted among the converted.
-          const pages = (await PDFDocument.load(pdf)).getPageCount();
+          const pages = (await loadPdf(pdf)).getPageCount();
 
           converted.push({ item, pdf, pages });
           heldBytes += pdf.byteLength;

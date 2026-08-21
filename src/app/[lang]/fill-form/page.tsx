@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { PDFCheckBox, PDFDocument, PDFDropdown, PDFRadioGroup, PDFTextField } from 'pdf-lib';
+import { PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField } from 'pdf-lib';
+import { loadPdf, savePdf } from '@/lib/pdfio';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
@@ -57,7 +58,7 @@ export default function FillFormPage() {
       const bytes = new Uint8Array(await selected.arrayBuffer());
       bytesRef.current = bytes;
 
-      const document_ = await PDFDocument.load(bytes);
+      const document_ = await loadPdf(bytes, { updateMetadata: false });
       const detected: FormField[] = [];
 
       for (const field of document_.getForm().getFields()) {
@@ -107,7 +108,7 @@ export default function FillFormPage() {
     setError(null);
 
     try {
-      const document_ = await PDFDocument.load(bytes);
+      const document_ = await loadPdf(bytes, { updateMetadata: false });
       const form = document_.getForm();
 
       // Every field that cannot be written is collected rather than swallowed. The
@@ -139,7 +140,9 @@ export default function FillFormPage() {
         }
       }
 
-      const saved = (await document_.save()).slice();
+      // Appearance regeneration is what makes the typed values visible in every
+      // viewer; stated explicitly so nobody 'optimises' it away.
+      const saved = (await savePdf(document_, { updateFieldAppearances: true })).slice();
       setResult({
         blob: new Blob([saved], { type: 'application/pdf' }),
         filled,

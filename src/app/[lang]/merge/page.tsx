@@ -2,6 +2,14 @@
 
 import { useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
+import { loadPdf, savePdf } from '@/lib/pdfio';
+import {
+  STRUCTURE_CATEGORIES,
+  diffStructures,
+  summarizeStructures,
+  type StructuralSummary,
+  type StructureCategory,
+} from '@/lib/verify/structural';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
@@ -20,7 +28,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { downloadBlob, formatBytes } from '@/lib/files';
-import { assertFileSize, throwIfCancelled } from '@/lib/limits';
+import { assertFileSize, throwIfCancelled, yieldToBrowser } from '@/lib/limits';
 
 interface Entry {
   id: number;
@@ -28,13 +36,13 @@ interface Entry {
 }
 
 export default function MergePage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [result, setResult] = useState<{ blob: Blob; pages: number } | null>(null);
-  const [hadForms, setHadForms] = useState(false);
+  const [lostCategories, setLostCategories] = useState<StructureCategory[]>([]);
   const [error, setError] = useState<ToolError | null>(null);
   const nextId = useRef(1);
   const abortRef = useRef<AbortController | null>(null);
@@ -69,7 +77,7 @@ export default function MergePage() {
 
     try {
       const merged = await PDFDocument.create();
-      let sawForm = false;
+      const inputSummaries: StructuralSummary[] = [];
 
       for (const [index, entry] of entries.entries()) {
         throwIfCancelled(controller.signal, t);
@@ -77,22 +85,41 @@ export default function MergePage() {
         setProgressMessage(t.merge.adding(entry.file.name));
 
         assertFileSize(entry.file, t);
-        const source = await PDFDocument.load(new Uint8Array(await entry.file.arrayBuffer()));
+        const source = await loadPdf(new Uint8Array(await entry.file.arrayBuffer()), {
+          updateMetadata: false,
+        });
 
-        // copyPages carries pages, not the document's interactive form, so a form
-        // that goes in comes out as flat pages. Worth telling the reader rather
-        // than letting them discover it in the downloaded file.
-        if (source.getForm().getFields().length > 0) sawForm = true;
+        // Merging genuinely assembles a new document, so everything that lives
+        // outside the page tree — forms, bookmarks, attachments — cannot come
+        // along. Record what each input carried so the result card can say
+        // exactly what was given up, instead of a vague forms-only warning.
+        inputSummaries.push(summarizeStructures(source));
 
         const copied = await merged.copyPages(source, source.getPageIndices());
         for (const page of copied) merged.addPage(page);
+        // Same reason as in split: give the browser a frame between files.
+        await yieldToBrowser();
       }
 
       setProgressMessage(t.merge.saving);
       setProgressPercent(96);
 
-      const bytes = (await merged.save()).slice();
-      setHadForms(sawForm);
+      const bytes = (await savePdf(merged)).slice();
+
+      // Aggregate what the inputs had, compare against what the output has —
+      // read from the document object that produced the bytes.
+      const aggregate: StructuralSummary = {
+        pageCount: inputSummaries.reduce((sum, item) => sum + item.pageCount, 0),
+        categories: Object.fromEntries(
+          STRUCTURE_CATEGORIES.map((category) => [
+            category,
+            inputSummaries.reduce((sum, item) => sum + item.categories[category], 0),
+          ])
+        ) as StructuralSummary['categories'],
+      };
+      setLostCategories(
+        diffStructures(aggregate, summarizeStructures(merged)).map((loss) => loss.category)
+      );
       setResult({
         blob: new Blob([bytes], { type: 'application/pdf' }),
         pages: merged.getPageCount(),
@@ -247,10 +274,16 @@ export default function MergePage() {
             </h2>
             <p className="mb-6 text-gray-600">{formatBytes(result.blob.size)}</p>
 
-            {hadForms && (
+            {lostCategories.length > 0 && (
               <div className="mx-auto mb-8 flex max-w-lg items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
                 <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                <p className="text-sm text-amber-900">{t.merge.formsWarning}</p>
+                <p className="text-sm text-amber-900">
+                  {t.merge.lostNote(
+                    new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
+                      lostCategories.map((category) => t.structures[category])
+                    )
+                  )}
+                </p>
               </div>
             )}
 
@@ -267,7 +300,7 @@ export default function MergePage() {
                 type="button"
                 onClick={() => {
                   setResult(null);
-                  setHadForms(false);
+                  setLostCategories([]);
                 }}
                 className="rounded-full bg-gray-100 px-8 py-4 text-lg font-bold text-gray-700 transition-all hover:bg-gray-200"
               >

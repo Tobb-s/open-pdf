@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { savePdf } from '@/lib/pdfio';
 import { createWorker } from 'tesseract.js';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
@@ -147,7 +148,7 @@ export default function OcrPage() {
       setProgressMessage(t.ocr.assembling);
       setProgressPercent(96);
 
-      const bytes = (await output.save()).slice();
+      const bytes = (await savePdf(output)).slice();
 
       if (wordsFound === 0) {
         throw new KnownToolError(

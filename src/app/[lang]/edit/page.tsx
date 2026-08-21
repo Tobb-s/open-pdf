@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { StandardFonts, degrees, rgb } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
@@ -10,7 +10,14 @@ import { Download, FileText, Loader2, MousePointerClick, Trash2, Upload, X } fro
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
+import {
+  clientToCanvasPoint,
+  pdfToViewportPoint,
+  uprightTextRotation,
+  viewportToPdfPoint,
+} from '@/lib/geometry';
 import { assertFileSize } from '@/lib/limits';
+import { loadPdf, savePdf } from '@/lib/pdfio';
 import { openPdf, renderPageToCanvas } from '@/lib/pdfjs';
 
 /** Preview scale. Annotation coordinates are stored in PDF points, not pixels. */
@@ -19,9 +26,16 @@ const FONT_SIZE = 12;
 
 interface Annotation {
   id: number;
-  /** Position in PDF user space, measured from the bottom-left of the page. */
+  /** The click, in PDF user space — where the overlay box is anchored. */
   x: number;
   y: number;
+  /**
+   * The text baseline, in PDF user space. Computed at click time by projecting
+   * the click plus one font-size of *visual* down through the same viewport
+   * transform, so it is correct whatever the page's rotation or CropBox.
+   */
+  bx: number;
+  by: number;
   text: string;
   pageIndex: number;
 }
@@ -34,7 +48,7 @@ export default function EditPage() {
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [isPlacingText, setIsPlacingText] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
-  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
+  const [view, setView] = useState<Awaited<ReturnType<typeof renderPageToCanvas>> | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [result, setResult] = useState<Blob | null>(null);
   const [error, setError] = useState<ToolError | null>(null);
@@ -60,7 +74,7 @@ export default function EditPage() {
     bytesRef.current = null;
     setFile(null);
     setPageCount(0);
-    setCanvasSize(null);
+    setView(null);
     setCurrentPage(1);
     setAnnotations([]);
     setIsPlacingText(false);
@@ -105,9 +119,9 @@ export default function EditPage() {
       try {
         const page = await document_.getPage(currentPage);
         if (cancelled) return;
-        const size = await renderPageToCanvas(page, canvas, PREVIEW_SCALE);
+        const rendered = await renderPageToCanvas(page, canvas, PREVIEW_SCALE);
         page.cleanup();
-        if (!cancelled) setCanvasSize(size);
+        if (!cancelled) setView(rendered);
       } catch (caught) {
         if (!cancelled) setError(describeError(caught, t));
       } finally {
@@ -122,20 +136,26 @@ export default function EditPage() {
 
   const placeAnnotation = (event: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
-    if (!isPlacingText || !canvas) return;
+    if (!isPlacingText || !canvas || !view) return;
 
-    const rect = canvas.getBoundingClientRect();
-    // The canvas is displayed at whatever width fits, so convert through its
-    // rendered size rather than assuming pixels map one to one.
-    const xInCanvas = ((event.clientX - rect.left) / rect.width) * canvas.width;
-    const yInCanvas = ((event.clientY - rect.top) / rect.height) * canvas.height;
+    // Client pixels → canvas pixels → PDF user space, through the viewport's
+    // full inverse transform. Dividing by the scale looked equivalent and was
+    // silently wrong on rotated or cropped pages — including pages our own
+    // Organize tool rotates.
+    const { x: cx, y: cy } = clientToCanvasPoint(canvas, event.clientX, event.clientY);
+    const click = viewportToPdfPoint(view.viewport, cx, cy);
+    // One font-size of VISUAL down marks the baseline; projecting both points
+    // keeps the offset correct in every orientation.
+    const baseline = viewportToPdfPoint(view.viewport, cx, cy + FONT_SIZE * PREVIEW_SCALE);
 
     setAnnotations((previous) => [
       ...previous,
       {
         id: nextIdRef.current++,
-        x: xInCanvas / PREVIEW_SCALE,
-        y: (canvas.height - yInCanvas) / PREVIEW_SCALE,
+        x: click.x,
+        y: click.y,
+        bx: baseline.x,
+        by: baseline.y,
         text: '',
         pageIndex: currentPage - 1,
       },
@@ -161,7 +181,7 @@ export default function EditPage() {
     setError(null);
 
     try {
-      const document_ = await PDFDocument.load(bytes);
+      const document_ = await loadPdf(bytes, { updateMetadata: false });
       const font = await document_.embedFont(StandardFonts.Helvetica);
       const pages = document_.getPages();
 
@@ -169,16 +189,18 @@ export default function EditPage() {
         const page = pages[annotation.pageIndex];
         if (!page) continue;
         page.drawText(annotation.text, {
-          x: annotation.x,
-          // drawText places the baseline; the click marked the top of the box.
-          y: annotation.y - FONT_SIZE,
+          x: annotation.bx,
+          y: annotation.by,
           size: FONT_SIZE,
           font,
           color: rgb(0, 0, 0),
+          // Pre-rotate by the page's own /Rotate so the text reads upright on
+          // screen; verified against pdf.js in tests/geometry.test.ts.
+          rotate: degrees(uprightTextRotation(page.getRotation().angle)),
         });
       }
 
-      const saved = (await document_.save()).slice();
+      const saved = (await savePdf(document_)).slice();
       setResult(new Blob([saved], { type: 'application/pdf' }));
     } catch (caught) {
       setError(describeError(caught, t));
@@ -294,14 +316,16 @@ export default function EditPage() {
                   </div>
                 )}
 
-                {canvasSize &&
-                  pageAnnotations.map((annotation) => (
+                {view &&
+                  pageAnnotations.map((annotation) => {
+                    const anchor = pdfToViewportPoint(view.viewport, annotation);
+                    return (
                     <div
                       key={annotation.id}
                       className="absolute"
                       style={{
-                        left: `${((annotation.x * PREVIEW_SCALE) / canvasSize.width) * 100}%`,
-                        top: `${(1 - (annotation.y * PREVIEW_SCALE) / canvasSize.height) * 100}%`,
+                        left: `${(anchor.x / view.width) * 100}%`,
+                        top: `${(anchor.y / view.height) * 100}%`,
                       }}
                     >
                       <div className="flex -translate-y-1/2 items-center gap-1 rounded-lg border border-purple-300 bg-white shadow-sm">
@@ -335,7 +359,8 @@ export default function EditPage() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
               </div>
             </div>
 

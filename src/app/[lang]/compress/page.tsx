@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
+import { savePdf } from '@/lib/pdfio';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
@@ -170,7 +171,7 @@ export default function CompressPage() {
       setProgressMessage(t.compress.saving);
       setProgressPercent(96);
 
-      const bytes = (await output.save()).slice();
+      const bytes = (await savePdf(output)).slice();
       setResult({
         blob: new Blob([bytes], { type: 'application/pdf' }),
         size: bytes.length,

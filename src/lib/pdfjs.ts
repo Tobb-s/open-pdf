@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from 'pdfjs-dist';
 
 /**
  * Everything pdf.js loads at runtime is served from this origin, copied out of
@@ -62,7 +62,7 @@ export async function renderPageToCanvas(
   page: PDFPageProxy,
   canvas: HTMLCanvasElement,
   scale: number
-): Promise<{ width: number; height: number }> {
+): Promise<{ width: number; height: number; viewport: PageViewport }> {
   const viewport = page.getViewport({ scale });
   canvas.width = Math.max(1, Math.floor(viewport.width));
   canvas.height = Math.max(1, Math.floor(viewport.height));
@@ -74,7 +74,9 @@ export async function renderPageToCanvas(
   context.clearRect(0, 0, canvas.width, canvas.height);
 
   await page.render({ canvas, canvasContext: context, viewport }).promise;
-  return { width: canvas.width, height: canvas.height };
+  // The viewport travels with the pixels: it is the only correct way to map a
+  // click on this render back to PDF user space (rotation and CropBox included).
+  return { width: canvas.width, height: canvas.height, viewport };
 }
 
 /** Renders a page into a detached canvas and returns it as a JPEG blob. */

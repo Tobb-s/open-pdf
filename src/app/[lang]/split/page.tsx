@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { PDFDocument } from 'pdf-lib';
+import { loadPdf, savePdf } from '@/lib/pdfio';
 import JSZip from 'jszip';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
@@ -11,7 +12,7 @@ import { Download, FileText, Layers, Loader2, Upload, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
-import { assertFileSize, throwIfCancelled } from '@/lib/limits';
+import { assertFileSize, throwIfCancelled, yieldToBrowser } from '@/lib/limits';
 import { parsePageRange, summarizePages } from '@/lib/pageRange';
 
 type Result =
@@ -54,7 +55,7 @@ export default function SplitPage() {
     try {
       assertFileSize(selected, t);
       const bytes = new Uint8Array(await selected.arrayBuffer());
-      const document_ = await PDFDocument.load(bytes);
+      const document_ = await loadPdf(bytes, { updateMetadata: false });
       bytesRef.current = bytes;
       setFile(selected);
       setPageCount(document_.getPageCount());
@@ -74,7 +75,7 @@ export default function SplitPage() {
     setError(null);
 
     try {
-      const source = await PDFDocument.load(bytes);
+      const source = await loadPdf(bytes, { updateMetadata: false });
 
       if (splitEachPage) {
         const zip = new JSZip();
@@ -88,8 +89,11 @@ export default function SplitPage() {
           const single = await PDFDocument.create();
           const [copied] = await single.copyPages(source, [index]);
           single.addPage(copied);
-          const saved = (await single.save()).slice();
+          const saved = (await savePdf(single)).slice();
           zip.file(`page-${String(index + 1).padStart(width, '0')}.pdf`, saved);
+          // Let the progress bar paint and a Cancel click land between pages;
+          // without pdf-lib's ticks nothing else in this loop yields.
+          await yieldToBrowser();
         }
 
         setProgressMessage(t.split.packing);
@@ -118,7 +122,7 @@ export default function SplitPage() {
         );
         for (const page of copied) output.addPage(page);
 
-        const saved = (await output.save()).slice();
+        const saved = (await savePdf(output)).slice();
         setResult({
           kind: 'single',
           blob: new Blob([saved], { type: 'application/pdf' }),

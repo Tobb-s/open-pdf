@@ -1,4 +1,5 @@
 import type { ToolSlug } from '@/lib/tools';
+import type { StructureCategory } from '@/lib/verify/structural';
 
 export const LOCALES = ['es', 'en'] as const;
 export type Locale = (typeof LOCALES)[number];
@@ -81,6 +82,8 @@ export interface Dictionary {
     body: string;
     seeAll: string;
   };
+  /** Human names for what a PDF carries besides pages, used by result reports. */
+  structures: Record<StructureCategory, string>;
   tools: Record<ToolSlug, ToolCopy>;
   compress: {
     heading: string;
@@ -151,7 +154,7 @@ export interface Dictionary {
     moveLater: (name: string) => string;
     remove: (name: string) => string;
     doneTitle: (pages: number) => string;
-    formsWarning: string;
+    lostNote: (list: string) => string;
     another: string;
   };
   split: {
@@ -192,6 +195,8 @@ export interface Dictionary {
     action: string;
     doneTitle: (pages: number) => string;
     doneBody: string;
+    keptNote: (list: string) => string;
+    lostNote: (list: string) => string;
     another: string;
   };
   pdfToWord: {
@@ -447,6 +452,16 @@ export const es: Dictionary = {
     footer: 'OpenPDF — libre y de código abierto.',
     readCode: 'Ver el código',
   },
+  structures: {
+    form: 'los campos de formulario',
+    bookmarks: 'los marcadores',
+    attachments: 'los archivos adjuntos',
+    pageLabels: 'las etiquetas de página',
+    layers: 'las capas',
+    accessibility: 'la estructura de accesibilidad',
+    metadataTitle: 'el título del documento',
+    language: 'el idioma del documento',
+  },
   notFound: {
     title: 'Esa página no existe',
     body: 'Puede que el enlace esté desactualizado, o que la dirección tenga algún error. Acá está lo que busca la mayoría.',
@@ -635,8 +650,8 @@ export const es: Dictionary = {
     moveLater: (name) => `Mover ${name} después`,
     remove: (name) => `Quitar ${name}`,
     doneTitle: (pages) => `${pages} ${pages === 1 ? 'página' : 'páginas'} en un solo documento`,
-    formsWarning:
-      'Uno de estos archivos tenía campos de formulario rellenables. Al unir se conservan las páginas pero no los campos, así que el documento combinado ya no es interactivo.',
+    lostNote: (list) =>
+      `Los archivos originales tenían ${list}. Al combinarlos en un documento nuevo, eso no se conserva: quedan las páginas, no lo demás.`,
     another: 'Unir más archivos',
   },
   split: {
@@ -681,6 +696,9 @@ export const es: Dictionary = {
     action: 'Guardar PDF',
     doneTitle: (pages) => `${pages} ${pages === 1 ? 'página' : 'páginas'}, en tu orden`,
     doneBody: 'Tu documento actualizado está listo.',
+    keptNote: (list) => `Se conservaron ${list}.`,
+    lostNote: (list) =>
+      `Atención: el documento producido perdió ${list}. Si los necesitás, conservá el original.`,
     another: 'Organizar otro archivo',
   },
   pdfToWord: {
@@ -985,6 +1003,16 @@ export const en: Dictionary = {
     footer: 'OpenPDF — free and open source.',
     readCode: 'Read the code',
   },
+  structures: {
+    form: 'the form fields',
+    bookmarks: 'the bookmarks',
+    attachments: 'the attached files',
+    pageLabels: 'the page labels',
+    layers: 'the layers',
+    accessibility: 'the accessibility structure',
+    metadataTitle: 'the document title',
+    language: 'the document language',
+  },
   notFound: {
     title: 'That page does not exist',
     body: 'The link may be out of date, or the address slightly off. Here is where most people were heading.',
@@ -1170,8 +1198,8 @@ export const en: Dictionary = {
     moveLater: (name) => `Move ${name} later`,
     remove: (name) => `Remove ${name}`,
     doneTitle: (pages) => `${pages} ${pages === 1 ? 'page' : 'pages'} in one document`,
-    formsWarning:
-      'One of these files had fillable form fields. Merging keeps the pages but not the fields, so the combined document is no longer interactive.',
+    lostNote: (list) =>
+      `The original files carried ${list}. Combining them into a new document does not preserve that: the pages survive, the rest does not.`,
     another: 'Merge more files',
   },
   split: {
@@ -1215,6 +1243,9 @@ export const en: Dictionary = {
     action: 'Save PDF',
     doneTitle: (pages) => `${pages} ${pages === 1 ? 'page' : 'pages'}, in your order`,
     doneBody: 'Your updated document is ready.',
+    keptNote: (list) => `${list} survived intact.`,
+    lostNote: (list) =>
+      `Careful: the produced document lost ${list}. Keep your original if you need them.`,
     another: 'Organize another file',
   },
   pdfToWord: {

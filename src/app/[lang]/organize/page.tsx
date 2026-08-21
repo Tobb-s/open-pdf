@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PDFDocument, degrees } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
@@ -28,6 +27,8 @@ import {
   throwIfCancelled,
 } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { applyPageEdits } from '@/lib/pageEdits';
+import { reportStructures, type StructuralReport } from '@/lib/verify/structural';
 
 interface OrganizedPage {
   id: string;
@@ -43,7 +44,7 @@ interface OrganizedPage {
 const THUMBNAIL_SCALE = 0.3;
 
 export default function OrganizePage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<OrganizedPage[]>([]);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -52,7 +53,11 @@ export default function OrganizePage() {
   const [loadPercent, setLoadPercent] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<Blob | null>(null);
+  const [report, setReport] = useState<StructuralReport | null>(null);
   const [error, setError] = useState<ToolError | null>(null);
+
+  const listFormat = (items: string[]) =>
+    new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(items);
 
   const bytesRef = useRef<Uint8Array | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -75,6 +80,7 @@ export default function OrganizePage() {
     setPages([]);
     setDraggedId(null);
     setResult(null);
+    setReport(null);
     setError(null);
     setLoadPercent(0);
   };
@@ -151,17 +157,18 @@ export default function OrganizePage() {
     setError(null);
 
     try {
-      const source = await PDFDocument.load(bytes);
-      const output = await PDFDocument.create();
+      // The output IS the input, mutated in place. Rebuilding the document with
+      // copyPages into a fresh one was measured to strip its form fields,
+      // bookmarks, attachments, language and title — the reader asked to change
+      // the page order, not to lose everything the pages hang from.
+      const saved = await applyPageEdits(
+        bytes,
+        pages.map((page) => ({ sourceIndex: page.sourceIndex, rotation: page.rotation }))
+      );
 
-      for (const page of pages) {
-        const [copied] = await output.copyPages(source, [page.sourceIndex]);
-        copied.setRotation(degrees((copied.getRotation().angle + page.rotation) % 360));
-        output.addPage(copied);
-      }
-
-      const saved = (await output.save()).slice();
-      setResult(new Blob([saved], { type: 'application/pdf' }));
+      // Read the claim back out of the produced bytes, never assume it.
+      setReport(await reportStructures(bytes, saved));
+      setResult(new Blob([saved as unknown as BlobPart], { type: 'application/pdf' }));
     } catch (caught) {
       setError(describeError(caught, t));
     } finally {
@@ -208,7 +215,24 @@ export default function OrganizePage() {
             <h2 className="mb-2 text-2xl font-bold">
               {t.organize.doneTitle(pages.length)}
             </h2>
-            <p className="mb-8 text-gray-600">{t.organize.doneBody}</p>
+            <p className="mb-4 text-gray-600">{t.organize.doneBody}</p>
+
+            {report && report.losses.length > 0 ? (
+              <div className="mx-auto mb-8 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                {t.organize.lostNote(
+                  listFormat(report.losses.map((loss) => t.structures[loss.category]))
+                )}
+              </div>
+            ) : report && report.present.length > 0 ? (
+              <p className="mb-8 text-sm text-gray-500">
+                {t.organize.keptNote(
+                  listFormat(report.present.map((category) => t.structures[category]))
+                )}
+              </p>
+            ) : (
+              <div className="mb-8" />
+            )}
+
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <button
                 type="button"
