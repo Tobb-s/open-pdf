@@ -76,3 +76,165 @@ export function pdfToViewportPoint(
 export function uprightTextRotation(pageRotationAngle: number): number {
   return ((pageRotationAngle % 360) + 360) % 360;
 }
+
+/* ------------------------------------------------------------------ *
+ * Placement in pure PDF space
+ *
+ * Everything above needs a rendered page: it maps a click on a canvas.
+ * Everything below works from the page itself — its box and its /Rotate — so
+ * the code that writes a watermark or a page number never has to render
+ * anything first. The two agree by construction, and tests/geometry.test.ts
+ * checks that agreement against pdf.js for all four rotations.
+ * ------------------------------------------------------------------ */
+
+/** A page's visible area and its display rotation. */
+export interface PageBox {
+  /** Left edge of the crop box, in PDF user space. */
+  x: number;
+  /** Bottom edge of the crop box, in PDF user space. */
+  y: number;
+  width: number;
+  height: number;
+  /** /Rotate, any multiple of 90 (normalized on use). */
+  rotation: number;
+}
+
+/** The slice of a pdf-lib PDFPage that placement needs. */
+export interface PageLike {
+  getCropBox(): { x: number; y: number; width: number; height: number };
+  getRotation(): { angle: number };
+}
+
+export function normalizeAngle(angle: number): number {
+  return ((Math.round(angle) % 360) + 360) % 360;
+}
+
+export function pageBoxOf(page: PageLike): PageBox {
+  const box = page.getCropBox();
+  return { ...box, rotation: normalizeAngle(page.getRotation().angle) };
+}
+
+/**
+ * The page as the reader sees it. A quarter turn swaps width and height, which
+ * is exactly the case hand-rolled placement code gets wrong.
+ */
+export function visualSize(box: PageBox): { width: number; height: number } {
+  const quarterTurn = normalizeAngle(box.rotation) % 180 !== 0;
+  return quarterTurn
+    ? { width: box.height, height: box.width }
+    : { width: box.width, height: box.height };
+}
+
+/**
+ * Visual coordinates — origin at the top-left of the page as displayed, y
+ * pointing DOWN — to PDF user space. Same convention as pdf.js's
+ * `viewport.convertToPdfPoint` at scale 1, and tested against it.
+ */
+export function visualToPdfPoint(box: PageBox, vx: number, vy: number): PdfPoint {
+  switch (normalizeAngle(box.rotation)) {
+    case 90:
+      return { x: box.x + vy, y: box.y + vx };
+    case 180:
+      return { x: box.x + box.width - vx, y: box.y + vy };
+    case 270:
+      return { x: box.x + box.width - vy, y: box.y + box.height - vx };
+    default:
+      return { x: box.x + vx, y: box.y + box.height - vy };
+  }
+}
+
+/**
+ * Visual coordinates with the origin at the BOTTOM-left and y pointing UP.
+ *
+ * This is the frame a rotated page behaves like an unrotated one in, so it is
+ * the frame the drawing code works in: pair it with `uprightTextRotation` and
+ * pdf-lib's `drawText` behaves exactly as it would on a page with no /Rotate.
+ */
+export function visualUpToPdfPoint(box: PageBox, vx: number, vy: number): PdfPoint {
+  return visualToPdfPoint(box, vx, visualSize(box).height - vy);
+}
+
+/** The nine places something can sit on a page. */
+export type Anchor =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right';
+
+export const ANCHORS: readonly Anchor[] = [
+  'top-left',
+  'top-center',
+  'top-right',
+  'middle-left',
+  'center',
+  'middle-right',
+  'bottom-left',
+  'bottom-center',
+  'bottom-right',
+];
+
+/**
+ * Where a block of `content` sits on the page, in the bottom-left/y-up visual
+ * frame. Returns the block's bottom-left corner.
+ *
+ * The margin applies to the six edge anchors; a centred anchor ignores it on
+ * that axis. A block larger than the page is clamped to the page rather than
+ * pushed off it.
+ */
+export function anchorBlock(
+  visual: { width: number; height: number },
+  content: { width: number; height: number },
+  anchor: Anchor,
+  margin: number
+): { x: number; y: number } {
+  const [vertical, horizontal] = anchor.split('-');
+
+  const x =
+    horizontal === 'left'
+      ? margin
+      : horizontal === 'right'
+        ? visual.width - content.width - margin
+        : (visual.width - content.width) / 2;
+
+  const y =
+    vertical === 'bottom'
+      ? margin
+      : vertical === 'top'
+        ? visual.height - content.height - margin
+        : (visual.height - content.height) / 2;
+
+  return {
+    x: Math.min(Math.max(x, 0), Math.max(visual.width - content.width, 0)),
+    y: Math.min(Math.max(y, 0), Math.max(visual.height - content.height, 0)),
+  };
+}
+
+/**
+ * Where to hand pdf-lib the origin of a block that should end up centred on
+ * `target`, once pdf-lib rotates it by `angle` about that same origin.
+ *
+ * pdf-lib pivots `drawText` and `drawImage` about the point you give it, not
+ * about the block's centre, so a watermark tilted 45° and asked for the middle
+ * of the page would drift off it. Working out where the centre lands and
+ * subtracting is what keeps a tilted stamp where the reader put it.
+ */
+export function originForRotatedCenter(
+  target: { x: number; y: number },
+  content: { width: number; height: number },
+  angle: number
+): { x: number; y: number } {
+  const radians = (angle * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const halfWidth = content.width / 2;
+  const halfHeight = content.height / 2;
+  return {
+    x: target.x - (halfWidth * cos - halfHeight * sin),
+    y: target.y - (halfWidth * sin + halfHeight * cos),
+  };
+}

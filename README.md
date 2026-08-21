@@ -16,8 +16,10 @@ en la propia página.
 | **PDF a Word** | Extrae el texto a un `.docx` editable. Sólo texto: no conserva imágenes, tablas ni maquetación. |
 | **Editar** | Coloca texto en cualquier punto de una página. |
 | **Rellenar formulario** | Completa los campos interactivos de un formulario PDF. |
-| **PPT y Word a PDF** | Convierte PowerPoint, Word, Excel y sus equivalentes libres a PDF con el motor de LibreOffice compilado a WebAssembly. Requiere descargar el motor una vez (~51 MB), sólo cuando lo pedís. |
+| **PPT y Word a PDF** | Convierte PowerPoint, Word, Excel y sus equivalentes libres a PDF con el motor de LibreOffice compilado a WebAssembly. Requiere descargar el motor una vez (~78 MB), sólo cuando lo pedís. |
 | **Imágenes y PDF** | Convierte cada página en JPG, o une imágenes JPG, PNG y WebP en un PDF. |
+| **Marca de agua** | Pone un texto o una imagen encima de las páginas que elijas, con opacidad, inclinación y posición. Vista previa de la página real, no una aproximación. |
+| **Numerar** | Numera páginas eligiendo esquina, desde qué número empezar y formato «3» o «3 de 40». Sale derecho también en páginas rotadas. |
 
 ## Idiomas
 
@@ -119,13 +121,26 @@ npm test
 ```
 src/
   app/[lang]/     una ruta por herramienta y por idioma, con su layout de metadatos
-  components/     FileDropzone, ErrorNotice, ProgressPanel, Navbar, ToolCard
+  components/     FileDropzone, ErrorNotice, ProgressPanel, Navbar, ToolCard,
+                  StampPreview y StampControls (compartidos por marca de agua
+                  y numeración)
   lib/
     pdfjs.ts      carga pdf.js con el worker local; copia los bytes antes de
                   pasarlos al worker, que los transfiere y deja el original vacío
     ocr.ts        extrae palabras de blocks → paragraphs → lines → words
     textLayout.ts reconstruye líneas y párrafos a partir de fragmentos sueltos
     pageRange.ts  parseo de "1-3, 7, 12-9"
+    geometry.ts   el único lugar donde se convierten coordenadas: respeta
+                  /Rotate y CropBox, y está verificado contra pdf.js
+    stamp.ts      dibuja marcas de agua y números encima de páginas existentes
+    pageEdits.ts  reordenar, rotar y borrar páginas mutando el documento en el
+                  sitio, sin reconstruirlo con copyPages
+    pdfGc.ts      recolector: pdf-lib no tiene, y sin esto una página borrada
+                  seguía viajando entera dentro del archivo
+    pdfio.ts      load/save de pdf-lib sin sus ticks de setTimeout
+    verify/
+      structural.ts  compara el catálogo de entrada contra el de salida y
+                     declara qué sobrevivió, contando por referencia viva
     errors.ts     traduce excepciones a mensajes con causa y salida
     limits.ts     topes de tamaño y páginas, cancelación
     tools.ts      catálogo de herramientas: orden y color

@@ -82,3 +82,15 @@ export function summarizePages(pages: number[]): string {
 
   return parts.join(', ');
 }
+
+/**
+ * The same selection, read as a SET: sorted, without repeats.
+ *
+ * Order and repetition are the point for splitting, and a hazard for anything
+ * that draws on a page — asking for `3, 3` would stamp page 3 twice, at double
+ * opacity, and numbering would count it twice.
+ */
+export function parsePageSet(input: string, pageCount: number): PageRangeResult {
+  const { pages, invalid } = parsePageRange(input, pageCount);
+  return { pages: [...new Set(pages)].sort((a, b) => a - b), invalid };
+}

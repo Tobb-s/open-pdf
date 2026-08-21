@@ -7,6 +7,7 @@ import {
   FileStack,
   FileType,
   FormInput,
+  Hash,
   Image as ImageIcon,
   Minimize2,
   PenSquare,
@@ -14,6 +15,7 @@ import {
   ScanText,
   Search,
   Split,
+  Stamp,
   type LucideIcon,
 } from 'lucide-react';
 import Navbar from '@/components/Navbar';
@@ -33,6 +35,8 @@ const ICONS: Record<ToolSlug, LucideIcon> = {
   'fill-form': FormInput,
   'office-to-pdf': Presentation,
   'image-pdf': ImageIcon,
+  watermark: Stamp,
+  'page-numbers': Hash,
 };
 
 export default function Home() {

@@ -1,3 +1,4 @@
+import type { Anchor } from '@/lib/geometry';
 import type { ToolSlug } from '@/lib/tools';
 import type { StructureCategory } from '@/lib/verify/structural';
 
@@ -364,6 +365,75 @@ export interface Dictionary {
     combineSkipped: (names: string) => string;
     downloadZip: string;
   };
+  /** Copy shared by the two tools that draw on top of existing pages. */
+  stamp: {
+    position: string;
+    anchors: Record<Anchor, string>;
+    margin: string;
+    marginNote: string;
+    typeface: string;
+    fontHelvetica: string;
+    fontTimes: string;
+    fontCourier: string;
+    bold: string;
+    italic: string;
+    size: string;
+    color: string;
+    whichPages: string;
+    allPages: string;
+    somePages: string;
+    rangePlaceholder: string;
+    rangeHelp: string;
+    rangeInvalid: (tokens: string) => string;
+    rangeEmpty: string;
+    rangeChosen: (count: number, list: string) => string;
+    preview: string;
+    previewPage: (page: number) => string;
+    previewWorking: string;
+    previewFailed: string;
+    unsupportedCharacter: (character: string) => string;
+  };
+  watermark: {
+    heading: string;
+    intro: string;
+    choose: string;
+    kind: string;
+    kindText: string;
+    kindImage: string;
+    text: string;
+    textPlaceholder: string;
+    chooseImage: string;
+    imageNote: string;
+    imageChosen: (name: string) => string;
+    changeImage: string;
+    imageWidth: string;
+    opacity: string;
+    tilt: string;
+    action: string;
+    working: string;
+    nothingTitle: string;
+    nothingBody: string;
+    doneTitle: (pages: number) => string;
+    doneBody: string;
+    another: string;
+  };
+  pageNumbers: {
+    heading: string;
+    intro: string;
+    choose: string;
+    format: string;
+    formatPlain: string;
+    formatOfTotal: string;
+    /** The word printed between the two numbers, inside the PDF itself. */
+    ofWord: string;
+    startAt: string;
+    startAtNote: string;
+    action: string;
+    working: string;
+    doneTitle: (pages: number) => string;
+    doneBody: string;
+    another: string;
+  };
   errors: {
     encryptedTitle: string;
     encryptedBody: string;
@@ -551,6 +621,22 @@ export const es: Dictionary = {
       description:
         'Convertí cada página de un PDF en una imagen JPG, o combiná imágenes JPG, PNG y WebP en un solo PDF.',
       keywords: ['jpg', 'jpeg', 'png', 'webp', 'imagen', 'foto', 'convertir'],
+    },
+    watermark: {
+      title: 'Marca de agua en PDF',
+      navLabel: 'Marca de agua',
+      tagline: 'Poné un texto o un logo encima de cada página.',
+      description:
+        'Agregá una marca de agua de texto o imagen a un PDF, eligiendo opacidad, inclinación, posición y en qué páginas. Todo en tu navegador.',
+      keywords: ['marca', 'agua', 'watermark', 'logo', 'sello', 'borrador', 'confidencial'],
+    },
+    'page-numbers': {
+      title: 'Numerar páginas de un PDF',
+      navLabel: 'Numerar',
+      tagline: 'Poné números de página donde los necesites.',
+      description:
+        'Numerá las páginas de un PDF eligiendo posición, desde qué número empezar y el formato. Funciona también en páginas rotadas. Todo en tu navegador.',
+      keywords: ['numerar', 'números', 'página', 'foliar', 'paginación', 'numeración'],
     },
   },
   compress: {
@@ -907,6 +993,85 @@ export const es: Dictionary = {
     combineSkipped: (names) => `Quedaron fuera del PDF combinado: ${names}.`,
     downloadZip: 'Descargar ZIP',
   },
+  stamp: {
+    position: 'Posición',
+    anchors: {
+      'top-left': 'Arriba a la izquierda',
+      'top-center': 'Arriba al centro',
+      'top-right': 'Arriba a la derecha',
+      'middle-left': 'Al medio, a la izquierda',
+      center: 'Al centro',
+      'middle-right': 'Al medio, a la derecha',
+      'bottom-left': 'Abajo a la izquierda',
+      'bottom-center': 'Abajo al centro',
+      'bottom-right': 'Abajo a la derecha',
+    },
+    margin: 'Margen',
+    marginNote: 'Distancia al borde, en puntos.',
+    typeface: 'Tipografía',
+    fontHelvetica: 'Helvetica',
+    fontTimes: 'Times',
+    fontCourier: 'Courier',
+    bold: 'Negrita',
+    italic: 'Cursiva',
+    size: 'Tamaño',
+    color: 'Color',
+    whichPages: 'Páginas',
+    allPages: 'Todas',
+    somePages: 'Algunas',
+    rangePlaceholder: '1-3, 7, 12-',
+    rangeHelp: 'Números y rangos separados por comas. «12-» significa de la 12 al final.',
+    rangeInvalid: (tokens) => `No entendí esto: ${tokens}.`,
+    rangeEmpty: 'Elegí al menos una página.',
+    rangeChosen: (count, list) =>
+      `${count} ${count === 1 ? 'página' : 'páginas'}: ${list}`,
+    preview: 'Vista previa',
+    previewPage: (page) => `Página ${page}, con la marca aplicada de verdad`,
+    previewWorking: 'Armando la vista previa…',
+    previewFailed: 'No se pudo armar la vista previa, pero podés aplicar igual.',
+    unsupportedCharacter: (character) =>
+      `Esta tipografía no puede dibujar «${character}». Las tipografías estándar de PDF cubren el español pero no todos los alfabetos.`,
+  },
+  watermark: {
+    heading: 'Marca de agua',
+    intro: 'Poné un texto o una imagen encima de las páginas que elijas.',
+    choose: 'Elegí un PDF',
+    kind: 'Qué poner',
+    kindText: 'Texto',
+    kindImage: 'Imagen',
+    text: 'Texto',
+    textPlaceholder: 'BORRADOR',
+    chooseImage: 'Elegí una imagen',
+    imageNote: 'PNG o JPG. Un PNG con fondo transparente queda mejor.',
+    imageChosen: (name) => `Imagen: ${name}`,
+    changeImage: 'Cambiar imagen',
+    imageWidth: 'Ancho',
+    opacity: 'Opacidad',
+    tilt: 'Inclinación',
+    action: 'Aplicar marca de agua',
+    working: 'Aplicando…',
+    nothingTitle: 'Falta qué poner',
+    nothingBody: 'Escribí un texto o elegí una imagen antes de aplicar.',
+    doneTitle: (pages) => `Marca aplicada en ${pages} ${pages === 1 ? 'página' : 'páginas'}`,
+    doneBody: 'Tu documento con la marca de agua está listo.',
+    another: 'Marcar otro',
+  },
+  pageNumbers: {
+    heading: 'Numerar páginas',
+    intro: 'Poné números de página donde los necesites, con el formato que quieras.',
+    choose: 'Elegí un PDF',
+    format: 'Formato',
+    formatPlain: 'Solo el número',
+    formatOfTotal: 'Número y total',
+    ofWord: 'de',
+    startAt: 'Empezar en',
+    startAtNote: 'El número que lleva la primera página numerada.',
+    action: 'Numerar páginas',
+    working: 'Numerando…',
+    doneTitle: (pages) => `${pages} ${pages === 1 ? 'página numerada' : 'páginas numeradas'}`,
+    doneBody: 'Tu documento numerado está listo.',
+    another: 'Numerar otro',
+  },
   errors: {
     encryptedTitle: 'Este PDF está protegido con contraseña',
     encryptedBody:
@@ -1102,6 +1267,22 @@ export const en: Dictionary = {
       description:
         'Turn every page of a PDF into a JPG image, or combine JPG, PNG and WebP images into a single PDF.',
       keywords: ['jpg', 'jpeg', 'png', 'webp', 'image', 'photo', 'picture', 'convert'],
+    },
+    watermark: {
+      title: 'Watermark PDF',
+      navLabel: 'Watermark',
+      tagline: 'Put text or a logo over every page.',
+      description:
+        'Add a text or image watermark to a PDF, choosing opacity, tilt, position and which pages. All in your browser.',
+      keywords: ['watermark', 'stamp', 'logo', 'draft', 'confidential', 'overlay'],
+    },
+    'page-numbers': {
+      title: 'Number PDF pages',
+      navLabel: 'Numbers',
+      tagline: 'Put page numbers wherever you need them.',
+      description:
+        'Number the pages of a PDF, choosing position, the number to start from and the format. Works on rotated pages too. All in your browser.',
+      keywords: ['page numbers', 'numbering', 'paginate', 'folio', 'number pages'],
     },
   },
   compress: {
@@ -1445,6 +1626,84 @@ export const en: Dictionary = {
       'None of the documents in the list converted. Reload the page and try them one at a time to see which one is the problem.',
     combineSkipped: (names) => `Left out of the combined PDF: ${names}.`,
     downloadZip: 'Download ZIP',
+  },
+  stamp: {
+    position: 'Position',
+    anchors: {
+      'top-left': 'Top left',
+      'top-center': 'Top centre',
+      'top-right': 'Top right',
+      'middle-left': 'Middle left',
+      center: 'Centre',
+      'middle-right': 'Middle right',
+      'bottom-left': 'Bottom left',
+      'bottom-center': 'Bottom centre',
+      'bottom-right': 'Bottom right',
+    },
+    margin: 'Margin',
+    marginNote: 'Distance from the edge, in points.',
+    typeface: 'Typeface',
+    fontHelvetica: 'Helvetica',
+    fontTimes: 'Times',
+    fontCourier: 'Courier',
+    bold: 'Bold',
+    italic: 'Italic',
+    size: 'Size',
+    color: 'Colour',
+    whichPages: 'Pages',
+    allPages: 'All',
+    somePages: 'Some',
+    rangePlaceholder: '1-3, 7, 12-',
+    rangeHelp: 'Numbers and ranges separated by commas. "12-" means 12 to the end.',
+    rangeInvalid: (tokens) => `I could not read this: ${tokens}.`,
+    rangeEmpty: 'Choose at least one page.',
+    rangeChosen: (count, list) => `${count} ${count === 1 ? 'page' : 'pages'}: ${list}`,
+    preview: 'Preview',
+    previewPage: (page) => `Page ${page}, with the mark really applied`,
+    previewWorking: 'Building the preview…',
+    previewFailed: 'The preview could not be built, but you can still apply.',
+    unsupportedCharacter: (character) =>
+      `This typeface cannot draw "${character}". The standard PDF typefaces cover Western European languages but not every alphabet.`,
+  },
+  watermark: {
+    heading: 'Watermark',
+    intro: 'Put text or an image over the pages you choose.',
+    choose: 'Choose a PDF',
+    kind: 'What to put',
+    kindText: 'Text',
+    kindImage: 'Image',
+    text: 'Text',
+    textPlaceholder: 'DRAFT',
+    chooseImage: 'Choose an image',
+    imageNote: 'PNG or JPG. A PNG with a transparent background looks best.',
+    imageChosen: (name) => `Image: ${name}`,
+    changeImage: 'Change image',
+    imageWidth: 'Width',
+    opacity: 'Opacity',
+    tilt: 'Tilt',
+    action: 'Apply watermark',
+    working: 'Applying…',
+    nothingTitle: 'Nothing to put on',
+    nothingBody: 'Type some text or choose an image before applying.',
+    doneTitle: (pages) => `Marked ${pages} ${pages === 1 ? 'page' : 'pages'}`,
+    doneBody: 'Your watermarked document is ready.',
+    another: 'Mark another',
+  },
+  pageNumbers: {
+    heading: 'Number pages',
+    intro: 'Put page numbers where you need them, in the format you want.',
+    choose: 'Choose a PDF',
+    format: 'Format',
+    formatPlain: 'Just the number',
+    formatOfTotal: 'Number and total',
+    ofWord: 'of',
+    startAt: 'Start at',
+    startAtNote: 'The number the first numbered page carries.',
+    action: 'Number pages',
+    working: 'Numbering…',
+    doneTitle: (pages) => `${pages} ${pages === 1 ? 'page numbered' : 'pages numbered'}`,
+    doneBody: 'Your numbered document is ready.',
+    another: 'Number another',
   },
   errors: {
     encryptedTitle: 'This PDF is password-protected',

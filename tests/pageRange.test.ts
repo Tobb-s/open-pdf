@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePageRange, summarizePages } from '@/lib/pageRange';
+import { parsePageRange, parsePageSet, summarizePages } from '@/lib/pageRange';
 
 describe('parsePageRange', () => {
   it('reads single pages and ranges', () => {
@@ -53,5 +53,21 @@ describe('summarizePages', () => {
   it('handles a single page and an empty selection', () => {
     expect(summarizePages([4])).toBe('4');
     expect(summarizePages([])).toBe('');
+  });
+});
+
+describe('parsePageSet', () => {
+  it('sorts and drops repeats, so nothing gets stamped twice', () => {
+    // parsePageRange keeps order and repeats on purpose — that is what splitting
+    // needs. Stamping needs the opposite: `3, 1, 3` is three pages to a splitter
+    // and two pages to a watermark, at single opacity.
+    expect(parsePageSet('3, 1, 3', 10).pages).toEqual([1, 3]);
+    expect(parsePageSet('5-1', 10).pages).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('still reports what it could not read', () => {
+    const result = parsePageSet('2, tres, 4', 10);
+    expect(result.pages).toEqual([2, 4]);
+    expect(result.invalid).toEqual(['tres']);
   });
 });
