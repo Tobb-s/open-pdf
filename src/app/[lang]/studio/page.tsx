@@ -12,9 +12,11 @@ import { ColorRow, Field, NumberRow } from '@/components/StampControls';
 import {
   Crop,
   Download,
+  EyeOff,
   FilePlus2,
   FileText,
   Hand,
+  Image as ImageIcon,
   ImageUp,
   Loader2,
   Pen,
@@ -29,7 +31,7 @@ import {
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
-import { uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
+import { pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
 import { assertFileSize } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
@@ -44,11 +46,18 @@ import {
   type Mark,
   type Metadata,
   type MetadataPatch,
+  type Rect,
   type NumberingSpec,
   type ScriptState,
   type WatermarkSpec,
 } from '@/lib/studio/script';
 import { importedStructures, type FieldCheck } from '@/lib/studio/verify';
+import {
+  insideAny,
+  judgeRedaction,
+  redactedPages,
+  type RedactionTarget,
+} from '@/lib/studio/redaction';
 import {
   clearSession,
   loadSession,
@@ -70,6 +79,88 @@ const SETTLE_MS = 450;
  * Chosen from the plan's own budget: a rebuild was meant to cost 100–200 ms.
  */
 const SLOW_MS = 1500;
+/**
+ * How finely a page is redrawn when it becomes a picture. Two is the same scale
+ * the OCR path uses — enough that text stays comfortably readable, and not so
+ * much that a long document turns into a pile of huge bitmaps.
+ */
+const RASTER_SCALE = 2;
+
+/**
+ * Looks for the redacted words in the file that is about to be handed over.
+ *
+ * The words are re-derived rather than remembered: the document is rebuilt once
+ * WITHOUT its pictures, the text inside each painted region is read off that,
+ * and then every word of the produced file is searched for it. Re-deriving is
+ * what makes this work on a session resumed a day later, and it means the check
+ * is against what the page actually said rather than against a note we kept.
+ */
+async function findSurvivors(
+  engine: StudioEngine,
+  state: ScriptState,
+  painted: ReturnType<typeof redactedPages>,
+  produced: Uint8Array
+): Promise<string[]> {
+  const targets: RedactionTarget[] = [];
+
+  const bare: ScriptState = {
+    ...state,
+    pages: state.pages.map((page) => ({ ...page, raster: null })),
+  };
+  const { bytes } = await engine.render(bare);
+  const source = await openPdf(bytes);
+  try {
+    for (const entry of painted) {
+      const at = bare.pages.findIndex((page) => page.id === entry.page);
+      if (at === -1) continue;
+      const page = await source.document.getPage(at + 1);
+      const content = await page.getTextContent();
+      const words: string[] = [];
+      for (const item of content.items) {
+        if (!('str' in item) || item.str.trim() === '') continue;
+        const [, , , , x, y] = item.transform;
+        const box = { x, y, width: item.width ?? 0, height: item.height ?? 0 };
+        if (insideAny(box, entry.boxes)) words.push(item.str);
+      }
+      page.cleanup();
+      targets.push({ page: entry.page, words });
+    }
+  } finally {
+    await source.destroy().catch(() => {});
+  }
+
+  const opened = await openPdf(produced);
+  try {
+    let all = '';
+    for (let number = 1; number <= opened.document.numPages; number += 1) {
+      const page = await opened.document.getPage(number);
+      const content = await page.getTextContent();
+      all += content.items.map((item) => ('str' in item ? item.str : '')).join(' ') + ' ';
+      page.cleanup();
+    }
+
+    // Form values belong in the haystack too, and the reason is a defect this
+    // check could not see: a field's value lives in the document's form, not on
+    // the page, so a widget that goes with a redacted page leaves the value
+    // behind and nothing draws it. Reading only page text called that clean.
+    // The build no longer leaves such a field standing — and this looks anyway,
+    // because 'it cannot happen by construction' is what was believed before.
+    try {
+      const fields = await opened.document.getFieldObjects();
+      for (const entries of Object.values(fields ?? {})) {
+        for (const entry of entries as Array<{ value?: unknown }>) {
+          if (typeof entry.value === 'string') all += entry.value + ' ';
+        }
+      }
+    } catch {
+      // A document whose form will not be read is judged on its text alone.
+    }
+
+    return judgeRedaction(targets, all).survivors;
+  } finally {
+    await opened.destroy().catch(() => {});
+  }
+}
 
 /**
  * What the opened document already says: its form and its metadata.
@@ -204,6 +295,10 @@ export default function StudioPage() {
     Array<{ asset: string; name: string; lost: string[] }>
   >([]);
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [rasterising, setRasterising] = useState(false);
+  /** Set when an export was refused because redacted words survived. */
+  const [blocked, setBlocked] = useState<string[] | null>(null);
+  const [verifying, setVerifying] = useState(false);
   /**
    * How many words the last run found, and on which page. Kept together so the
    * count cannot follow the reader to a page it says nothing about.
@@ -237,7 +332,7 @@ export default function StudioPage() {
 
   /** What is on screen right now, which trails the script during a rebuild. */
   const view = built?.state ?? null;
-  const viewPages = view?.pages ?? [];
+  const viewPages = useMemo(() => view?.pages ?? [], [view]);
 
   /**
    * Only the notices whose import is still part of the document. Undo the
@@ -484,7 +579,10 @@ export default function StudioPage() {
    * live script: while a rebuild is in flight those two disagree, and using the
    * live one would apply an edit to a page the reader cannot see.
    */
-  const pageIdAt = (index: number) => viewPages[index]?.id ?? null;
+  const pageIdAt = useCallback(
+    (index: number) => viewPages[index]?.id ?? null,
+    [viewPages]
+  );
 
   /**
    * What each page in the rail looks like, as a string. A thumbnail is redrawn
@@ -518,6 +616,17 @@ export default function StudioPage() {
     const page = pageIdAt(pageIndex);
     if (!page) return;
     const rgbColor = hexToRgb(color);
+
+    if (tool === 'redact' && action.kind === 'rect') {
+      // Added to whatever was already painted out on this page, so a second
+      // stroke does not undo the first.
+      const existing = viewPages[pageIndex]?.raster?.boxes ?? [];
+      void rasterisePage([
+        ...existing,
+        { x: action.x, y: action.y, width: action.width, height: action.height },
+      ]);
+      return;
+    }
 
     if (tool === 'crop' && action.kind === 'rect') {
       addEdit({
@@ -771,17 +880,117 @@ export default function StudioPage() {
     }
   };
 
+  /**
+   * Turns the page on screen into a picture of itself, with `boxes` painted out
+   * before the picture is made.
+   *
+   * The painting has to happen on the bitmap, never on the page afterwards: a
+   * black rectangle drawn over an image leaves the image underneath in the
+   * file, and anyone can lift it off. So the page is rendered, the regions are
+   * filled on the canvas, and only then does the canvas become the page.
+   *
+   * It renders from a version of the document WITHOUT this page's existing
+   * picture, so redacting twice does not photograph a photograph.
+   */
+  const rasterisePage = useCallback(
+    async (boxes: readonly Rect[]) => {
+      const engine = engineRef.current;
+      const pageId = pageIdAt(pageIndex);
+      if (!engine || !pageId || !original) return;
+
+      setRasterising(true);
+      setError(null);
+      try {
+        const bare: ScriptState = {
+          ...state,
+          pages: state.pages.map((page) =>
+            page.id === pageId ? { ...page, raster: null } : page
+          ),
+        };
+        const at = bare.pages.findIndex((page) => page.id === pageId);
+        if (at === -1) return;
+
+        const { bytes } = await engine.render(bare);
+        const opened = await openPdf(bytes);
+        try {
+          const target = await opened.document.getPage(at + 1);
+          const viewport = target.getViewport({ scale: RASTER_SCALE });
+
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.floor(viewport.width));
+          canvas.height = Math.max(1, Math.floor(viewport.height));
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('This browser did not provide a 2D canvas context.');
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          await target.render({ canvas, canvasContext: context, viewport }).promise;
+
+          // The regions, in the same pixels the page was just drawn in.
+          context.fillStyle = '#000000';
+          for (const box of boxes) {
+            const a = pdfToViewportPoint(viewport, { x: box.x, y: box.y });
+            const b = pdfToViewportPoint(viewport, {
+              x: box.x + box.width,
+              y: box.y + box.height,
+            });
+            context.fillRect(
+              Math.min(a.x, b.x),
+              Math.min(a.y, b.y),
+              Math.abs(b.x - a.x),
+              Math.abs(b.y - a.y)
+            );
+          }
+          target.cleanup();
+
+          const blob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob(resolve, 'image/png')
+          );
+          if (!blob) throw new Error('This browser could not produce the image.');
+          const raster = new Uint8Array(await blob.arrayBuffer());
+
+          const id = newId();
+          engine.putAsset(id, raster);
+          setAssets((current) => ({ ...current, [id]: raster }));
+          addEdit({ kind: 'raster', page: pageId, raster: { asset: id, boxes } });
+        } finally {
+          await opened.destroy().catch(() => {});
+        }
+      } catch (caught) {
+        setError(describeStudioError(caught));
+      } finally {
+        setRasterising(false);
+      }
+    },
+    [addEdit, describeStudioError, original, pageIndex, state, pageIdAt]
+  );
+
   /* -------------------------------------------------------------- export - */
 
   const doExport = async () => {
     const engine = engineRef.current;
     if (!engine || !original) return;
     setExporting(true);
+    setBlocked(null);
     try {
       // The worker builds it and reads it: both the page count and the
       // structural comparison come from the produced bytes, and neither costs
       // the main thread a pdf-lib parse while the reader waits.
       const { bytes, pages, before, after, fields } = await engine.exportDocument(state);
+
+      // Redaction is the one thing here that is checked BEFORE the file is
+      // offered, and the only check that can refuse. Everything else reports;
+      // this one withholds, because a document that looks redacted and is not
+      // teaches the reader to stop being careful.
+      const painted = redactedPages(state);
+      if (painted.length > 0) {
+        setVerifying(true);
+        const survivors = await findSurvivors(engine, state, painted, bytes);
+        setVerifying(false);
+        if (survivors.length > 0) {
+          setBlocked(survivors);
+          return;
+        }
+      }
 
       setResult({
         blob: new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' }),
@@ -795,6 +1004,7 @@ export default function StudioPage() {
     } catch (caught) {
       setError(describeStudioError(caught));
     } finally {
+      setVerifying(false);
       setExporting(false);
     }
   };
@@ -957,6 +1167,7 @@ export default function StudioPage() {
     { id: 'ink', label: t.studio.tools.ink, icon: Pen },
     { id: 'image', label: t.studio.tools.image, icon: ImageUp },
     { id: 'crop', label: t.studio.tools.crop, icon: Crop },
+    { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
   ];
 
   return (
@@ -1015,7 +1226,8 @@ export default function StudioPage() {
             >
               {exporting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> {t.studio.exporting}
+                  <Loader2 className="h-4 w-4 animate-spin" />{' '}
+                  {verifying ? t.studio.checkingRedaction : t.studio.exporting}
                 </>
               ) : (
                 <>
@@ -1036,6 +1248,22 @@ export default function StudioPage() {
         </div>
 
         <ErrorNotice error={error} onDismiss={() => setError(null)} />
+
+        {blocked && (
+          <div className="mb-3 rounded-2xl border-2 border-red-300 bg-red-50 p-4">
+            <p className="mb-1 font-bold text-red-900">{t.studio.exportBlockedTitle}</p>
+            <p className="text-sm text-red-900">
+              {t.studio.exportBlockedBody(blocked.map((word) => `«${word}»`).join(', '))}
+            </p>
+            <button
+              type="button"
+              onClick={() => setBlocked(null)}
+              className="mt-3 rounded-xl bg-white px-3 py-1.5 text-sm font-medium text-red-900 hover:bg-red-100"
+            >
+              {t.common.dismiss}
+            </button>
+          </div>
+        )}
 
         {!offMainThread && (
           <p className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -1156,6 +1384,7 @@ export default function StudioPage() {
                 disabled={false}
                 onMetadata={(patch: MetadataPatch) => addEdit({ kind: 'metadata', patch })}
                 onField={(field, value) => addEdit({ kind: 'setField', field, value })}
+                onFlattenForms={(on) => addEdit({ kind: 'flattenForms', on })}
                 onWatermark={(spec: WatermarkSpec | null) => addEdit({ kind: 'watermark', spec })}
                 onNumbering={(spec: NumberingSpec | null) => addEdit({ kind: 'numbering', spec })}
                 onInsertImages={(files) => void onInsertImages(files)}
@@ -1235,6 +1464,22 @@ export default function StudioPage() {
               <ColorRow label={t.stamp.color} value={color} onChange={setColor} />
             )}
 
+            {tool === 'crop' && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                {t.studio.cropHides}
+              </p>
+            )}
+
+            {tool === 'redact' && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                {t.studio.redactNote}
+              </p>
+            )}
+
+            {tool === 'text' && (
+              <p className="text-xs text-gray-400">{t.studio.textNotEditable}</p>
+            )}
+
             {tool === 'crop' && viewPages[pageIndex]?.crop && (
               <button
                 type="button"
@@ -1247,6 +1492,26 @@ export default function StudioPage() {
                 {t.studio.cropReset}
               </button>
             )}
+
+            <div className="space-y-2 border-t pt-4">
+              <button
+                type="button"
+                onClick={() => void rasterisePage(viewPages[pageIndex]?.raster?.boxes ?? [])}
+                disabled={rasterising || building}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
+              >
+                {rasterising ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" /> {t.studio.redactWorking}
+                  </>
+                ) : (
+                  <>
+                    <ImageIcon className="h-4 w-4" /> {t.studio.pageToImage}
+                  </>
+                )}
+              </button>
+              <p className="text-xs text-gray-400">{t.studio.pageToImageNote}</p>
+            </div>
 
             <div className="border-t pt-4">
               <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">

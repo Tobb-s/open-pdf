@@ -24,6 +24,7 @@ import {
   standardFontFor,
   UnsupportedCharacterError,
 } from '@/lib/stamp';
+import { pageBoxOf, visualSize } from '@/lib/geometry';
 import {
   IMAGE_PAGE_LONG_SIDE,
   isUntouched,
@@ -352,9 +353,108 @@ export async function materialize({
 
   await insertImportedPages(document, state, assets, byId);
 
+  /**
+   * Replacing a page with a picture of itself.
+   *
+   * This is what makes redaction real. The bitmap arrives with the regions
+   * already painted out, so what was under them is not covered — it is not in
+   * the bitmap, and the page's own content, fonts and images are unlinked here
+   * and collected at the end.
+   *
+   * The page comes out flat: the size it looked, no rotation, no crop. Keeping
+   * a /Rotate would turn the picture again, and keeping a crop would hide part
+   * of a page that is now nothing but the picture.
+   */
+  const rasterised = new Set<string>();
+  /** Annotation references that left with a rasterised page. */
+  const strippedAnnots = new Set<string>();
+  for (const page of state.pages) {
+    if (!page.raster) continue;
+    const handle = byId.get(page.id);
+    if (!handle) continue;
+    const bytes = assets.get(page.raster.asset);
+    if (!bytes) continue;
+
+    const kind = imageKind(bytes);
+    if (kind === null) continue;
+    let image;
+    try {
+      image = kind === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
+    } catch {
+      continue;
+    }
+
+    // The size the page looked before it became a picture.
+    const box = pageBoxOf(handle);
+    const visual = visualSize(box);
+
+    // The annotations are noted before they go: a widget carries its field's
+    // value, and a field whose only widget was here has to leave the form as
+    // well. See `stripFieldsOn` below for why that is not optional.
+    const annots = handle.node.Annots();
+    if (annots) {
+      for (let index = 0; index < annots.size(); index += 1) {
+        const entry = annots.get(index);
+        if (entry instanceof PDFRef) strippedAnnots.add(entry.tag);
+      }
+    }
+
+    handle.node.delete(PDFName.of('Contents'));
+    handle.node.delete(PDFName.of('Resources'));
+    handle.node.delete(PDFName.of('Annots'));
+    handle.node.delete(PDFName.of('Thumb'));
+    handle.setRotation(degrees(0));
+    handle.setMediaBox(0, 0, visual.width, visual.height);
+    handle.setCropBox(0, 0, visual.width, visual.height);
+    handle.drawImage(image, { x: 0, y: 0, width: visual.width, height: visual.height });
+    rasterised.add(page.id);
+  }
+
+  /**
+   * Taking the form fields out with the page they were drawn on.
+   *
+   * Deleting a page's annotations removes the widgets, but a widget is only
+   * where a field is DRAWN — the value lives in the field, which hangs off the
+   * document's form and survives on its own. So redacting a page that carried a
+   * filled field left the value sitting in the file, and nothing would have
+   * caught it: the export's check reads the produced document's TEXT, and a
+   * field with no widget draws no text. It would have reported the page clean
+   * and handed over a file with the name still in it.
+   *
+   * A field is removed when every widget it had was on a rasterised page. One
+   * that also appears on a page still standing keeps the field and loses only
+   * the widget that went.
+   */
+  if (strippedAnnots.size > 0 && document.catalog.get(PDFName.of('AcroForm')) !== undefined) {
+    try {
+      const form = document.getForm();
+      for (const field of form.getFields()) {
+        const kids = field.acroField.Kids();
+
+        if (!kids) {
+          // A merged field: the field dictionary is its own widget.
+          if (strippedAnnots.has(field.acroField.ref.tag)) form.removeField(field);
+          continue;
+        }
+
+        for (let index = kids.size() - 1; index >= 0; index -= 1) {
+          const entry = kids.get(index);
+          if (entry instanceof PDFRef && strippedAnnots.has(entry.tag)) kids.remove(index);
+        }
+        if (kids.size() === 0) form.removeField(field);
+      }
+    } catch {
+      // A form too damaged to walk is not a reason to lose the document; the
+      // export's own check is what decides whether the result is acceptable.
+    }
+  }
+
   for (const page of state.pages) {
     const handle = byId.get(page.id);
     if (!handle) continue;
+    // A rasterised page has already been squared up; turning or cropping it
+    // again here would undo that.
+    if (rasterised.has(page.id)) continue;
     if (page.turns !== 0) {
       handle.setRotation(degrees((((handle.getRotation().angle + page.turns * 90) % 360) + 360) % 360));
     }
@@ -424,10 +524,28 @@ export async function materialize({
           }
         }
       }
+
+      if (state.flattenForms) {
+        // The fields become fixed content: still readable, no longer fillable.
+        //
+        // This runs AFTER the appearances above, and the order is the whole
+        // point: flattening copies each field's appearance stream into the
+        // page, so flattening first would bake in the value the document
+        // arrived with and silently discard what the reader typed. Whole-form
+        // regeneration stays off because the loop above already did it for the
+        // fields that needed it.
+        form.flatten({ updateFieldAppearances: false });
+      }
     } catch (caught) {
       // An unencodable character is the reader's to fix and must reach them.
       if (caught instanceof UnsupportedCharacterError) throw caught;
       // Anything else means there is no usable form here any more.
+    }
+  } else if (state.flattenForms) {
+    try {
+      document.getForm().flatten({ updateFieldAppearances: false });
+    } catch {
+      // Nothing to flatten.
     }
   }
 

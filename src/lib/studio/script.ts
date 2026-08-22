@@ -39,6 +39,26 @@ export interface PageOrigin {
 
 export const ORIGINAL = 'original';
 
+/**
+ * A page that has been replaced by a picture of itself.
+ *
+ * This is how redaction is done, and it is the only way it can be done with a
+ * library that cannot rewrite a content stream: the region is painted out on
+ * the bitmap, and the bitmap becomes the page. What was underneath is not
+ * covered — it is not in the file. `boxes` records what was painted out so the
+ * export can go looking for it afterwards and refuse to hand over a file where
+ * it survived.
+ *
+ * An empty `boxes` is the same operation with nothing painted out: a page
+ * turned into an image so it can be drawn on without touching the original.
+ */
+export interface PageRaster {
+  /** The asset holding the rendered, already-painted-out bitmap. */
+  asset: string;
+  /** The painted regions, in the page's PDF user space. */
+  boxes: readonly Rect[];
+}
+
 export interface PageState {
   id: PageId;
   origin: PageOrigin;
@@ -46,6 +66,8 @@ export interface PageState {
   turns: number;
   /** Crop in the page's PDF user space, or null to keep its own box. */
   crop: Rect | null;
+  /** Set once the page has been rasterised, whether to redact or to flatten it. */
+  raster: PageRaster | null;
 }
 
 export type Mark =
@@ -203,11 +225,15 @@ export type Edit =
   | { kind: 'setField'; field: string; value: string }
   | { kind: 'metadata'; patch: MetadataPatch }
   | { kind: 'watermark'; spec: WatermarkSpec | null }
-  | { kind: 'numbering'; spec: NumberingSpec | null };
+  | { kind: 'numbering'; spec: NumberingSpec | null }
+  | { kind: 'raster'; page: PageId; raster: PageRaster | null }
+  | { kind: 'flattenForms'; on: boolean };
 
 export interface ScriptState {
   pages: PageState[];
   marks: Mark[];
+  /** Turns the form's fields into fixed content: readable, no longer fillable. */
+  flattenForms: boolean;
   /** Form field values the reader has set, by field name. */
   fields: Record<string, string>;
   metadata: Metadata;
@@ -240,8 +266,10 @@ export function initialState(pageCount: number): ScriptState {
       origin: { asset: ORIGINAL, index },
       turns: 0,
       crop: null,
+      raster: null,
     })),
     marks: [],
+    flattenForms: false,
     fields: {},
     metadata: {},
     watermark: null,
@@ -325,6 +353,7 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
         origin: { asset: edit.asset, index },
         turns: 0,
         crop: null,
+        raster: null,
       }));
       if (added.length === 0) return state;
 
@@ -354,6 +383,7 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
         origin: { asset, index: 0 },
         turns: 0,
         crop: null,
+        raster: null,
       }));
       if (added.length === 0) return state;
 
@@ -380,6 +410,12 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
 
     case 'numbering':
       return { ...state, numbering: edit.spec };
+
+    case 'raster':
+      return withPage(state, edit.page, (page) => ({ ...page, raster: edit.raster }));
+
+    case 'flattenForms':
+      return { ...state, flattenForms: edit.on };
 
     default:
       return state;
@@ -420,12 +456,14 @@ export function isUntouched(state: ScriptState, pageCount: number): boolean {
   if (Object.keys(state.fields).length > 0) return false;
   if (Object.keys(state.metadata).length > 0) return false;
   if (state.watermark !== null || state.numbering !== null) return false;
+  if (state.flattenForms) return false;
   return state.pages.every(
     (page, index) =>
       page.origin.asset === ORIGINAL &&
       page.origin.index === index &&
       page.turns === 0 &&
-      page.crop === null
+      page.crop === null &&
+      page.raster === null
   );
 }
 

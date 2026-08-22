@@ -37,6 +37,7 @@ interface DocumentPanelProps {
   originalMetadata: Metadata;
   onMetadata: (patch: MetadataPatch) => void;
   onField: (name: string, value: string) => void;
+  onFlattenForms: (on: boolean) => void;
   onWatermark: (spec: WatermarkSpec | null) => void;
   onNumbering: (spec: NumberingSpec | null) => void;
   onInsertImages: (files: FileList) => void;
@@ -81,6 +82,7 @@ export default function DocumentPanel({
   originalMetadata,
   onMetadata,
   onField,
+  onFlattenForms,
   onWatermark,
   onNumbering,
   onInsertImages,
@@ -177,6 +179,19 @@ export default function DocumentPanel({
               </label>
             ))}
             <p className="text-xs text-gray-400">{t.studio.fieldsNote}</p>
+            <button
+              type="button"
+              onClick={() => onFlattenForms(!state.flattenForms)}
+              disabled={disabled}
+              className={`w-full rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                state.flattenForms
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              {state.flattenForms ? t.studio.flattenFormsOff : t.studio.flattenForms}
+            </button>
+            <p className="text-xs text-gray-400">{t.studio.flattenFormsNote}</p>
           </>
         )}
       </section>

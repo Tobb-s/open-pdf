@@ -469,6 +469,7 @@ export interface Dictionary {
       ink: string;
       ocr: string;
       crop: string;
+      redact: string;
     };
     toolHint: {
       pick: string;
@@ -477,6 +478,7 @@ export interface Dictionary {
       image: string;
       ink: string;
       crop: string;
+      redact: string;
     };
     rotateLeft: string;
     rotateRight: string;
@@ -533,6 +535,19 @@ export interface Dictionary {
     ocrNone: string;
     ocrNote: string;
     importedLost: (name: string, list: string) => string;
+    /** Stage five: taking information out, and proving it. */
+    redactNote: string;
+    redactWorking: string;
+    cropHides: string;
+    textNotEditable: string;
+    pageToImage: string;
+    pageToImageNote: string;
+    flattenForms: string;
+    flattenFormsNote: string;
+    flattenFormsOff: string;
+    checkingRedaction: string;
+    exportBlockedTitle: string;
+    exportBlockedBody: (list: string) => string;
     keepEditing: string;
     startOver: string;
   };
@@ -1220,6 +1235,7 @@ export const es: Dictionary = {
       ink: 'Lápiz',
       ocr: 'Capa de texto',
       crop: 'Recortar',
+      redact: 'Tachar',
     },
     toolHint: {
       pick: 'Mirá el documento y usá los controles de página.',
@@ -1228,6 +1244,7 @@ export const es: Dictionary = {
       image: 'Elegí una imagen y hacé clic para ponerla.',
       ink: 'Arrastrá para dibujar a mano alzada.',
       crop: 'Arrastrá el área que querés conservar.',
+      redact: 'Arrastrá encima de lo que querés que desaparezca.',
     },
     rotateLeft: 'Girar a la izquierda',
     rotateRight: 'Girar a la derecha',
@@ -1288,6 +1305,24 @@ export const es: Dictionary = {
       'Agrega una capa de texto invisible encima de la página, para poder buscar y seleccionar. No cambia lo que se ve.',
     importedLost: (name, list) =>
       `De «${name}» viajaron las páginas, no ${list}. Copiar páginas no copia el documento, y eso no tiene arreglo.`,
+    redactNote:
+      'Tachar convierte la página en una imagen con la zona pintada encima. Lo que estaba debajo no queda tapado: no queda. A cambio, esa página deja de tener texto seleccionable.',
+    redactWorking: 'Tachando y rehaciendo la página…',
+    cropHides:
+      'Recortar esconde, no borra: lo que queda fuera sigue en el archivo y se puede recuperar. Si lo que querés es que desaparezca, usá Tachar.',
+    textNotEditable:
+      'Este texto es parte del documento original. Podés taparlo y escribir encima. OpenPDF no lo edita porque no puede garantizar el resultado.',
+    pageToImage: 'Convertir esta página en imagen',
+    pageToImageNote:
+      'Para dibujar encima sin tocar el original. La página deja de tener texto seleccionable.',
+    flattenForms: 'Fijar el formulario',
+    flattenFormsNote:
+      'Los campos se vuelven parte de la página: se siguen leyendo, ya no se pueden completar.',
+    flattenFormsOff: 'Dejar el formulario como está',
+    checkingRedaction: 'Comprobando que lo tachado no esté…',
+    exportBlockedTitle: 'No se entregó el archivo',
+    exportBlockedBody: (list) =>
+      `Todavía se puede encontrar esto en el documento producido: ${list}. No te lo damos para descargar, porque un archivo que parece tachado y no lo está es peor que ninguno. Probá tachando un área un poco más grande.`,
     keepEditing: 'Seguir editando',
     startOver: 'Abrir otro',
   },
@@ -1970,6 +2005,7 @@ export const en: Dictionary = {
       ink: 'Pen',
       ocr: 'Text layer',
       crop: 'Crop',
+      redact: 'Redact',
     },
     toolHint: {
       pick: 'Look through the document and use the page controls.',
@@ -1978,6 +2014,7 @@ export const en: Dictionary = {
       image: 'Choose an image, then click to place it.',
       ink: 'Drag to draw freehand.',
       crop: 'Drag the area you want to keep.',
+      redact: 'Drag over whatever you want gone.',
     },
     rotateLeft: 'Turn left',
     rotateRight: 'Turn right',
@@ -2038,6 +2075,24 @@ export const en: Dictionary = {
       'Adds an invisible text layer over the page so it can be searched and selected. It does not change what you see.',
     importedLost: (name, list) =>
       `From "${name}" the pages travelled, but not ${list}. Copying pages does not copy a document, and there is no fixing that.`,
+    redactNote:
+      'Redacting turns the page into a picture with the area painted over. What was underneath is not covered — it is gone. In exchange, that page stops having selectable text.',
+    redactWorking: 'Redacting and rebuilding the page…',
+    cropHides:
+      'Cropping hides, it does not remove: what falls outside is still in the file and can be recovered. If you want it gone, use Redact.',
+    textNotEditable:
+      'This text is part of the original document. You can cover it and write on top. OpenPDF does not edit it because it cannot guarantee the result.',
+    pageToImage: 'Turn this page into an image',
+    pageToImageNote:
+      'To draw on it without touching the original. The page stops having selectable text.',
+    flattenForms: 'Fix the form in place',
+    flattenFormsNote:
+      'The fields become part of the page: still readable, no longer fillable.',
+    flattenFormsOff: 'Leave the form as it is',
+    checkingRedaction: 'Checking that what you redacted is gone…',
+    exportBlockedTitle: 'The file was not handed over',
+    exportBlockedBody: (list) =>
+      `This can still be found in the produced document: ${list}. We are not giving it to you to download, because a file that looks redacted and is not is worse than no file. Try redacting a slightly larger area.`,
     keepEditing: 'Keep editing',
     startOver: 'Open another',
   },

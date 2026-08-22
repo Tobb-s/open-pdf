@@ -18,7 +18,7 @@ import { renderPageToCanvas } from '@/lib/pdfjs';
  * reader clicked on — rotation and crop box included.
  */
 
-export type StageTool = 'pick' | 'text' | 'rect' | 'image' | 'ink' | 'crop';
+export type StageTool = 'pick' | 'text' | 'rect' | 'image' | 'ink' | 'crop' | 'redact';
 
 export type StageAction =
   | { kind: 'point'; x: number; y: number }

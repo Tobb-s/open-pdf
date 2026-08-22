@@ -146,6 +146,7 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
     origin: { asset: ORIGINAL, index },
     turns: 0,
     crop: null as null | { x: number; y: number; width: number; height: number },
+    raster: null,
   }));
   let marks: Mark[] = [];
 
@@ -179,6 +180,7 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
         origin: { asset: edit.asset, index },
         turns: 0,
         crop: null,
+        raster: null,
       }));
       if (added.length > 0) {
         const anchor = edit.before === null ? pages.length : indexOf(edit.before);
@@ -191,7 +193,15 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
     }
   }
 
-  return { pages, marks, fields: {}, metadata: {}, watermark: null, numbering: null };
+  return {
+    pages,
+    marks,
+    flattenForms: false,
+    fields: {},
+    metadata: {},
+    watermark: null,
+    numbering: null,
+  };
 }
 
 describe('the edit script', () => {
