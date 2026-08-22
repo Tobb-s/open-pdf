@@ -12,19 +12,31 @@ import { Download, FileText, Layers, Loader2, Upload, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
-import { assertFileSize, throwIfCancelled, yieldToBrowser } from '@/lib/limits';
-import { parsePageRange, summarizePages } from '@/lib/pageRange';
+import {
+  assertFileSize,
+  MAX_STRUCTURAL_BYTES,
+  throwIfCancelled,
+  yieldToBrowser,
+} from '@/lib/limits';
+import { parsePageRange, splitIntoParts, summarizePages } from '@/lib/pageRange';
 
 type Result =
   | { kind: 'single'; blob: Blob; pages: number }
   | { kind: 'zip'; blob: Blob; files: number };
+
+/** How the reader wants the document cut up. */
+type Mode = 'range' | 'parts' | 'each';
+
+/** Offered as buttons; anything else is a range away. */
+const PART_CHOICES = [2, 4, 6, 8, 10] as const;
 
 export default function SplitPage() {
   const { t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [range, setRange] = useState('');
-  const [splitEachPage, setSplitEachPage] = useState(false);
+  const [mode, setMode] = useState<Mode>('range');
+  const [parts, setParts] = useState<number>(2);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -39,12 +51,19 @@ export default function SplitPage() {
     [range, pageCount]
   );
 
+  /** The runs the "into parts" mode would produce, shown before committing. */
+  const runs = useMemo(
+    () => (pageCount > 0 ? splitIntoParts(pageCount, parts) : []),
+    [pageCount, parts]
+  );
+
   const reset = () => {
     bytesRef.current = null;
     setFile(null);
     setPageCount(0);
     setRange('');
-    setSplitEachPage(false);
+    setMode('range');
+    setParts(2);
     setResult(null);
     setError(null);
     setProgressPercent(0);
@@ -53,7 +72,10 @@ export default function SplitPage() {
   const selectFile = async (selected: File) => {
     reset();
     try {
-      assertFileSize(selected, t);
+      // Splitting only reads the page tree and writes it back — no page ever
+      // becomes pixels — so this tool can take a file the rasterising ones
+      // cannot. A scanned book is exactly the case that was being turned away.
+      assertFileSize(selected, t, MAX_STRUCTURAL_BYTES);
       const bytes = new Uint8Array(await selected.arrayBuffer());
       const document_ = await loadPdf(bytes, { updateMetadata: false });
       bytesRef.current = bytes;
@@ -77,7 +99,36 @@ export default function SplitPage() {
     try {
       const source = await loadPdf(bytes, { updateMetadata: false });
 
-      if (splitEachPage) {
+      if (mode === 'parts') {
+        const zip = new JSZip();
+        const width = String(pageCount).length;
+
+        for (const [index, run] of runs.entries()) {
+          throwIfCancelled(controller.signal, t);
+          setProgressPercent(((index + 1) / runs.length) * 92);
+          setProgressMessage(t.split.extractingPart(index + 1, runs.length));
+
+          const part = await PDFDocument.create();
+          const wanted = Array.from({ length: run.to - run.from + 1 }, (_, n) => run.from - 1 + n);
+          const copied = await part.copyPages(source, wanted);
+          for (const page of copied) part.addPage(page);
+
+          const saved = (await savePdf(part)).slice();
+          const label = String(index + 1).padStart(String(runs.length).length, '0');
+          const from = String(run.from).padStart(width, '0');
+          const to = String(run.to).padStart(width, '0');
+          zip.file(`part-${label}_pages-${from}-${to}.pdf`, saved);
+          await yieldToBrowser();
+        }
+
+        setProgressMessage(t.split.packing);
+        setProgressPercent(96);
+        setResult({
+          kind: 'zip',
+          blob: await zip.generateAsync({ type: 'blob' }),
+          files: runs.length,
+        });
+      } else if (mode === 'each') {
         const zip = new JSZip();
         const width = String(pageCount).length;
 
@@ -189,86 +240,143 @@ export default function SplitPage() {
                   </button>
                 </div>
 
-                <div className="space-y-4 rounded-3xl border bg-white p-6 shadow-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <label htmlFor="page-range" className="block text-sm font-medium text-gray-700">
-                      {t.split.rangeLabel}
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2">
-                      <div className="relative">
-                        <input
-                          type="checkbox"
-                          checked={splitEachPage}
-                          onChange={(event) => setSplitEachPage(event.target.checked)}
-                          className="peer sr-only"
-                        />
-                        <div className="h-5 w-9 rounded-full bg-gray-200 transition-colors peer-checked:bg-blue-600" />
-                        <div className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform peer-checked:translate-x-4" />
+                <div className="space-y-5 rounded-3xl border bg-white p-6 shadow-sm">
+                  <div
+                    role="radiogroup"
+                    aria-label={t.split.rangeLabel}
+                    className="flex flex-wrap gap-2"
+                  >
+                    {(
+                      [
+                        ['range', t.split.modeRange],
+                        ['parts', t.split.modeParts],
+                        ['each', t.split.modeEachPage],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={mode === value}
+                        onClick={() => setMode(value)}
+                        className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                          mode === value
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {mode === 'range' && (
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="page-range"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        {t.split.rangeLabel}
+                      </label>
+                      <input
+                        id="page-range"
+                        type="text"
+                        value={range}
+                        onChange={(event) => setRange(event.target.value)}
+                        placeholder={t.split.placeholder}
+                        className="w-full rounded-xl border px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500"
+                      />
+                      <div className="space-y-1 text-xs">
+                        <p className="text-gray-500">{t.split.syntaxNote}</p>
+                        {parsed.pages.length > 0 && (
+                          <p className="text-emerald-700">
+                            {t.split.selected(parsed.pages.length, summarizePages(parsed.pages))}
+                          </p>
+                        )}
+                        {parsed.invalid.length > 0 && (
+                          <p className="text-amber-700">
+                            {t.split.invalid(
+                              parsed.invalid.map((token) => `“${token}”`).join(', '),
+                              pageCount
+                            )}
+                          </p>
+                        )}
                       </div>
-                      <span className="flex items-center gap-1.5 text-sm text-gray-600">
-                        <Layers className="h-4 w-4" />
-                        {t.split.eachPage}
+                    </div>
+                  )}
+
+                  {mode === 'parts' && (
+                    <div className="space-y-3">
+                      <span className="block text-sm font-medium text-gray-700">
+                        {t.split.partsLabel}
                       </span>
-                    </label>
-                  </div>
-
-                  <div className="flex flex-col gap-4 sm:flex-row">
-                    <input
-                      id="page-range"
-                      type="text"
-                      value={range}
-                      onChange={(event) => setRange(event.target.value)}
-                      placeholder={t.split.placeholder}
-                      disabled={splitEachPage}
-                      className="flex-1 rounded-xl border px-4 py-3 outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={split}
-                      disabled={
-                        isProcessing || (!splitEachPage && parsed.pages.length === 0)
-                      }
-                      className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-bold text-white transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                    >
-                      {isProcessing ? (
-                        <>
-                          <Loader2 className="h-5 w-5 animate-spin" /> {t.split.working}
-                        </>
-                      ) : (
-                        t.split.action
-                      )}
-                    </button>
-                  </div>
-
-                  {splitEachPage ? (
-                    <p className="text-xs text-blue-600">
-                      {t.split.eachPageNote(pageCount)}
-                    </p>
-                  ) : (
-                    <div className="space-y-1 text-xs">
-                      <p className="text-gray-500">{t.split.syntaxNote}</p>
-                      {parsed.pages.length > 0 && (
-                        <p className="text-emerald-700">
-                          {t.split.selected(parsed.pages.length, summarizePages(parsed.pages))}
-                        </p>
-                      )}
-                      {parsed.invalid.length > 0 && (
-                        <p className="text-amber-700">
-                          {t.split.invalid(
-                            parsed.invalid
-                              .map((token) => `\u201c${token}\u201d`)
-                              .join(', '),
-                            pageCount
+                      <div role="radiogroup" aria-label={t.split.partsLabel} className="flex flex-wrap gap-2">
+                        {PART_CHOICES.map((choice) => (
+                          <button
+                            key={choice}
+                            type="button"
+                            role="radio"
+                            aria-checked={parts === choice}
+                            onClick={() => setParts(choice)}
+                            className={`min-w-14 rounded-xl px-4 py-2 text-sm font-semibold tabular-nums transition-colors ${
+                              parts === choice
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                          >
+                            {choice}
+                          </button>
+                        ))}
+                      </div>
+                      {/* Worked out before committing, from the real page count. */}
+                      {runs.length > 0 && (
+                        <div className="space-y-1 text-xs">
+                          <p className="text-emerald-700">
+                            {t.split.partsNote(
+                              runs.length,
+                              runs
+                                .map((run) =>
+                                  run.from === run.to
+                                    ? `${run.from}`
+                                    : `${run.from}–${run.to}`
+                                )
+                                .join(', ')
+                            )}
+                          </p>
+                          {runs.length < parts && (
+                            <p className="text-amber-700">{t.split.partsTooMany(pageCount)}</p>
                           )}
-                        </p>
+                        </div>
                       )}
                     </div>
                   )}
+
+                  {mode === 'each' && (
+                    <p className="flex items-center gap-2 text-xs text-blue-600">
+                      <Layers className="h-4 w-4 shrink-0" />
+                      {t.split.eachPageNote(pageCount)}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={split}
+                    disabled={isProcessing || (mode === 'range' && parsed.pages.length === 0)}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 font-bold text-white transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300 sm:w-auto"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="h-5 w-5 animate-spin" /> {t.split.working}
+                      </>
+                    ) : (
+                      t.split.action
+                    )}
+                  </button>
                 </div>
 
                 <ErrorNotice error={error} onDismiss={() => setError(null)} />
 
-                {isProcessing && splitEachPage && (
+                {isProcessing && mode !== 'range' && (
                   <ProgressPanel
                     message={progressMessage}
                     percent={progressPercent}

@@ -10,11 +10,32 @@ import type { Dictionary } from '@/lib/i18n/dictionaries';
  */
 export const MAX_FILE_BYTES = 150 * 1024 * 1024;
 
+/**
+ * A higher ceiling for the tools that only read the page tree and write it back.
+ *
+ * Splitting, merging and reordering never turn a page into pixels: pdf-lib
+ * holds the file's bytes and an object map over them, and an image stream stays
+ * a byte range rather than becoming a bitmap. That costs roughly the file again,
+ * not the twenty-fold blow-up rasterising causes — so a scanned book that the
+ * general ceiling turns away is fine here.
+ *
+ * Measured on the engine rather than guessed: cutting a 700-page book into 700
+ * separate PDFs took half a second in total.
+ */
+export const MAX_STRUCTURAL_BYTES = 400 * 1024 * 1024;
+
 /** Pages rendered to pixels at once, which is what actually consumes memory. */
 export const MAX_RENDERED_PAGES = 500;
 
-/** OCR is roughly a second per page, so the ceiling is lower and time-based. */
-export const MAX_OCR_PAGES = 100;
+/**
+ * OCR is roughly a second per page, so this ceiling is about time, not memory.
+ *
+ * Raised from 100: a hundred pages is a chapter, and the tool was turning away
+ * whole books. Five hundred pages is something like eight minutes, which is a
+ * long wait but an honest one — the tool says so, shows progress and can be
+ * cancelled. Being slow is the reader's call to make; being refused is not.
+ */
+export const MAX_OCR_PAGES = 500;
 
 /**
  * How much converted PDF a single batch may hold before it stops.
@@ -60,7 +81,41 @@ export function throwIfCancelled(signal: AbortSignal | undefined, t: Dictionary)
   if (signal?.aborted) throw cancelled(t);
 }
 
-/** Lets the browser paint the progress bar between heavy iterations. */
+/**
+ * A single message channel, reused: creating one per yield would be the
+ * expensive part of something that has to be nearly free.
+ */
+let yieldChannel: MessageChannel | null = null;
+const yieldQueue: Array<() => void> = [];
+
+/**
+ * Hands control back to the browser so it can paint and deliver a click.
+ *
+ * Deliberately not `setTimeout`. Browsers clamp nested timers to roughly one
+ * second in a tab that is not in front, so a loop that yields once per page
+ * then costs a second per page — measured on a 700-page book with the tab in
+ * the background, it reached page six in forty-four seconds, on its way to well
+ * over an hour. The same work with no yielding at all takes half a second.
+ *
+ * A message-channel task is a real macrotask, so input and painting still get
+ * their turn, and nothing throttles it.
+ */
 export function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
+  if (typeof MessageChannel === 'undefined') {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  if (!yieldChannel) {
+    yieldChannel = new MessageChannel();
+    yieldChannel.port1.onmessage = () => yieldQueue.shift()?.();
+    yieldChannel.port1.start?.();
+    // Node keeps a listening port referenced, which would hold a test runner
+    // open after its last assertion. Browsers have no unref and need none.
+    (yieldChannel.port1 as { unref?: () => void }).unref?.();
+    (yieldChannel.port2 as { unref?: () => void }).unref?.();
+  }
+  const channel = yieldChannel;
+  return new Promise((resolve) => {
+    yieldQueue.push(resolve);
+    channel.port2.postMessage(0);
+  });
 }

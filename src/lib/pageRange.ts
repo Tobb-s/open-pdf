@@ -83,6 +83,40 @@ export function summarizePages(pages: number[]): string {
   return parts.join(', ');
 }
 
+export interface PagePart {
+  /** 1-based, inclusive. */
+  from: number;
+  to: number;
+}
+
+/**
+ * Cuts a document into `parts` runs of consecutive pages.
+ *
+ * The runs are as even as the page count allows and never equal by force: 700
+ * pages in 6 gives four runs of 117 and two of 116, with the longer ones first.
+ * Padding to make them equal would either drop pages or invent them, and a
+ * reader splitting a book cares that every page is in exactly one piece.
+ *
+ * Asking for more parts than there are pages gives one part per page and no
+ * empty ones.
+ */
+export function splitIntoParts(pageCount: number, parts: number): PagePart[] {
+  if (pageCount < 1 || parts < 1) return [];
+
+  const count = Math.min(Math.floor(parts), pageCount);
+  const base = Math.floor(pageCount / count);
+  const longer = pageCount % count;
+
+  const result: PagePart[] = [];
+  let from = 1;
+  for (let index = 0; index < count; index += 1) {
+    const size = base + (index < longer ? 1 : 0);
+    result.push({ from, to: from + size - 1 });
+    from += size;
+  }
+  return result;
+}
+
 /**
  * The same selection, read as a SET: sorted, without repeats.
  *

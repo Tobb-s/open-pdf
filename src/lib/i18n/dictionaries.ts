@@ -163,6 +163,15 @@ export interface Dictionary {
     intro: string;
     rangeLabel: string;
     eachPage: string;
+    /** The three ways of cutting a document up. */
+    modeRange: string;
+    modeParts: string;
+    modeEachPage: string;
+    partsLabel: string;
+    partsChoice: (parts: number) => string;
+    partsNote: (parts: number, sizes: string) => string;
+    partsTooMany: (pages: number) => string;
+    extractingPart: (current: number, total: number) => string;
     placeholder: string;
     action: string;
     working: string;
@@ -818,9 +827,20 @@ export const es: Dictionary = {
   },
   split: {
     heading: 'Dividir un PDF',
-    intro: 'Sacá las páginas que necesitás, o separá cada página por su lado.',
+    intro:
+      'Sacá las páginas que necesitás, cortá el documento en partes, o separá cada página por su lado.',
     rangeLabel: 'Páginas a conservar',
     eachPage: 'Un archivo por página',
+    modeRange: 'Un rango',
+    modeParts: 'En partes',
+    modeEachPage: 'Una por página',
+    partsLabel: '¿En cuántas partes?',
+    partsChoice: (parts) => `${parts} partes`,
+    partsNote: (parts, sizes) =>
+      `${parts} PDF dentro de un ZIP, en orden y sin repetir ninguna página: ${sizes}.`,
+    partsTooMany: (pages) =>
+      `Este documento tiene ${pages} ${pages === 1 ? 'página' : 'páginas'}, así que salen menos partes que las pedidas.`,
+    extractingPart: (current, total) => `Armando la parte ${current} de ${total}…`,
     placeholder: 'ej. 1-3, 5, 12-9',
     action: 'Extraer páginas',
     working: 'Dividiendo…',
@@ -1540,9 +1560,20 @@ export const en: Dictionary = {
   },
   split: {
     heading: 'Split a PDF',
-    intro: 'Pull out the pages you need, or break every page apart.',
+    intro:
+      'Pull out the pages you need, cut the document into parts, or break every page apart.',
     rangeLabel: 'Pages to keep',
     eachPage: 'One file per page',
+    modeRange: 'A range',
+    modeParts: 'Into parts',
+    modeEachPage: 'One per page',
+    partsLabel: 'How many parts?',
+    partsChoice: (parts) => `${parts} parts`,
+    partsNote: (parts, sizes) =>
+      `${parts} PDFs inside a ZIP, in order, with no page in two of them: ${sizes}.`,
+    partsTooMany: (pages) =>
+      `This document has ${pages} ${pages === 1 ? 'page' : 'pages'}, so you get fewer parts than you asked for.`,
+    extractingPart: (current, total) => `Building part ${current} of ${total}…`,
     placeholder: 'e.g. 1-3, 5, 12-9',
     action: 'Extract pages',
     working: 'Splitting…',

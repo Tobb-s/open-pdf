@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parsePageRange, parsePageSet, summarizePages } from '@/lib/pageRange';
+import {
+  parsePageRange,
+  parsePageSet,
+  splitIntoParts,
+  summarizePages,
+} from '@/lib/pageRange';
 
 describe('parsePageRange', () => {
   it('reads single pages and ranges', () => {
@@ -69,5 +74,49 @@ describe('parsePageSet', () => {
     const result = parsePageSet('2, tres, 4', 10);
     expect(result.pages).toEqual([2, 4]);
     expect(result.invalid).toEqual(['tres']);
+  });
+});
+
+describe('splitIntoParts', () => {
+  it('cuts a book into runs that cover every page exactly once', () => {
+    for (const [pages, parts] of [
+      [700, 2],
+      [700, 4],
+      [700, 6],
+      [700, 8],
+      [700, 10],
+      [13, 4],
+      [1, 1],
+    ] as const) {
+      const runs = splitIntoParts(pages, parts);
+      expect(runs, `${pages} en ${parts}`).toHaveLength(Math.min(parts, pages));
+      expect(runs[0].from, `${pages} en ${parts}`).toBe(1);
+      expect(runs[runs.length - 1].to, `${pages} en ${parts}`).toBe(pages);
+      // Contiguous, with no gap and no overlap.
+      for (let index = 1; index < runs.length; index += 1) {
+        expect(runs[index].from, `${pages} en ${parts}`).toBe(runs[index - 1].to + 1);
+      }
+      // Every run holds at least one page.
+      for (const run of runs) expect(run.to).toBeGreaterThanOrEqual(run.from);
+    }
+  });
+
+  it('spreads the remainder rather than forcing equal parts', () => {
+    // 700 in 6 is 116.67: four runs of 117 and two of 116, longer ones first.
+    const runs = splitIntoParts(700, 6);
+    expect(runs.map((run) => run.to - run.from + 1)).toEqual([117, 117, 117, 117, 116, 116]);
+  });
+
+  it('never returns an empty part, however many are asked for', () => {
+    expect(splitIntoParts(3, 10)).toEqual([
+      { from: 1, to: 1 },
+      { from: 2, to: 2 },
+      { from: 3, to: 3 },
+    ]);
+  });
+
+  it('refuses nonsense quietly', () => {
+    expect(splitIntoParts(0, 4)).toEqual([]);
+    expect(splitIntoParts(10, 0)).toEqual([]);
   });
 });

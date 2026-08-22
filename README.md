@@ -11,7 +11,7 @@ en la propia página.
 | **Comprimir** | Reduce el tamaño reconvirtiendo cada página a imagen. Avisa cuando el documento tiene texto real, porque en ese caso suele crecer en vez de encoger. |
 | **OCR** | Reconoce el texto de un PDF escaneado y devuelve una copia con capa de texto buscable, más el texto plano. Seis idiomas. |
 | **Unir** | Combina varios PDF en uno, en el orden que elijas. |
-| **Dividir** | Extrae un rango de páginas, o parte cada página en su propio archivo. |
+| **Dividir** | Extrae un rango de páginas, corta el documento en 2, 4, 6, 8 o 10 partes, o parte cada página en su propio archivo. Sin tope de páginas: un libro de 700 se divide en segundos. |
 | **Organizar** | Reordena, rota y elimina páginas, con vista previa de cada una. |
 | **PDF a Word** | Extrae el texto a un `.docx` editable. Sólo texto: no conserva imágenes, tablas ni maquetación. |
 | **Editar** | Coloca texto en cualquier punto de una página. |
@@ -154,7 +154,9 @@ src/
       store.ts      la sesión en IndexedDB: bytes originales más la lista de
                     ediciones, nunca un documento ya armado
     errors.ts     traduce excepciones a mensajes con causa y salida
-    limits.ts     topes de tamaño y páginas, cancelación
+    limits.ts     topes de tamaño y páginas, cancelación, y el `yield` que
+                  cede el control al navegador sin usar temporizadores (que un
+                  navegador limita a ~1/segundo en pestañas de fondo)
     tools.ts      catálogo de herramientas: orden y color
     i18n/
       dictionaries.ts  todo el texto visible, en español e inglés
