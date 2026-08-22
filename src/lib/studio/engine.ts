@@ -81,15 +81,26 @@ class MainThreadEngine implements StudioEngine {
 }
 
 /**
+ * How long to wait for the worker before deciding it is not coming back.
+ *
+ * Generous by three orders of magnitude: rebuilding a forty-five page, seven
+ * megabyte deck was measured at fourteen milliseconds. Anything approaching
+ * this is not slow work, it is a worker that is gone.
+ */
+const REPLY_TIMEOUT_MS = 30_000;
+
+/**
  * Talks to the worker, and takes over the job itself if the worker stops.
  *
  * A worker that dies mid-session used to leave `open()` waiting for a reply
  * that would never come, which froze the editor on a blank screen with no
- * error. Now the fallback is a live part of this class rather than a decision
- * taken once at construction: whatever happens to the worker, the next render
- * still returns a document.
+ * error. Listening for `error` is not enough to catch that: a worker killed by
+ * the browser — out of memory, a crashed renderer — dispatches no event at all,
+ * and a rejection inside the worker's own async handler surfaces there rather
+ * than here. So every request carries a deadline, and a missed deadline is
+ * treated as a death.
  */
-class WorkerEngine implements StudioEngine {
+export class WorkerEngine implements StudioEngine {
   private nextId = 1;
   private readonly pending = new Map<
     number,
@@ -188,7 +199,14 @@ class WorkerEngine implements StudioEngine {
     if (this.fallback) return this.fallback.open(original);
 
     return new Promise((resolve) => {
-      this.opened = resolve;
+      const timer = setTimeout(() => {
+        if (this.opened) void this.demote();
+      }, REPLY_TIMEOUT_MS);
+
+      this.opened = () => {
+        clearTimeout(timer);
+        resolve();
+      };
       this.worker.postMessage({ cmd: 'open', original } satisfies StudioRequest);
     });
   }
@@ -205,9 +223,20 @@ class WorkerEngine implements StudioEngine {
   private ask<T>(cmd: 'render' | 'export', state: ScriptState): Promise<T> {
     const id = this.nextId++;
     return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        void this.demote();
+      }, REPLY_TIMEOUT_MS);
+
       this.pending.set(id, {
-        resolve: resolve as (value: never) => void,
-        reject,
+        resolve: ((value: never) => {
+          clearTimeout(timer);
+          (resolve as (v: never) => void)(value);
+        }) as (value: never) => void,
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
       });
       this.worker.postMessage({ cmd, id, state } satisfies StudioRequest);
     });

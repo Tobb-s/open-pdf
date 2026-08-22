@@ -40,7 +40,13 @@ import {
   type Mark,
   type ScriptState,
 } from '@/lib/studio/script';
-import { clearSession, loadSession, saveSession, type StoredSession } from '@/lib/studio/store';
+import {
+  clearSession,
+  loadSession,
+  saveSession,
+  SESSION_SHAPE,
+  type StoredSession,
+} from '@/lib/studio/store';
 import {
   diffStructures,
   VERIFIABLE_CATEGORIES,
@@ -66,7 +72,6 @@ const SLOW_MS = 1500;
  * changes.
  */
 type Built = {
-  bytes: Uint8Array;
   document: PDFDocumentProxy;
   destroy: () => Promise<void>;
   state: ScriptState;
@@ -91,8 +96,19 @@ export default function StudioPage() {
   const [name, setName] = useState('');
   const [original, setOriginal] = useState<Uint8Array | null>(null);
   const [originalPages, setOriginalPages] = useState(0);
-  const [edits, setEdits] = useState<Edit[]>([]);
-  const [cursor, setCursor] = useState(0);
+  /**
+   * The list and the cursor as ONE value.
+   *
+   * They were two, updated from two setState calls, and a caller that appended
+   * twice in one batch truncated the list against a cursor that was a render
+   * behind — dropping the first edit while the cursor advanced past the end.
+   * Held together, a single updater decides both and they cannot disagree.
+   */
+  const [script, setScript] = useState<{ edits: Edit[]; cursor: number }>({
+    edits: [],
+    cursor: 0,
+  });
+  const { edits, cursor } = script;
   const [assets, setAssets] = useState<Record<string, Uint8Array>>({});
 
   const [built, setBuilt] = useState<Built | null>(null);
@@ -119,8 +135,6 @@ export default function StudioPage() {
   const [error, setError] = useState<ToolError | null>(null);
 
   const engineRef = useRef<StudioEngine | null>(null);
-  /** The cursor, readable from callbacks that ran before the latest render. */
-  const cursorRef = useRef(0);
   /** Bumped per rebuild so a slow one cannot overwrite a newer result. */
   const generationRef = useRef(0);
 
@@ -132,10 +146,6 @@ export default function StudioPage() {
     () => stateAt(originalPages, edits, cursor),
     [originalPages, edits, cursor]
   );
-
-  useEffect(() => {
-    cursorRef.current = cursor;
-  }, [cursor]);
 
   /** What is on screen right now, which trails the script during a rebuild. */
   const view = built?.state ?? null;
@@ -182,15 +192,18 @@ export default function StudioPage() {
       setName(fileName);
       setOriginal(bytes);
       setOriginalPages(count);
-      setEdits(restored?.edits ?? []);
-      setCursor(restored?.cursor ?? 0);
+      setScript({ edits: restored?.edits ?? [], cursor: restored?.cursor ?? 0 });
       setAssets(restoredAssets);
       setPageIndex(0);
       setTool('pick');
+      setPendingImage(null);
       setResult(null);
       setResumable(null);
       setLive(true);
       setSlowBecause(null);
+      // Nothing has been written for THIS document yet, whatever was true of
+      // the last one.
+      setSavedOk(null);
     },
     []
   );
@@ -233,7 +246,10 @@ export default function StudioPage() {
     setBuilding(true);
     try {
       const started = performance.now();
-      const { bytes } = await engine.render(state);
+      const { bytes, offMainThread: inWorker } = await engine.render(state);
+      // Re-read every time: the engine can hand the job to the main thread part
+      // way through a session, and the banner has to follow it.
+      setOffMainThread(inWorker);
       const opened = await openPdf(bytes);
 
       // A rebuild that started earlier must never land on top of a newer one.
@@ -244,7 +260,10 @@ export default function StudioPage() {
         return;
       }
 
-      setBuilt({ bytes, document: opened.document, destroy: opened.destroy, state });
+      // The bytes are not kept: exporting re-renders from the script, so a copy
+      // of every intermediate document would pin a document's worth of memory
+      // for nothing.
+      setBuilt({ document: opened.document, destroy: opened.destroy, state });
       setPageIndex((index) => Math.min(index, opened.document.numPages - 1));
 
       // Measured from the request to the document being ready to draw. It does
@@ -314,6 +333,7 @@ export default function StudioPage() {
         );
 
         const ok = await saveSession({
+          shape: SESSION_SHAPE,
           name,
           original,
           edits,
@@ -338,12 +358,10 @@ export default function StudioPage() {
    * because some callers get here after an await — importing a PDF has to parse
    * it first — and a closure captured before that wait would append against a
    * stale list and silently drop everything the reader did while they waited.
+   * One updater returns both halves, so nothing can land between them.
    */
   const addEdit = useCallback((edit: Edit) => {
-    setEdits((currentEdits) => {
-      setCursor((currentCursor) => append(currentEdits, currentCursor, edit).cursor);
-      return append(currentEdits, cursorRef.current, edit).edits;
-    });
+    setScript((current) => append(current.edits, current.cursor, edit));
   }, []);
 
   /**
@@ -368,7 +386,13 @@ export default function StudioPage() {
   const signatures = useMemo(
     () =>
       (view?.pages ?? []).map((page) => {
-        const marks = (view?.marks ?? []).filter((mark) => mark.page === page.id).length;
+        // The marks themselves, not how many there are. Erasing one mark and
+        // drawing another inside the same settle window leaves the count
+        // unchanged, and the rail would keep showing the one that is gone.
+        const marks = (view?.marks ?? [])
+          .filter((mark) => mark.page === page.id)
+          .map((mark) => mark.id)
+          .join(',');
         const crop = page.crop
           ? `${page.crop.x},${page.crop.y},${page.crop.width},${page.crop.height}`
           : '-';
@@ -482,7 +506,9 @@ export default function StudioPage() {
       setAssets((current) => ({ ...current, [id]: bytes }));
       addEdit({
         kind: 'insert',
-        at: pageIndex,
+        // Named, not numbered: by the time the imported file has been parsed
+        // the live document may no longer match the rail the reader clicked on.
+        before: viewPages[pageIndex]?.id ?? null,
         asset: id,
         indices: Array.from({ length: count }, (_, index) => index),
       });
@@ -543,9 +569,10 @@ export default function StudioPage() {
     setBuilt(null);
     setOriginal(null);
     setName('');
-    setEdits([]);
-    setCursor(0);
+    setScript({ edits: [], cursor: 0 });
     setAssets({});
+    setPendingImage(null);
+    setSavedOk(null);
     setResult(null);
     setError(null);
   };
@@ -703,7 +730,9 @@ export default function StudioPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() => setCursor((value) => Math.max(0, value - 1))}
+              onClick={() =>
+                setScript((current) => ({ ...current, cursor: Math.max(0, current.cursor - 1) }))
+              }
               disabled={cursor === 0}
               className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
             >
@@ -711,7 +740,12 @@ export default function StudioPage() {
             </button>
             <button
               type="button"
-              onClick={() => setCursor((value) => Math.min(edits.length, value + 1))}
+              onClick={() =>
+                setScript((current) => ({
+                  ...current,
+                  cursor: Math.min(current.edits.length, current.cursor + 1),
+                }))
+              }
               disabled={cursor >= edits.length}
               className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
             >
@@ -789,7 +823,9 @@ export default function StudioPage() {
                 {t.studio.previous}
               </button>
               <span className="font-medium tabular-nums">
-                {t.studio.pageOf(pageIndex + 1, viewPages.length)}
+                {viewPages.length === 0
+                  ? t.studio.building
+                  : t.studio.pageOf(pageIndex + 1, viewPages.length)}
               </span>
               <button
                 type="button"
@@ -817,7 +853,12 @@ export default function StudioPage() {
               }}
               onMove={(index, to) => {
                 const page = pageIdAt(index);
-                if (page) addEdit({ kind: 'move', page, toIndex: to });
+                if (!page) return;
+                // "Before this page", read off the rail the reader is looking
+                // at: moving earlier means before the tile to the left, moving
+                // later means before the one two to the right (or the end).
+                const anchor = to < index ? viewPages[to] : viewPages[index + 2];
+                addEdit({ kind: 'move', page, before: anchor?.id ?? null });
               }}
             />
           </div>

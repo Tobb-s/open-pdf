@@ -98,12 +98,24 @@ export type Mark =
       width: number;
     };
 
+/**
+ * Positions are given as "immediately before this page", never as an index.
+ *
+ * The editor shows a document that trails the script while a rebuild is in
+ * flight, so an index the reader picked from the screen describes a list that
+ * may already have changed underneath it. Measured before this: deleting a page
+ * and then importing a PDF "here" within the same settle window put the import
+ * on the wrong side of the page the reader was looking at. A page id means the
+ * same page whatever else moved.
+ *
+ * `before: null` means the end of the document.
+ */
 export type Edit =
   | { kind: 'rotate'; page: PageId; turns: number }
   | { kind: 'delete'; page: PageId }
-  | { kind: 'move'; page: PageId; toIndex: number }
+  | { kind: 'move'; page: PageId; before: PageId | null }
   | { kind: 'crop'; page: PageId; box: Rect | null }
-  | { kind: 'insert'; at: number; asset: string; indices: readonly number[] }
+  | { kind: 'insert'; before: PageId | null; asset: string; indices: readonly number[] }
   | { kind: 'draw'; mark: Mark }
   | { kind: 'erase'; markId: string };
 
@@ -132,6 +144,16 @@ export function initialState(pageCount: number): ScriptState {
     })),
     marks: [],
   };
+}
+
+/**
+ * Where "before this page" lands in `pages`, or null when the anchor is gone.
+ * A null anchor means the end of the document, which always exists.
+ */
+function insertionPoint(pages: readonly PageState[], before: PageId | null): number | null {
+  if (before === null) return pages.length;
+  const at = pages.findIndex((page) => page.id === before);
+  return at === -1 ? null : at;
 }
 
 function withPage(
@@ -182,16 +204,18 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
     case 'move': {
       const from = state.pages.findIndex((page) => page.id === edit.page);
       if (from === -1) return state;
-      const to = Math.min(Math.max(edit.toIndex, 0), state.pages.length - 1);
-      if (from === to) return state;
+
       const pages = [...state.pages];
       const [moved] = pages.splice(from, 1);
-      pages.splice(to, 0, moved);
+      const at = insertionPoint(pages, edit.before);
+      // The anchor is gone — deleted since the reader clicked. Leaving the page
+      // where it was beats guessing at a position they did not choose.
+      if (at === null) return state;
+      pages.splice(at, 0, moved);
       return { ...state, pages };
     }
 
     case 'insert': {
-      const at = Math.min(Math.max(edit.at, 0), state.pages.length);
       const added: PageState[] = edit.indices.map((index) => ({
         id: importedPageId(edit.asset, index, seq),
         origin: { asset: edit.asset, index },
@@ -199,8 +223,12 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
         crop: null,
       }));
       if (added.length === 0) return state;
+
+      const at = insertionPoint(state.pages, edit.before);
       const pages = [...state.pages];
-      pages.splice(at, 0, ...added);
+      // An anchor that no longer exists sends the pages to the end rather than
+      // dropping them: the reader asked for them to be in the document.
+      pages.splice(at ?? pages.length, 0, ...added);
       return { ...state, pages };
     }
 

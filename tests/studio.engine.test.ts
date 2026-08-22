@@ -35,7 +35,7 @@ describe('the main-thread fallback', () => {
     const edits: Edit[] = [
       { kind: 'rotate', page: 'o0', turns: 1 },
       { kind: 'delete', page: 'o2' },
-      { kind: 'move', page: 'o4', toIndex: 0 },
+      { kind: 'move', page: 'o4', before: 'o0' },
     ];
     const { bytes, millis, offMainThread } = await engine.render(stateAt(PAGES, edits, 3));
 
@@ -79,7 +79,7 @@ describe('the main-thread fallback', () => {
     await engine.open(fixture);
     engine.putAsset('extra', importedBytes);
 
-    const edits: Edit[] = [{ kind: 'insert', at: 1, asset: 'extra', indices: [0] }];
+    const edits: Edit[] = [{ kind: 'insert', before: 'o1', asset: 'extra', indices: [0] }];
     const { bytes } = await engine.render(stateAt(PAGES, edits, 1));
 
     const out = await PDFDocument.load(bytes);
@@ -120,7 +120,7 @@ describe('the main-thread fallback', () => {
 
     // The asset belonged to the previous session and must not leak into this one.
     const { bytes } = await engine.render(
-      stateAt(1, [{ kind: 'insert', at: 0, asset: 'extra', indices: [0] }], 1)
+      stateAt(1, [{ kind: 'insert', before: null, asset: 'extra', indices: [0] }], 1)
     );
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);
 

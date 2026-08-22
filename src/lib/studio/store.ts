@@ -19,7 +19,19 @@ const STORE = 'session';
 const KEY = 'current';
 const VERSION = 1;
 
+/**
+ * The shape of an edit list.
+ *
+ * Bumped whenever `Edit` changes in a way an older list cannot be replayed
+ * through — positions moved from indices to page ids, for instance. A session
+ * from a different shape is discarded rather than replayed into something the
+ * reader never asked for.
+ */
+export const SESSION_SHAPE = 2;
+
 export interface StoredSession {
+  /** The `SESSION_SHAPE` this list was written under. */
+  shape?: number;
   name: string;
   original: Uint8Array;
   edits: Edit[];
@@ -98,6 +110,12 @@ export async function loadSession(): Promise<StoredSession | null> {
   try {
     const stored = await run<StoredSession | undefined>('readonly', (store) => store.get(KEY));
     if (!stored || !stored.original || !Array.isArray(stored.edits)) return null;
+    // An older shape cannot be replayed faithfully, and replaying it anyway
+    // would quietly produce a document nobody asked for.
+    if (stored.shape !== SESSION_SHAPE) {
+      await clearSession();
+      return null;
+    }
     return stored;
   } catch {
     return null;
