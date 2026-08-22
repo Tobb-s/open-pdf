@@ -16,7 +16,8 @@ export type ToolSlug =
   | 'image-pdf'
   | 'office-to-pdf'
   | 'watermark'
-  | 'page-numbers';
+  | 'page-numbers'
+  | 'studio';
 
 export interface Tool {
   slug: ToolSlug;
@@ -46,6 +47,7 @@ export const TOOLS: Tool[] = [
   { slug: 'image-pdf', color: 'text-yellow-600', bgColor: 'bg-yellow-50' },
   { slug: 'watermark', color: 'text-rose-500', bgColor: 'bg-rose-50' },
   { slug: 'page-numbers', color: 'text-cyan-600', bgColor: 'bg-cyan-50' },
+  { slug: 'studio', color: 'text-violet-600', bgColor: 'bg-violet-50' },
 ];
 
 export const TOOL_SLUGS = TOOLS.map((tool) => tool.slug);

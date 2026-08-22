@@ -20,6 +20,7 @@ en la propia página.
 | **Imágenes y PDF** | Convierte cada página en JPG, o une imágenes JPG, PNG y WebP en un PDF. |
 | **Marca de agua** | Pone un texto o una imagen encima de las páginas que elijas, con opacidad, inclinación y posición. Vista previa de la página real, no una aproximación. |
 | **Numerar** | Numera páginas eligiendo esquina, desde qué número empezar y formato «3» o «3 de 40». Sale derecho también en páginas rotadas. |
+| **Studio** | Editor con sesión: abrís el documento y trabajás sobre él. Girar, borrar, reordenar, recortar e insertar páginas; texto, rectángulos, imágenes y trazo a mano; deshacer sin límite; cerrar la pestaña y volver. Exporta una vez, con un informe de qué se conservó. |
 
 ## Idiomas
 
@@ -141,6 +142,17 @@ src/
     verify/
       structural.ts  compara el catálogo de entrada contra el de salida y
                      declara qué sobrevivió, contando por referencia viva
+    studio/
+      script.ts     el guion de edición: una lista con un cursor. El estado es
+                    una función pura de (ediciones, cursor), que es lo que hace
+                    que deshacer sea correcto y gratis
+      materialize.ts convierte ese estado en bytes, siempre desde el original y
+                    nunca desde la materialización anterior
+      studio.worker.ts  donde vive pdf-lib mientras el editor está abierto
+      engine.ts     el puente al worker, con vuelta al hilo principal si el
+                    navegador no da uno
+      store.ts      la sesión en IndexedDB: bytes originales más la lista de
+                    ediciones, nunca un documento ya armado
     errors.ts     traduce excepciones a mensajes con causa y salida
     limits.ts     topes de tamaño y páginas, cancelación
     tools.ts      catálogo de herramientas: orden y color

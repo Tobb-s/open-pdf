@@ -15,6 +15,7 @@ import {
   ScanText,
   Search,
   Split,
+  SquarePen,
   Stamp,
   type LucideIcon,
 } from 'lucide-react';
@@ -37,6 +38,7 @@ const ICONS: Record<ToolSlug, LucideIcon> = {
   'image-pdf': ImageIcon,
   watermark: Stamp,
   'page-numbers': Hash,
+  studio: SquarePen,
 };
 
 export default function Home() {

@@ -434,6 +434,74 @@ export interface Dictionary {
     doneBody: string;
     another: string;
   };
+  studio: {
+    heading: string;
+    intro: string;
+    choose: string;
+    openNote: string;
+    resumeTitle: string;
+    resumeBody: (name: string) => string;
+    resume: string;
+    discard: string;
+    building: string;
+    buildFailed: string;
+    undo: string;
+    redo: string;
+    editCount: (count: number) => string;
+    noEdits: string;
+    pageOf: (current: number, total: number) => string;
+    previous: string;
+    next: string;
+    tools: {
+      pick: string;
+      text: string;
+      rect: string;
+      image: string;
+      ink: string;
+      crop: string;
+    };
+    toolHint: {
+      pick: string;
+      text: string;
+      rect: string;
+      image: string;
+      ink: string;
+      crop: string;
+    };
+    rotateLeft: string;
+    rotateRight: string;
+    deletePage: string;
+    lastPage: string;
+    moveEarlier: string;
+    moveLater: string;
+    insert: string;
+    insertHint: string;
+    addImageFirst: string;
+    cropReset: string;
+    textPlaceholder: string;
+    strokeWidth: string;
+    fill: string;
+    stroke: string;
+    marksOnPage: (count: number) => string;
+    removeMark: string;
+    /** The converging preview and its escape hatch. */
+    live: string;
+    manual: string;
+    checkPage: string;
+    slowNote: (seconds: string) => string;
+    onMainThread: string;
+    saved: string;
+    notSaved: string;
+    forget: string;
+    exportAction: string;
+    exporting: string;
+    doneTitle: (pages: number) => string;
+    doneBody: string;
+    keptNote: (list: string) => string;
+    lostNote: (list: string) => string;
+    keepEditing: string;
+    startOver: string;
+  };
   errors: {
     encryptedTitle: string;
     encryptedBody: string;
@@ -637,6 +705,14 @@ export const es: Dictionary = {
       description:
         'Numerá las páginas de un PDF eligiendo posición, desde qué número empezar y el formato. Funciona también en páginas rotadas. Todo en tu navegador.',
       keywords: ['numerar', 'números', 'página', 'foliar', 'paginación', 'numeración'],
+    },
+    studio: {
+      title: 'OpenPDF Studio',
+      navLabel: 'Studio',
+      tagline: 'Abrí el documento y trabajá sobre él, como en un editor.',
+      description:
+        'Editor de PDF en tu navegador: reordená, girá, recortá, borrá e insertá páginas, poné texto, rectángulos, imágenes y trazo a mano, deshacé sin límite y exportá una sola vez con un informe de qué se conservó.',
+      keywords: ['editor', 'estudio', 'studio', 'editar', 'anotar', 'recortar', 'documento'],
     },
   },
   compress: {
@@ -1072,6 +1148,77 @@ export const es: Dictionary = {
     doneBody: 'Tu documento numerado está listo.',
     another: 'Numerar otro',
   },
+  studio: {
+    heading: 'OpenPDF Studio',
+    intro:
+      'Abrí un documento y trabajá sobre él: páginas, texto, marcas. Nada se guarda en ningún servidor y el archivo original no se toca hasta que exportás.',
+    choose: 'Abrí un PDF',
+    openNote: 'Tus ediciones quedan en este navegador. Podés cerrar la pestaña y volver.',
+    resumeTitle: 'Tenés trabajo sin terminar',
+    resumeBody: (name) => `Dejaste «${name}» abierto en este navegador.`,
+    resume: 'Seguir donde estaba',
+    discard: 'Empezar de cero',
+    building: 'Rehaciendo el documento…',
+    buildFailed: 'No se pudo rehacer el documento con esta edición.',
+    undo: 'Deshacer',
+    redo: 'Rehacer',
+    editCount: (count) => `${count} ${count === 1 ? 'edición' : 'ediciones'}`,
+    noEdits: 'Sin cambios',
+    pageOf: (current, total) => `Página ${current} de ${total}`,
+    previous: 'Anterior',
+    next: 'Siguiente',
+    tools: {
+      pick: 'Mano',
+      text: 'Texto',
+      rect: 'Rectángulo',
+      image: 'Imagen',
+      ink: 'Lápiz',
+      crop: 'Recortar',
+    },
+    toolHint: {
+      pick: 'Mirá el documento y usá los controles de página.',
+      text: 'Hacé clic donde quieras el texto.',
+      rect: 'Arrastrá para dibujar un rectángulo.',
+      image: 'Elegí una imagen y hacé clic para ponerla.',
+      ink: 'Arrastrá para dibujar a mano alzada.',
+      crop: 'Arrastrá el área que querés conservar.',
+    },
+    rotateLeft: 'Girar a la izquierda',
+    rotateRight: 'Girar a la derecha',
+    deletePage: 'Eliminar página',
+    lastPage: 'No se puede eliminar la única página que queda.',
+    moveEarlier: 'Mover antes',
+    moveLater: 'Mover después',
+    insert: 'Insertar páginas',
+    insertHint: 'Se insertan justo antes de la página que estás viendo.',
+    addImageFirst: 'Elegí una imagen',
+    cropReset: 'Quitar el recorte',
+    textPlaceholder: 'Escribí acá…',
+    strokeWidth: 'Grosor',
+    fill: 'Relleno',
+    stroke: 'Borde',
+    marksOnPage: (count) => `${count} ${count === 1 ? 'marca' : 'marcas'} en esta página`,
+    removeMark: 'Quitar marca',
+    live: 'Vista en vivo',
+    manual: 'Vista manual',
+    checkPage: 'Comprobar página',
+    slowNote: (seconds) =>
+      `Rehacer este documento tarda ${seconds} s, así que la vista pasó a manual. Tocá «Comprobar página» cuando quieras verla.`,
+    onMainThread:
+      'Este navegador no permitió usar un worker, así que el documento se rehace en el hilo principal. Funciona igual, más lento.',
+    saved: 'Guardado en este navegador',
+    notSaved: 'No se pudo guardar en este navegador',
+    forget: 'Borrar lo guardado',
+    exportAction: 'Exportar',
+    exporting: 'Exportando…',
+    doneTitle: (pages) => `${pages} ${pages === 1 ? 'página' : 'páginas'} exportadas`,
+    doneBody: 'Tu documento está listo.',
+    keptNote: (list) => `Se conservaron ${list}.`,
+    lostNote: (list) =>
+      `Atención: el documento producido perdió ${list}. Si los necesitás, conservá el original.`,
+    keepEditing: 'Seguir editando',
+    startOver: 'Abrir otro',
+  },
   errors: {
     encryptedTitle: 'Este PDF está protegido con contraseña',
     encryptedBody:
@@ -1283,6 +1430,14 @@ export const en: Dictionary = {
       description:
         'Number the pages of a PDF, choosing position, the number to start from and the format. Works on rotated pages too. All in your browser.',
       keywords: ['page numbers', 'numbering', 'paginate', 'folio', 'number pages'],
+    },
+    studio: {
+      title: 'OpenPDF Studio',
+      navLabel: 'Studio',
+      tagline: 'Open the document and work on it, like an editor.',
+      description:
+        'A PDF editor in your browser: reorder, rotate, crop, delete and insert pages, add text, rectangles, images and freehand strokes, undo without limit, and export once with a report of what survived.',
+      keywords: ['editor', 'studio', 'edit', 'annotate', 'crop', 'document'],
     },
   },
   compress: {
@@ -1704,6 +1859,77 @@ export const en: Dictionary = {
     doneTitle: (pages) => `${pages} ${pages === 1 ? 'page numbered' : 'pages numbered'}`,
     doneBody: 'Your numbered document is ready.',
     another: 'Number another',
+  },
+  studio: {
+    heading: 'OpenPDF Studio',
+    intro:
+      'Open a document and work on it: pages, text, marks. Nothing reaches a server, and your original file is untouched until you export.',
+    choose: 'Open a PDF',
+    openNote: 'Your edits stay in this browser. You can close the tab and come back.',
+    resumeTitle: 'You have unfinished work',
+    resumeBody: (name) => `You left "${name}" open in this browser.`,
+    resume: 'Pick up where I left off',
+    discard: 'Start fresh',
+    building: 'Rebuilding the document…',
+    buildFailed: 'The document could not be rebuilt with this edit.',
+    undo: 'Undo',
+    redo: 'Redo',
+    editCount: (count) => `${count} ${count === 1 ? 'edit' : 'edits'}`,
+    noEdits: 'No changes',
+    pageOf: (current, total) => `Page ${current} of ${total}`,
+    previous: 'Previous',
+    next: 'Next',
+    tools: {
+      pick: 'Hand',
+      text: 'Text',
+      rect: 'Rectangle',
+      image: 'Image',
+      ink: 'Pen',
+      crop: 'Crop',
+    },
+    toolHint: {
+      pick: 'Look through the document and use the page controls.',
+      text: 'Click where you want the text.',
+      rect: 'Drag to draw a rectangle.',
+      image: 'Choose an image, then click to place it.',
+      ink: 'Drag to draw freehand.',
+      crop: 'Drag the area you want to keep.',
+    },
+    rotateLeft: 'Turn left',
+    rotateRight: 'Turn right',
+    deletePage: 'Delete page',
+    lastPage: 'The last remaining page cannot be deleted.',
+    moveEarlier: 'Move earlier',
+    moveLater: 'Move later',
+    insert: 'Insert pages',
+    insertHint: 'They go in just before the page you are looking at.',
+    addImageFirst: 'Choose an image',
+    cropReset: 'Remove the crop',
+    textPlaceholder: 'Type here…',
+    strokeWidth: 'Thickness',
+    fill: 'Fill',
+    stroke: 'Border',
+    marksOnPage: (count) => `${count} ${count === 1 ? 'mark' : 'marks'} on this page`,
+    removeMark: 'Remove mark',
+    live: 'Live view',
+    manual: 'Manual view',
+    checkPage: 'Check page',
+    slowNote: (seconds) =>
+      `Rebuilding this document takes ${seconds} s, so the view switched to manual. Tap "Check page" when you want to see it.`,
+    onMainThread:
+      'This browser would not give us a worker, so the document is rebuilt on the main thread. It still works, just slower.',
+    saved: 'Saved in this browser',
+    notSaved: 'Could not save in this browser',
+    forget: 'Delete what is saved',
+    exportAction: 'Export',
+    exporting: 'Exporting…',
+    doneTitle: (pages) => `${pages} ${pages === 1 ? 'page' : 'pages'} exported`,
+    doneBody: 'Your document is ready.',
+    keptNote: (list) => `${list} survived intact.`,
+    lostNote: (list) =>
+      `Careful: the produced document lost ${list}. Keep your original if you need them.`,
+    keepEditing: 'Keep editing',
+    startOver: 'Open another',
   },
   errors: {
     encryptedTitle: 'This PDF is password-protected',
