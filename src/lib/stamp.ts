@@ -115,6 +115,14 @@ export function imageKind(bytes: Uint8Array): 'png' | 'jpg' | null {
   return null;
 }
 
+/** Resolves 1-based page numbers to handles, dropping any that do not exist. */
+function pagesByNumber(document: PDFDocument, numbers: readonly number[]): PDFPage[] {
+  const pages = document.getPages();
+  return numbers
+    .map((number) => pages[number - 1])
+    .filter((page): page is PDFPage => page !== undefined);
+}
+
 interface Placement {
   x: number;
   y: number;
@@ -170,10 +178,18 @@ export interface TextStamp {
   margin: number;
 }
 
-/** Draws one line of text on each of `pageNumbers` (1-based). */
-export async function stampText(
+/**
+ * Draws one line of text on each of `pages`.
+ *
+ * Takes the pages themselves rather than their numbers. A caller that already
+ * holds the handles — Studio does — would otherwise have to turn them into
+ * indices for this function to turn them back, and pdf-lib's page list is
+ * cached in a way that makes that round trip depend on when the cache was last
+ * refreshed. Handles do not go stale.
+ */
+export async function stampTextOn(
   document: PDFDocument,
-  pageNumbers: readonly number[],
+  pages: readonly PDFPage[],
   stamp: TextStamp
 ): Promise<void> {
   // A watermark is a phrase, and the input that feeds this is single-line; a
@@ -189,11 +205,8 @@ export async function stampText(
     width: font.widthOfTextAtSize(text, stamp.size),
     height: inkHeight(font, stamp.size),
   };
-  const pages = document.getPages();
 
-  for (const pageNumber of pageNumbers) {
-    const page = pages[pageNumber - 1];
-    if (!page) continue;
+  for (const page of pages) {
     const { x, y, rotate } = place(page, content, stamp.anchor, stamp.margin, stamp.angle);
     page.drawText(text, {
       x,
@@ -205,6 +218,15 @@ export async function stampText(
       rotate: degrees(rotate),
     });
   }
+}
+
+/** The same, addressed by 1-based page number, for the standalone tools. */
+export async function stampText(
+  document: PDFDocument,
+  pageNumbers: readonly number[],
+  stamp: TextStamp
+): Promise<void> {
+  await stampTextOn(document, pagesByNumber(document, pageNumbers), stamp);
 }
 
 export interface ImageStamp {
@@ -296,24 +318,21 @@ export interface StampNumbersOptions {
   startIndex?: number;
 }
 
-export async function stampPageNumbers(
+/** Numbers the pages given, in the order given. See `stampTextOn` for why. */
+export async function stampPageNumbersOn(
   document: PDFDocument,
-  pageNumbers: readonly number[],
+  pages: readonly PDFPage[],
   stamp: NumberStamp,
   { stampedCount, startIndex = 0 }: StampNumbersOptions = {}
 ): Promise<void> {
-  const total = stampedCount ?? pageNumbers.length;
+  const total = stampedCount ?? pages.length;
   const font = await document.embedFont(standardFontFor(stamp.font));
-  const pages = document.getPages();
   const height = inkHeight(font, stamp.size);
 
   const unsupported = firstUnsupportedCharacter(stamp.ofWord, font);
   if (unsupported !== null) throw new UnsupportedCharacterError(unsupported);
 
-  for (const [index, pageNumber] of pageNumbers.entries()) {
-    const page = pages[pageNumber - 1];
-    if (!page) continue;
-
+  for (const [index, page] of pages.entries()) {
     const label = pageNumberText(stamp, startIndex + index, total);
     // Re-measured per page: 9 and 10 are different widths, and a right-aligned
     // number that ignored that would drift down the page.
@@ -329,4 +348,17 @@ export async function stampPageNumbers(
       rotate: degrees(rotate),
     });
   }
+}
+
+/** The same, addressed by 1-based page number, for the standalone tool. */
+export async function stampPageNumbers(
+  document: PDFDocument,
+  pageNumbers: readonly number[],
+  stamp: NumberStamp,
+  options: StampNumbersOptions = {}
+): Promise<void> {
+  await stampPageNumbersOn(document, pagesByNumber(document, pageNumbers), stamp, {
+    stampedCount: options.stampedCount ?? pageNumbers.length,
+    startIndex: options.startIndex,
+  });
 }

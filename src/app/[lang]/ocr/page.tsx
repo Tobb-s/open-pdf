@@ -15,21 +15,12 @@ import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize, assertPageCount, MAX_OCR_PAGES, throwIfCancelled } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { OCR_SCALE, TESSERACT_PATHS } from '@/lib/ocrRuntime';
 import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
 
 type OcrLanguage = 'spa' | 'eng' | 'fra' | 'deu' | 'ita' | 'por';
 
 const LANGUAGES: OcrLanguage[] = ['spa', 'eng', 'fra', 'deu', 'ita', 'por'];
-
-/** Rendering scale for recognition. Tesseract needs roughly 300 dpi to read well. */
-const OCR_SCALE = 2;
-
-/** Everything the OCR engine loads is served from this origin, never a CDN. */
-const TESSERACT_PATHS = {
-  workerPath: '/vendor/tesseract/worker.min.js',
-  corePath: '/vendor/tesseract/core',
-  langPath: '/vendor/tesseract/lang',
-};
 
 interface OcrResult {
   pdf: Blob;

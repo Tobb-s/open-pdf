@@ -1,6 +1,7 @@
 import { loadPdf } from '@/lib/pdfio';
 import { materialize } from '@/lib/studio/materialize';
 import type { ScriptState } from '@/lib/studio/script';
+import { verifyFields, type FieldCheck } from '@/lib/studio/verify';
 import { summarizeStructures, type StructuralSummary } from '@/lib/verify/structural';
 
 /**
@@ -32,6 +33,8 @@ export type StudioResponse =
       pages: number;
       before: StructuralSummary;
       after: StructuralSummary;
+      /** Field values that did not survive the write, read back from the file. */
+      fields: FieldCheck[];
     }
   | { cmd: 'failed'; id: number; message: string };
 
@@ -79,6 +82,7 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
           pages: produced.getPageCount(),
           before: summarizeStructures(source),
           after: summarizeStructures(produced),
+          fields: await verifyFields(bytes, request.state.fields),
         },
         [bytes.buffer as ArrayBuffer]
       );

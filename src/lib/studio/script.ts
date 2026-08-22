@@ -89,6 +89,20 @@ export type Mark =
       opacity: number;
     }
   | {
+      /**
+       * A layer of invisible text over a scanned page, so the words can be
+       * found and selected. Modelled as a mark rather than as a document
+       * setting because that is what it is: content that belongs to one page,
+       * turns when the page turns, and goes when the page goes.
+       */
+      kind: 'ocr';
+      id: string;
+      page: PageId;
+      /** Degrees counter-clockwise in PDF user space, so it turns with the page. */
+      rotate: number;
+      words: ReadonlyArray<{ text: string; x: number; y: number; size: number }>;
+    }
+  | {
       kind: 'ink';
       id: string;
       page: PageId;
@@ -110,6 +124,73 @@ export type Mark =
  *
  * `before: null` means the end of the document.
  */
+/** What a font looks like, mirroring the one the stamp tools already use. */
+export interface FontChoice {
+  family: 'helvetica' | 'times' | 'courier';
+  bold: boolean;
+  italic: boolean;
+}
+
+export type Anchor =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'middle-left'
+  | 'center'
+  | 'middle-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right';
+
+/**
+ * A watermark and page numbers are document settings, not marks.
+ *
+ * One instruction rather than one mark per page: changing the text is a single
+ * edit, a page added later is covered without asking, and — the reason it has
+ * to be this way — the numbers are worked out from the FINAL order, so
+ * reordering pages renumbers them instead of leaving the old numbers behind.
+ *
+ * `pages: null` means every page.
+ */
+export interface WatermarkSpec {
+  text: string;
+  font: FontChoice;
+  size: number;
+  color: Rgb;
+  opacity: number;
+  angle: number;
+  anchor: Anchor;
+  margin: number;
+  pages: readonly PageId[] | null;
+}
+
+export interface NumberingSpec {
+  font: FontChoice;
+  size: number;
+  color: Rgb;
+  anchor: Anchor;
+  margin: number;
+  startAt: number;
+  format: 'plain' | 'ofTotal';
+  /** The word between the two numbers, from the dictionary. */
+  ofWord: string;
+  pages: readonly PageId[] | null;
+}
+
+export interface Metadata {
+  title?: string;
+  author?: string;
+  language?: string;
+}
+
+/**
+ * A change to the metadata. `null` means "stop asking for this one", which is
+ * what returning a box to the document's own value has to mean — otherwise the
+ * script could never say "unchanged" again, and an empty box would overwrite a
+ * real title with nothing.
+ */
+export type MetadataPatch = { [K in keyof Metadata]?: string | null };
+
 export type Edit =
   | { kind: 'rotate'; page: PageId; turns: number }
   | { kind: 'delete'; page: PageId }
@@ -117,11 +198,21 @@ export type Edit =
   | { kind: 'crop'; page: PageId; box: Rect | null }
   | { kind: 'insert'; before: PageId | null; asset: string; indices: readonly number[] }
   | { kind: 'draw'; mark: Mark }
-  | { kind: 'erase'; markId: string };
+  | { kind: 'erase'; markId: string }
+  | { kind: 'insertImages'; before: PageId | null; assets: readonly string[] }
+  | { kind: 'setField'; field: string; value: string }
+  | { kind: 'metadata'; patch: MetadataPatch }
+  | { kind: 'watermark'; spec: WatermarkSpec | null }
+  | { kind: 'numbering'; spec: NumberingSpec | null };
 
 export interface ScriptState {
   pages: PageState[];
   marks: Mark[];
+  /** Form field values the reader has set, by field name. */
+  fields: Record<string, string>;
+  metadata: Metadata;
+  watermark: WatermarkSpec | null;
+  numbering: NumberingSpec | null;
 }
 
 /** The id an original page carries for the whole session. */
@@ -134,6 +225,14 @@ export function importedPageId(asset: string, index: number, seq: number): PageI
   return `i${seq}:${asset}:${index}`;
 }
 
+/** The id a page made from an imported image carries. */
+export function imagePageId(asset: string, seq: number): PageId {
+  return `g${seq}:${asset}`;
+}
+
+/** An image becomes a page whose longest side is this many points. */
+export const IMAGE_PAGE_LONG_SIDE = 842;
+
 export function initialState(pageCount: number): ScriptState {
   return {
     pages: Array.from({ length: pageCount }, (_, index) => ({
@@ -143,6 +242,10 @@ export function initialState(pageCount: number): ScriptState {
       crop: null,
     })),
     marks: [],
+    fields: {},
+    metadata: {},
+    watermark: null,
+    numbering: null,
   };
 }
 
@@ -194,6 +297,7 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
       // document, and pdf-lib cannot save one.
       if (pages.length === 0) return state;
       return {
+        ...state,
         pages,
         // Marks on a deleted page go with it, so undoing the delete brings both
         // back and the script stays a pure replay.
@@ -244,6 +348,39 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
       return marks.length === state.marks.length ? state : { ...state, marks };
     }
 
+    case 'insertImages': {
+      const added: PageState[] = edit.assets.map((asset, offset) => ({
+        id: imagePageId(asset, seq * 1000 + offset),
+        origin: { asset, index: 0 },
+        turns: 0,
+        crop: null,
+      }));
+      if (added.length === 0) return state;
+
+      const at = insertionPoint(state.pages, edit.before);
+      const pages = [...state.pages];
+      pages.splice(at ?? pages.length, 0, ...added);
+      return { ...state, pages };
+    }
+
+    case 'setField':
+      return { ...state, fields: { ...state.fields, [edit.field]: edit.value } };
+
+    case 'metadata': {
+      const metadata: Metadata = { ...state.metadata };
+      for (const [key, value] of Object.entries(edit.patch)) {
+        if (value === null) delete metadata[key as keyof Metadata];
+        else metadata[key as keyof Metadata] = value;
+      }
+      return { ...state, metadata };
+    }
+
+    case 'watermark':
+      return { ...state, watermark: edit.spec };
+
+    case 'numbering':
+      return { ...state, numbering: edit.spec };
+
     default:
       return state;
   }
@@ -280,6 +417,9 @@ export function stateAt(
 export function isUntouched(state: ScriptState, pageCount: number): boolean {
   if (state.marks.length > 0) return false;
   if (state.pages.length !== pageCount) return false;
+  if (Object.keys(state.fields).length > 0) return false;
+  if (Object.keys(state.metadata).length > 0) return false;
+  if (state.watermark !== null || state.numbering !== null) return false;
   return state.pages.every(
     (page, index) =>
       page.origin.asset === ORIGINAL &&

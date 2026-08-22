@@ -1,8 +1,15 @@
 import {
   LineCapStyle,
+  PDFCheckBox,
+  PDFDict,
   PDFDocument,
+  PDFDropdown,
+  PDFField,
   PDFName,
   PDFPage,
+  PDFRadioGroup,
+  PDFRef,
+  PDFTextField,
   StandardFonts,
   degrees,
   rgb,
@@ -12,10 +19,13 @@ import { loadPdf, savePdf } from '@/lib/pdfio';
 import {
   firstUnsupportedCharacter,
   imageKind,
+  stampPageNumbersOn,
+  stampTextOn,
   standardFontFor,
   UnsupportedCharacterError,
 } from '@/lib/stamp';
 import {
+  IMAGE_PAGE_LONG_SIDE,
   isUntouched,
   ORIGINAL,
   type Mark,
@@ -95,6 +105,44 @@ function arrangeOriginalPages(
   return { pages: byId, deleted };
 }
 
+/**
+ * Whether a page comes from an imported image rather than from a PDF.
+ *
+ * An image has no page tree to copy from, so it gets a page of its own sized to
+ * its shape: the longest side is a fixed length and the aspect is kept, which
+ * turns a photo of any resolution into something the size of a sheet of paper
+ * rather than something the size of its pixel count.
+ */
+function isImageAsset(bytes: Uint8Array | undefined): boolean {
+  return bytes !== undefined && imageKind(bytes) !== null;
+}
+
+/**
+ * Removes the form controls an imported page brought without its form.
+ *
+ * `copyPages` copies a page's annotations, so a page taken from a document with
+ * a form arrives carrying its widgets — while the AcroForm those widgets
+ * belonged to stays behind. Measured: importing one such page left a widget in
+ * the file that no field owned. It draws like a box you can type in and is
+ * nothing of the sort.
+ *
+ * Leaving it would make the editor's own declaration — that the fields did not
+ * travel — technically true and practically misleading. So the boxes go too,
+ * and what the reader is told matches what they get. Links, notes and every
+ * other annotation are untouched.
+ */
+function dropOrphanedWidgets(page: PDFPage): void {
+  const annots = page.node.Annots();
+  if (!annots) return;
+
+  for (let index = annots.size() - 1; index >= 0; index -= 1) {
+    const entry = annots.get(index);
+    const dict = entry instanceof PDFRef ? page.doc.context.lookup(entry) : entry;
+    if (!(dict instanceof PDFDict)) continue;
+    if (dict.get(PDFName.of('Subtype')) === PDFName.of('Widget')) annots.remove(index);
+  }
+}
+
 /** Copies the imported pages in, at the positions the script asked for. */
 async function insertImportedPages(
   document: PDFDocument,
@@ -119,6 +167,28 @@ async function insertImportedPages(
     const bytes = assets.get(page.origin.asset);
     if (!bytes) continue;
 
+    if (isImageAsset(bytes)) {
+      const kind = imageKind(bytes);
+      // The magic bytes say PNG or JPEG; the rest of the file may still be
+      // something pdf-lib cannot read. A truncated photo must cost its own page,
+      // not every rebuild from here until the reader guesses what to undo.
+      let image;
+      try {
+        image = kind === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
+      } catch {
+        continue;
+      }
+      const scale = IMAGE_PAGE_LONG_SIDE / Math.max(image.width, image.height);
+      const width = image.width * scale;
+      const height = image.height * scale;
+
+      const made = document.insertPage(Math.min(placed, document.getPageCount()), [width, height]);
+      made.drawImage(image, { x: 0, y: 0, width, height });
+      byId.set(page.id, made);
+      placed += 1;
+      continue;
+    }
+
     let source = loaded.get(page.origin.asset);
     if (!source) {
       source = await loadPdf(bytes, { updateMetadata: false });
@@ -127,6 +197,7 @@ async function insertImportedPages(
     if (page.origin.index >= source.getPageCount()) continue;
 
     const [copied] = await document.copyPages(source, [page.origin.index]);
+    dropOrphanedWidgets(copied);
     document.insertPage(Math.min(placed, document.getPageCount()), copied);
     byId.set(page.id, copied);
     placed += 1;
@@ -203,6 +274,31 @@ async function drawMark(
       return;
     }
 
+    case 'ocr': {
+      // Drawn at zero opacity: the words are there to be found and selected,
+      // not to be seen. The page underneath is what the reader looks at.
+      const name = standardFontFor({ family: 'helvetica', bold: false, italic: false });
+      let font = fonts.get(name);
+      if (!font) {
+        font = await document.embedFont(name as StandardFonts);
+        fonts.set(name, font);
+      }
+      for (const word of mark.words) {
+        // One word that will not encode must not cost the whole layer.
+        if (firstUnsupportedCharacter(word.text, font) !== null) continue;
+        page.drawText(word.text, {
+          x: word.x,
+          y: word.y,
+          size: word.size,
+          font,
+          color: rgb(0, 0, 0),
+          opacity: 0,
+          rotate: degrees(mark.rotate),
+        });
+      }
+      return;
+    }
+
     case 'ink': {
       // Segment by segment rather than as an SVG path: pdf-lib's path drawing
       // uses its own top-left convention, and a stroke that lands in the wrong
@@ -275,6 +371,117 @@ export async function materialize({
     await drawMark(document, handle, mark, assets, fonts, images);
   }
 
+  // Form field values.
+  //
+  // Two things here were learned the hard way. Appearances are regenerated for
+  // the fields the reader actually wrote, never for the whole form: asking
+  // pdf-lib to do the whole form re-typesets every field that happens to lack
+  // an appearance stream, rewriting the typeface of fields nobody touched.
+  //
+  // And the regeneration is done HERE rather than inside `save`, because it
+  // draws with a WinAnsi font and throws on a character it cannot encode. From
+  // inside `save` that throw escapes `materialize` entirely and kills the
+  // export and every later rebuild with an opaque error — the same failure this
+  // file already guards against for text marks, and which the form path was
+  // quietly missing.
+  if (Object.keys(state.fields).length > 0) {
+    try {
+      const form = document.getForm();
+      const written: Array<{ name: string; field: PDFField }> = [];
+
+      for (const [name, value] of Object.entries(state.fields)) {
+        try {
+          const field = form.getField(name);
+          if (field instanceof PDFTextField) field.setText(value);
+          else if (field instanceof PDFCheckBox) {
+            if (value === 'true') field.check();
+            else field.uncheck();
+          } else if (field instanceof PDFDropdown) {
+            if (value === '') field.clear();
+            else field.select(value);
+          } else if (field instanceof PDFRadioGroup) {
+            if (value === '') field.clear();
+            else field.select(value);
+          }
+          written.push({ name, field });
+        } catch {
+          // One field that refuses a value is reported by the round trip, not
+          // by taking the whole document down.
+        }
+      }
+
+      if (written.length > 0) {
+        const helvetica = await document.embedFont(StandardFonts.Helvetica);
+        for (const { name, field } of written) {
+          const value = state.fields[name] ?? '';
+          const unsupported = firstUnsupportedCharacter(value, helvetica);
+          if (unsupported !== null) throw new UnsupportedCharacterError(unsupported);
+          try {
+            field.defaultUpdateAppearances(helvetica);
+          } catch {
+            // No appearance for this one; the round trip on the produced file
+            // is what decides whether that matters.
+          }
+        }
+      }
+    } catch (caught) {
+      // An unencodable character is the reader's to fix and must reach them.
+      if (caught instanceof UnsupportedCharacterError) throw caught;
+      // Anything else means there is no usable form here any more.
+    }
+  }
+
+  if (state.metadata.title !== undefined) document.setTitle(state.metadata.title);
+  if (state.metadata.author !== undefined) document.setAuthor(state.metadata.author);
+  if (state.metadata.language !== undefined) document.setLanguage(state.metadata.language);
+
+  // The stage-two tools, as document settings rather than as marks: the numbers
+  // come from the FINAL order, so reordering pages renumbers them.
+  //
+  // The pages are passed as handles, in script order. Turning them into indices
+  // for the stamps to turn back would depend on pdf-lib's page cache being
+  // fresh at that exact moment — and `removePage` does not refresh it. The
+  // handles are the same objects either way.
+  const stampable = (wanted: readonly string[] | null) =>
+    state.pages
+      .filter((page) => wanted === null || wanted.includes(page.id))
+      .map((page) => byId.get(page.id))
+      .filter((page): page is PDFPage => page !== undefined);
+
+  if (state.watermark) {
+    const spec = state.watermark;
+    const pages = stampable(spec.pages);
+    if (pages.length > 0) {
+      await stampTextOn(document, pages, {
+        text: spec.text,
+        font: spec.font,
+        size: spec.size,
+        color: spec.color,
+        opacity: spec.opacity,
+        angle: spec.angle,
+        anchor: spec.anchor,
+        margin: spec.margin,
+      });
+    }
+  }
+
+  if (state.numbering) {
+    const spec = state.numbering;
+    const pages = stampable(spec.pages);
+    if (pages.length > 0) {
+      await stampPageNumbersOn(document, pages, {
+        font: spec.font,
+        size: spec.size,
+        color: spec.color,
+        anchor: spec.anchor,
+        margin: spec.margin,
+        startAt: spec.startAt,
+        format: spec.format,
+        ofWord: spec.ofWord,
+      });
+    }
+  }
+
   // Page labels bind to page indices, so any change to the sequence makes them
   // point at the wrong pages. Dropping them beats handing back wrong ones.
   const sequenceChanged =
@@ -286,5 +493,7 @@ export async function materialize({
 
   removeUnreachableObjects(document, { stopAt: deleted.map((page) => page.ref) });
 
-  return savePdf(document);
+  // Never the whole form: the appearances that needed regenerating were
+  // regenerated above, for the fields the reader wrote and no others.
+  return savePdf(document, { updateFieldAppearances: false });
 }

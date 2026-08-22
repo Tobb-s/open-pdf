@@ -467,6 +467,7 @@ export interface Dictionary {
       rect: string;
       image: string;
       ink: string;
+      ocr: string;
       crop: string;
     };
     toolHint: {
@@ -508,6 +509,30 @@ export interface Dictionary {
     doneBody: string;
     keptNote: (list: string) => string;
     lostNote: (list: string) => string;
+    /** Stage four: the document, not just its pages. */
+    tabPage: string;
+    tabDocument: string;
+    metadata: string;
+    metaTitle: string;
+    metaAuthor: string;
+    metaLanguage: string;
+    fieldsSection: string;
+    noFields: string;
+    fieldsNote: string;
+    fieldsNotWritten: (list: string) => string;
+    watermarkSection: string;
+    watermarkText: string;
+    watermarkOff: string;
+    numbersSection: string;
+    numbersOff: string;
+    insertImages: string;
+    insertImagesHint: string;
+    runOcr: string;
+    ocrRunning: string;
+    ocrDone: (words: number) => string;
+    ocrNone: string;
+    ocrNote: string;
+    importedLost: (name: string, list: string) => string;
     keepEditing: string;
     startOver: string;
   };
@@ -1193,6 +1218,7 @@ export const es: Dictionary = {
       rect: 'Rectángulo',
       image: 'Imagen',
       ink: 'Lápiz',
+      ocr: 'Capa de texto',
       crop: 'Recortar',
     },
     toolHint: {
@@ -1236,6 +1262,32 @@ export const es: Dictionary = {
     keptNote: (list) => `Se conservaron ${list}.`,
     lostNote: (list) =>
       `Atención: el documento producido perdió ${list}. Si los necesitás, conservá el original.`,
+    tabPage: 'Página',
+    tabDocument: 'Documento',
+    metadata: 'Datos del documento',
+    metaTitle: 'Título',
+    metaAuthor: 'Autor',
+    metaLanguage: 'Idioma',
+    fieldsSection: 'Campos del formulario',
+    noFields: 'Este documento no tiene campos para completar.',
+    fieldsNote: 'Se escriben al exportar, y después se vuelven a leer del archivo para confirmar que quedaron.',
+    fieldsNotWritten: (list) =>
+      `Atención: estos campos no quedaron como los escribiste: ${list}. Lo sabemos porque volvimos a leer el archivo producido.`,
+    watermarkSection: 'Marca de agua',
+    watermarkText: 'Texto',
+    watermarkOff: 'Quitar la marca de agua',
+    numbersSection: 'Números de página',
+    numbersOff: 'Quitar los números',
+    insertImages: 'Insertar imágenes',
+    insertImagesHint: 'Cada imagen entra como una página nueva, antes de la que estás viendo.',
+    runOcr: 'Reconocer el texto de esta página',
+    ocrRunning: 'Leyendo la página…',
+    ocrDone: (words) => `${words} ${words === 1 ? 'palabra reconocida' : 'palabras reconocidas'}.`,
+    ocrNone: 'No se reconoció ninguna palabra en esta página.',
+    ocrNote:
+      'Agrega una capa de texto invisible encima de la página, para poder buscar y seleccionar. No cambia lo que se ve.',
+    importedLost: (name, list) =>
+      `De «${name}» viajaron las páginas, no ${list}. Copiar páginas no copia el documento, y eso no tiene arreglo.`,
     keepEditing: 'Seguir editando',
     startOver: 'Abrir otro',
   },
@@ -1916,6 +1968,7 @@ export const en: Dictionary = {
       rect: 'Rectangle',
       image: 'Image',
       ink: 'Pen',
+      ocr: 'Text layer',
       crop: 'Crop',
     },
     toolHint: {
@@ -1959,6 +2012,32 @@ export const en: Dictionary = {
     keptNote: (list) => `${list} survived intact.`,
     lostNote: (list) =>
       `Careful: the produced document lost ${list}. Keep your original if you need them.`,
+    tabPage: 'Page',
+    tabDocument: 'Document',
+    metadata: 'Document details',
+    metaTitle: 'Title',
+    metaAuthor: 'Author',
+    metaLanguage: 'Language',
+    fieldsSection: 'Form fields',
+    noFields: 'This document has no fields to fill in.',
+    fieldsNote: 'They are written on export, then read back out of the file to confirm they took.',
+    fieldsNotWritten: (list) =>
+      `Careful: these fields did not come out as you typed them: ${list}. We know because we read the produced file back.`,
+    watermarkSection: 'Watermark',
+    watermarkText: 'Text',
+    watermarkOff: 'Remove the watermark',
+    numbersSection: 'Page numbers',
+    numbersOff: 'Remove the numbers',
+    insertImages: 'Insert images',
+    insertImagesHint: 'Each image becomes a new page, before the one you are looking at.',
+    runOcr: 'Read the text on this page',
+    ocrRunning: 'Reading the page…',
+    ocrDone: (words) => `${words} ${words === 1 ? 'word recognised' : 'words recognised'}.`,
+    ocrNone: 'No words were recognised on this page.',
+    ocrNote:
+      'Adds an invisible text layer over the page so it can be searched and selected. It does not change what you see.',
+    importedLost: (name, list) =>
+      `From "${name}" the pages travelled, but not ${list}. Copying pages does not copy a document, and there is no fixing that.`,
     keepEditing: 'Keep editing',
     startOver: 'Open another',
   },

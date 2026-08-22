@@ -1,6 +1,7 @@
 import { loadPdf } from '@/lib/pdfio';
 import { materialize } from '@/lib/studio/materialize';
 import type { ScriptState } from '@/lib/studio/script';
+import { verifyFields, type FieldCheck } from '@/lib/studio/verify';
 import { summarizeStructures, type StructuralSummary } from '@/lib/verify/structural';
 import type { StudioRequest, StudioResponse } from '@/lib/studio/studio.worker';
 
@@ -27,6 +28,8 @@ export interface ExportResult {
   pages: number;
   before: StructuralSummary;
   after: StructuralSummary;
+  /** Field values that did not survive the write, read back from the file. */
+  fields: FieldCheck[];
 }
 
 export interface StudioEngine {
@@ -71,6 +74,7 @@ class MainThreadEngine implements StudioEngine {
       pages: produced.getPageCount(),
       before: summarizeStructures(source),
       after: summarizeStructures(produced),
+      fields: await verifyFields(bytes, state.fields),
     };
   }
 
@@ -136,6 +140,7 @@ export class WorkerEngine implements StudioEngine {
           pages: message.pages,
           before: message.before,
           after: message.after,
+          fields: message.fields,
         });
       } else {
         waiting.reject(new Error(message.message));

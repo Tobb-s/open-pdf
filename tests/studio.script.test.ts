@@ -191,7 +191,7 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
     }
   }
 
-  return { pages, marks };
+  return { pages, marks, fields: {}, metadata: {}, watermark: null, numbering: null };
 }
 
 describe('the edit script', () => {

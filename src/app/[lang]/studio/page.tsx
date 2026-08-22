@@ -7,6 +7,7 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import Stage, { type StageAction, type StageTool } from '@/components/studio/Stage';
+import DocumentPanel, { type FormFieldInfo } from '@/components/studio/DocumentPanel';
 import { ColorRow, Field, NumberRow } from '@/components/StampControls';
 import {
   Crop,
@@ -28,18 +29,26 @@ import {
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
-import { uprightTextRotation } from '@/lib/geometry';
+import { uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
 import { assertFileSize } from '@/lib/limits';
-import { openPdf } from '@/lib/pdfjs';
+import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
 import { hexToRgb, imageKind, UnsupportedCharacterError } from '@/lib/stamp';
 import { createStudioEngine, type StudioEngine } from '@/lib/studio/engine';
 import {
   append,
+  ORIGINAL,
   stateAt,
   type Edit,
   type Mark,
+  type Metadata,
+  type MetadataPatch,
+  type NumberingSpec,
   type ScriptState,
+  type WatermarkSpec,
 } from '@/lib/studio/script';
+import { importedStructures, type FieldCheck } from '@/lib/studio/verify';
 import {
   clearSession,
   loadSession,
@@ -61,6 +70,61 @@ const SETTLE_MS = 450;
  * Chosen from the plan's own budget: a rebuild was meant to cost 100–200 ms.
  */
 const SLOW_MS = 1500;
+
+/**
+ * What the opened document already says: its form and its metadata.
+ *
+ * pdf-lib is on the main thread for this single call, and deliberately: it
+ * happens once when a file is chosen, before the editor is running, and it is
+ * the only way to show the reader what is there before they change it.
+ */
+async function readDocumentFacts(
+  bytes: Uint8Array
+): Promise<{ fields: FormFieldInfo[]; metadata: Metadata }> {
+  const { PDFCheckBox, PDFDropdown, PDFName, PDFRadioGroup, PDFTextField } = await import(
+    'pdf-lib'
+  );
+  const { loadPdf } = await import('@/lib/pdfio');
+  try {
+    const document = await loadPdf(bytes, { updateMetadata: false });
+    const language = document.catalog.get(PDFName.of('Lang'));
+    const metadata: Metadata = {
+      title: document.getTitle() ?? '',
+      author: document.getAuthor() ?? '',
+      language: language ? String(language).replace(/^\(|\)$/g, '') : '',
+    };
+    const found: FormFieldInfo[] = [];
+    for (const field of document.getForm().getFields()) {
+      const name = field.getName();
+      if (field instanceof PDFTextField) {
+        found.push({ name, type: 'text', original: field.getText() ?? '' });
+      } else if (field instanceof PDFCheckBox) {
+        found.push({ name, type: 'checkbox', original: field.isChecked() ? 'true' : 'false' });
+      } else if (field instanceof PDFDropdown) {
+        // `getOptions` returns what a reader sees and `getSelected` returns
+        // what the file stores; on a document that gives them different words
+        // the two do not line up, so the options carry the stored values.
+        found.push({
+          name,
+          type: 'dropdown',
+          original: field.getSelected()[0] ?? '',
+          options: field.acroField.getOptions().map((option) => option.value.decodeText()),
+        });
+      } else if (field instanceof PDFRadioGroup) {
+        found.push({
+          name,
+          type: 'radio',
+          original: field.getSelected() ?? '',
+          options: field.getOptions(),
+        });
+      }
+    }
+    return { fields: found, metadata };
+  } catch {
+    // A document with no form, or one pdf-lib will not read: nothing to show.
+    return { fields: [], metadata: {} };
+  }
+}
 
 /**
  * A materialised document, together with the script state it came from.
@@ -126,12 +190,36 @@ export default function StudioPage() {
   const [color, setColor] = useState('#c62828');
   const [pendingImage, setPendingImage] = useState<{ id: string; name: string } | null>(null);
 
+  /* -------------------------------------------------- the document panel -- */
+  const [panel, setPanel] = useState<'page' | 'document'>('page');
+  const [formFields, setFormFields] = useState<FormFieldInfo[]>([]);
+  /** What the opened document already said, so the boxes are never blank by mistake. */
+  const [originalMetadata, setOriginalMetadata] = useState<Metadata>({});
+  /**
+   * What each imported file could not bring with its pages, remembered against
+   * the edit that brought it — so undoing the import takes the notice with it
+   * rather than leaving a warning about pages that are no longer there.
+   */
+  const [importNotes, setImportNotes] = useState<
+    Array<{ asset: string; name: string; lost: string[] }>
+  >([]);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  /**
+   * How many words the last run found, and on which page. Kept together so the
+   * count cannot follow the reader to a page it says nothing about.
+   */
+  const [ocrResult, setOcrResult] = useState<{ page: string; words: number } | null>(null);
+
   const [resumable, setResumable] = useState<StoredSession | null>(null);
   const [savedOk, setSavedOk] = useState<boolean | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [result, setResult] = useState<{ blob: Blob; pages: number; report: StructuralReport } | null>(
-    null
-  );
+  const [result, setResult] = useState<{
+    blob: Blob;
+    pages: number;
+    report: StructuralReport;
+    /** Field values the produced file disagreed with, read back from it. */
+    fields: FieldCheck[];
+  } | null>(null);
   const [error, setError] = useState<ToolError | null>(null);
 
   const engineRef = useRef<StudioEngine | null>(null);
@@ -150,6 +238,17 @@ export default function StudioPage() {
   /** What is on screen right now, which trails the script during a rebuild. */
   const view = built?.state ?? null;
   const viewPages = view?.pages ?? [];
+
+  /**
+   * Only the notices whose import is still part of the document. Undo the
+   * import and the warning goes with it.
+   */
+  const visibleImportNotes = useMemo(() => {
+    const live = new Set(
+      state.pages.map((page) => page.origin.asset).filter((asset) => asset !== ORIGINAL)
+    );
+    return importNotes.filter((note) => live.has(note.asset));
+  }, [importNotes, state]);
 
   /* ------------------------------------------------ engine and resume ---- */
 
@@ -184,6 +283,12 @@ export default function StudioPage() {
       const count = opened.document.numPages;
       await opened.destroy().catch(() => {});
 
+      // The form as the document defines it. The reader's changes live in the
+      // script; this is only what the fields started as.
+      const opening = await readDocumentFacts(bytes);
+      setFormFields(opening.fields);
+      setOriginalMetadata(opening.metadata);
+
       await engine.open(bytes);
       setOffMainThread(engine.offMainThread);
       const restoredAssets = restored?.assets ?? {};
@@ -197,6 +302,10 @@ export default function StudioPage() {
       setPageIndex(0);
       setTool('pick');
       setPendingImage(null);
+      setPanel('page');
+      setOriginalMetadata({});
+      setImportNotes([]);
+      setOcrResult(null);
       setResult(null);
       setResumable(null);
       setLive(true);
@@ -326,6 +435,10 @@ export default function StudioPage() {
         const referenced = new Set<string>();
         for (const edit of edits) {
           if (edit.kind === 'insert') referenced.add(edit.asset);
+          // Plural, and easy to forget: an image page's bytes live here and
+          // nowhere else, so missing this line deleted them on the next save
+          // and the pages came back blank after a resume.
+          if (edit.kind === 'insertImages') for (const asset of edit.assets) referenced.add(asset);
           if (edit.kind === 'draw' && edit.mark.kind === 'image') referenced.add(edit.mark.asset);
         }
         const kept = Object.fromEntries(
@@ -504,6 +617,14 @@ export default function StudioPage() {
       const id = newId();
       engine.putAsset(id, bytes);
       setAssets((current) => ({ ...current, [id]: bytes }));
+
+      // Said before the reader builds on the assumption that it came along:
+      // copyPages copies pages, not documents, and nothing can change that.
+      const lost = await importedStructures(bytes);
+      if (lost.length > 0) {
+        setImportNotes((current) => [...current, { asset: id, name: file.name, lost }]);
+      }
+
       addEdit({
         kind: 'insert',
         // Named, not numbered: by the time the imported file has been parsed
@@ -537,6 +658,119 @@ export default function StudioPage() {
     }
   };
 
+  const onInsertImages = async (files: FileList) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    try {
+      const ids: string[] = [];
+      const added: Record<string, Uint8Array> = {};
+      for (const file of Array.from(files)) {
+        assertFileSize(file, t);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        if (imageKind(bytes) === null) continue;
+        const id = newId();
+        engine.putAsset(id, bytes);
+        added[id] = bytes;
+        ids.push(id);
+      }
+      if (ids.length === 0) {
+        setError({ kind: 'invalid', title: t.studio.insertImages, detail: t.watermark.imageNote });
+        return;
+      }
+      setAssets((current) => ({ ...current, ...added }));
+      addEdit({ kind: 'insertImages', before: viewPages[pageIndex]?.id ?? null, assets: ids });
+    } catch (caught) {
+      setError(describeError(caught, t));
+    }
+  };
+
+  /**
+   * Reads the page on screen and lays an invisible text layer over it.
+   *
+   * The words come back in the coordinates of the rendered image, which is the
+   * page as displayed — so they go through the same geometry as a click before
+   * becoming part of the page, and they carry the page's rotation so the layer
+   * turns with it.
+   */
+  const runOcr = async () => {
+    const page = pageIdAt(pageIndex);
+    const document_ = built?.document;
+    if (!page || !document_) return;
+
+    setOcrBusy(true);
+    setOcrResult(null);
+    setError(null);
+
+    let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | null = null;
+    try {
+      const { OCR_SCALE, TESSERACT_PATHS } = await import('@/lib/ocrRuntime');
+      // Loaded here rather than at the top of the route: the OCR engine is the
+      // heaviest thing this page can reach, and most sessions never ask for it.
+      const { createWorker } = await import('tesseract.js');
+      const target = await document_.getPage(pageIndex + 1);
+      const { blob, width, height } = await renderPageToJpeg(target, OCR_SCALE, 0.82);
+      const viewport = target.getViewport({ scale: 1 });
+      const rotation = target.rotate;
+      target.cleanup();
+
+      // The reader's own language rather than Spanish always: an English
+      // document read with the Spanish model comes back worse for no reason.
+      worker = await createWorker(locale === 'en' ? 'eng' : 'spa', 1, TESSERACT_PATHS);
+      const { data } = await worker.recognize(blob, {}, RECOGNIZE_OUTPUT);
+
+      // Measured with the same font the layer is drawn in, so the invisible
+      // words sit over the visible ones rather than near them.
+      const probe = await PDFDocument.create();
+      const font = await probe.embedFont(StandardFonts.Helvetica);
+      const measure = (text: string, size: number) => font.widthOfTextAtSize(text, size);
+
+      const box = {
+        x: viewport.viewBox[0],
+        y: viewport.viewBox[1],
+        width: viewport.viewBox[2] - viewport.viewBox[0],
+        height: viewport.viewBox[3] - viewport.viewBox[1],
+        rotation,
+      };
+      void width;
+      void height;
+
+      const words = extractOcrWords(data)
+        .map((word) => {
+          const text = toWinAnsi(word.text);
+          if (text === '') return null;
+          // Tesseract measures from the top of the image; the visual frame does
+          // too, so this is a straight divide by the render scale.
+          const point = visualToPdfPoint(box, word.left / OCR_SCALE, word.bottom / OCR_SCALE);
+          // Measured on the text that will actually be drawn. Measuring the
+          // original meant one word mixing Spanish with a character the font
+          // cannot encode threw inside this map and took the whole layer with
+          // it — the opposite of the per-word resilience the drawing side has.
+          const size = fitFontSize({ ...word, text }, OCR_SCALE, measure);
+          return { text, x: point.x, y: point.y, size };
+        })
+        .filter((word): word is { text: string; x: number; y: number; size: number } => word !== null);
+
+      setOcrResult({ page, words: words.length });
+      if (words.length > 0) {
+        addEdit({
+          kind: 'draw',
+          mark: {
+            kind: 'ocr',
+            id: newId(),
+            page,
+            rotate: uprightTextRotation(rotation),
+            words,
+          },
+        });
+      }
+    } catch (caught) {
+      setError(describeStudioError(caught));
+    } finally {
+      await worker?.terminate().catch(() => {});
+      setOcrBusy(false);
+    }
+  };
+
   /* -------------------------------------------------------------- export - */
 
   const doExport = async () => {
@@ -547,11 +781,12 @@ export default function StudioPage() {
       // The worker builds it and reads it: both the page count and the
       // structural comparison come from the produced bytes, and neither costs
       // the main thread a pdf-lib parse while the reader waits.
-      const { bytes, pages, before, after } = await engine.exportDocument(state);
+      const { bytes, pages, before, after, fields } = await engine.exportDocument(state);
 
       setResult({
         blob: new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' }),
         pages,
+        fields,
         report: {
           present: VERIFIABLE_CATEGORIES.filter((category) => before.categories[category] > 0),
           losses: diffStructures(before, after),
@@ -572,6 +807,11 @@ export default function StudioPage() {
     setScript({ edits: [], cursor: 0 });
     setAssets({});
     setPendingImage(null);
+    setFormFields([]);
+    setOriginalMetadata({});
+    setImportNotes([]);
+    setOcrResult(null);
+    setPanel('page');
     setSavedOk(null);
     setResult(null);
     setError(null);
@@ -660,6 +900,11 @@ export default function StudioPage() {
             <h2 className="mb-2 text-2xl font-bold">{t.studio.doneTitle(result.pages)}</h2>
             <p className="mb-4 text-gray-600">{t.studio.doneBody}</p>
 
+            {result.fields.length > 0 && (
+              <div className="mx-auto mb-4 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                {t.studio.fieldsNotWritten(result.fields.map((entry) => entry.field).join(', '))}
+              </div>
+            )}
             {result.report.losses.length > 0 ? (
               <div className="mx-auto mb-8 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
                 {t.studio.lostNote(
@@ -797,6 +1042,17 @@ export default function StudioPage() {
             {t.studio.onMainThread}
           </p>
         )}
+        {visibleImportNotes.map((note, index) => (
+          <p
+            key={`${note.asset}-${index}`}
+            className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            {t.studio.importedLost(
+              note.name,
+              listFormat(note.lost.map((category) => t.structures[category as never]))
+            )}
+          </p>
+        ))}
         {!live && slowBecause !== null && (
           <p className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             {t.studio.slowNote((slowBecause / 1000).toFixed(1))}
@@ -864,6 +1120,53 @@ export default function StudioPage() {
           </div>
 
           <aside className="space-y-5 rounded-3xl border bg-white p-5">
+            <div role="tablist" className="flex gap-2 border-b pb-3">
+              {(
+                [
+                  ['page', t.studio.tabPage],
+                  ['document', t.studio.tabDocument],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={panel === value}
+                  onClick={() => setPanel(value)}
+                  className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-colors ${
+                    panel === value
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {panel === 'document' ? (
+              <DocumentPanel
+                state={state}
+                fields={formFields}
+                originalMetadata={originalMetadata}
+                /* Not disabled while rebuilding: every keystroke here schedules
+                   a rebuild, so disabling on `building` would take the focus
+                   away from the box the reader is typing in. The rebuild is
+                   allowed to run behind them. */
+                disabled={false}
+                onMetadata={(patch: MetadataPatch) => addEdit({ kind: 'metadata', patch })}
+                onField={(field, value) => addEdit({ kind: 'setField', field, value })}
+                onWatermark={(spec: WatermarkSpec | null) => addEdit({ kind: 'watermark', spec })}
+                onNumbering={(spec: NumberingSpec | null) => addEdit({ kind: 'numbering', spec })}
+                onInsertImages={(files) => void onInsertImages(files)}
+                onRunOcr={() => void runOcr()}
+                ocrBusy={ocrBusy}
+                ocrResult={
+                  ocrResult && ocrResult.page === pageIdAt(pageIndex) ? ocrResult.words : null
+                }
+              />
+            ) : (
+            <>
             <div className="grid grid-cols-3 gap-2">
               {TOOLS.map(({ id, label, icon: Icon }) => (
                 <button
@@ -985,6 +1288,9 @@ export default function StudioPage() {
                   ))}
                 </ul>
               </div>
+            )}
+
+            </>
             )}
 
             <div className="border-t pt-4 text-xs text-gray-400">
