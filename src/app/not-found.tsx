@@ -19,9 +19,15 @@ import './globals.css';
  *
  * Because this stands in for the root layout, it has to bring the shell with
  * it: the html and body elements, the fonts, the stylesheet, and the i18n
- * provider the content expects. The locale comes from the path rather than from
- * the provider that does not exist yet — a wrong address under /en is still an
- * English reader.
+ * provider the content expects.
+ *
+ * One honest limit. The locale is read from the path, and at prerender time
+ * there is no path — this page is built once — so the HTML that ships is in the
+ * default language and only becomes English once it hydrates. A catch-all under
+ * [lang] would know the language, but the layout above refuses unknown params
+ * so that a bad LANGUAGE never reaches it, and a dynamic route under that
+ * refusal has no fallback to render: Next answers with its own error page,
+ * which is worse than the wrong language on a page nobody indexes.
  */
 
 const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });

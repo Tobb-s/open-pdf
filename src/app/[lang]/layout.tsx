@@ -19,6 +19,20 @@ export function generateStaticParams() {
   return LOCALES.map((lang) => ({ lang }));
 }
 
+/**
+ * Anything that is not a locale is a 404 decided by the router, before this
+ * layout runs.
+ *
+ * The `notFound()` below cannot do that job on its own: this file IS the root
+ * layout — it renders the html element — and a not-found page is rendered
+ * INSIDE the root layout, so a layout that throws leaves nothing to render it
+ * in. Next fell back to its built-in error page and the site answered a wrong
+ * address with an empty, untitled, English document. Refusing the parameter up
+ * here means the request never reaches the layout, and `app/not-found.tsx`
+ * renders normally.
+ */
+export const dynamicParams = false;
+
 export async function generateMetadata({
   params,
 }: {
