@@ -18,7 +18,7 @@ const vendor = join(root, 'public', 'vendor');
 /** Files copied straight out of node_modules. */
 const COPIES = [
   {
-    from: 'node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
+    from: 'node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs',
     to: 'pdfjs/pdf.worker.min.mjs',
   },
   {

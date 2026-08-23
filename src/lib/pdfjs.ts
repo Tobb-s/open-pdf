@@ -7,12 +7,25 @@ import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from 'pdfjs-dist';
  */
 const VENDOR = '/vendor/pdfjs';
 
-type PdfJsModule = typeof import('pdfjs-dist');
+/**
+ * The legacy build, deliberately.
+ *
+ * `pdfjs-dist` resolves to the modern build, which needs very recent engines —
+ * the tightest constraint is `Map.prototype.getOrInsertComputed`, on the
+ * required path — and the failure is not a clean one: pdf.js wraps any worker
+ * exception in `UnknownErrorException`, which this project maps to «this file
+ * is not a readable PDF». So an older browser was told its document was broken.
+ *
+ * The legacy build ships the core-js polyfills and is already what every test
+ * imports, which means the suite was exercising a different binary from the one
+ * being served.
+ */
+type PdfJsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
 
 let modulePromise: Promise<PdfJsModule> | null = null;
 
 export function loadPdfJs(): Promise<PdfJsModule> {
-  modulePromise ??= import('pdfjs-dist').then((module) => {
+  modulePromise ??= import('pdfjs-dist/legacy/build/pdf.mjs').then((module) => {
     module.GlobalWorkerOptions.workerSrc = `${VENDOR}/pdf.worker.min.mjs`;
     return module;
   });

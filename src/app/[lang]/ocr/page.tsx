@@ -122,7 +122,13 @@ export default function OcrPage() {
           const text = toWinAnsi(word.text);
           if (text === '') continue;
 
-          const size = fitFontSize(word, OCR_SCALE, measure);
+          // Measured on the text that will actually be drawn. Measuring the
+          // ORIGINAL meant one word mixing Spanish with a character the font
+          // cannot encode — «precio→10», «ﬁnal», «Łukasz» — threw here and
+          // killed the whole run, minutes in, with nothing to show. The guard
+          // above only catches words that are entirely unencodable. Studio was
+          // fixed for this and the tool never was.
+          const size = fitFontSize({ ...word, text }, OCR_SCALE, measure);
           newPage.drawText(text, {
             x: word.left / OCR_SCALE,
             // PDF coordinates start at the bottom; tesseract measures from the top.

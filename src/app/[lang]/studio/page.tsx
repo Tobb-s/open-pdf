@@ -399,7 +399,6 @@ export default function StudioPage() {
       setTool('pick');
       setPendingImage(null);
       setPanel('page');
-      setOriginalMetadata({});
       setImportNotes([]);
       setOcrResult(null);
       setResult(null);

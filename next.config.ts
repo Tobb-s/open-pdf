@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { TOOL_SLUGS } from './src/lib/tools';
 
 /**
  * Nothing executable is loaded from another origin — the PDF and OCR engines are
@@ -95,8 +96,12 @@ const nextConfig: NextConfig = {
       // the header takes them to English and keeps them on the same tool.
       { source: '/', destination: '/es', permanent: false },
       {
-        source:
-          '/:slug(compress|ocr|merge|split|organize|pdf-to-word|edit|fill-form|image-pdf|office-to-pdf)',
+        // Derived from the catalogue rather than written out again: the
+        // hand-kept copy of this list was missing watermark, page-numbers and
+        // studio, so those three 404'd on their language-less URL while the
+        // other ten redirected. `tools.ts` imports nothing, so pulling it in
+        // here is safe.
+        source: `/:slug(${TOOL_SLUGS.join('|')})`,
         destination: '/es/:slug',
         permanent: false,
       },
