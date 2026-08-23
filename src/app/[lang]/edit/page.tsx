@@ -8,7 +8,8 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import { Download, FileText, Loader2, MousePointerClick, Trash2, Upload, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/context';
-import { describeError, type ToolError } from '@/lib/errors';
+import { firstUnsupportedCharacter, UnsupportedCharacterError } from '@/lib/stamp';
+import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import {
   clientToCanvasPoint,
@@ -188,6 +189,15 @@ export default function EditPage() {
       for (const annotation of filled) {
         const page = pages[annotation.pageIndex];
         if (!page) continue;
+        // The same guard the watermark and page-number tools use. Helvetica is
+        // WinAnsi-only, so «σ = 0.34», «Привет» or «≤ 5» throw from inside
+        // drawText — and this file's error mapping does not recognise pdf-lib's
+        // message, so the reader saw «Algo salió mal» with an English string
+        // under it. Nothing is lost either way; it is a refusal borrowing
+        // somebody else's words, which is exactly the thing this app is for.
+        const unsupported = firstUnsupportedCharacter(annotation.text, font);
+        if (unsupported !== null) throw new UnsupportedCharacterError(unsupported);
+
         page.drawText(annotation.text, {
           x: annotation.bx,
           y: annotation.by,
@@ -203,7 +213,18 @@ export default function EditPage() {
       const saved = (await savePdf(document_)).slice();
       setResult(new Blob([saved], { type: 'application/pdf' }));
     } catch (caught) {
-      setError(describeError(caught, t));
+      setError(
+        caught instanceof UnsupportedCharacterError
+          ? describeError(
+              new KnownToolError(
+                'invalid',
+                t.edit.heading,
+                t.stamp.unsupportedCharacter(caught.character)
+              ),
+              t
+            )
+          : describeError(caught, t)
+      );
     } finally {
       setIsSaving(false);
     }

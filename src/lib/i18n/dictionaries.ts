@@ -268,7 +268,11 @@ export interface Dictionary {
     leaveEmpty: string;
     action: string;
     working: string;
-    doneTitle: (filled: number, total: number) => string;
+    /** How many the reader CHANGED, not how many the loop touched. */
+    doneTitle: (filled: number) => string;
+    nothingChanged: string;
+    /** Values that did not survive the write, read back from the produced file. */
+    wrongNote: (names: string) => string;
     doneBody: string;
     skippedNote: (names: string) => string;
     keepEditing: string;
@@ -1006,8 +1010,11 @@ export const es: Dictionary = {
     leaveEmpty: 'Dejar vacío',
     action: 'Rellenar el formulario',
     working: 'Rellenando…',
-    doneTitle: (filled, total) =>
-      `Se completaron ${filled} de ${total} ${total === 1 ? 'campo' : 'campos'}`,
+    doneTitle: (filled) =>
+      filled === 1 ? 'Se completó 1 campo' : `Se completaron ${filled} campos`,
+    nothingChanged: 'No cambiaste ningún campo',
+    wrongNote: (names) =>
+      `Releímos el archivo producido y estos campos no dicen lo que pediste: ${names}. No te lo ocultamos: el archivo está para descargar, pero eso es lo que tiene adentro.`,
     doneBody: 'Tu formulario completado está listo.',
     skippedNote: (names) =>
       `Estos campos no se pudieron escribir y quedaron como estaban: ${names}. Puede que sean de sólo lectura, o que tengan caracteres que la fuente del formulario no puede mostrar.`,
@@ -1802,8 +1809,10 @@ export const en: Dictionary = {
     leaveEmpty: 'Leave empty',
     action: 'Fill the form',
     working: 'Filling…',
-    doneTitle: (filled, total) =>
-      `Filled ${filled} of ${total} ${total === 1 ? 'field' : 'fields'}`,
+    doneTitle: (filled) => (filled === 1 ? 'Filled 1 field' : `Filled ${filled} fields`),
+    nothingChanged: 'You did not change any field',
+    wrongNote: (names) =>
+      `We read the produced file back and these fields do not say what you asked for: ${names}. We are not hiding it: the file is there to download, but that is what is inside it.`,
     doneBody: 'Your completed form is ready.',
     skippedNote: (names) =>
       `These fields could not be written and were left as they were: ${names}. They may be read-only, or contain characters the form’s font cannot show.`,

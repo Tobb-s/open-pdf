@@ -1,26 +1,47 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { PDFCheckBox, PDFDropdown, PDFRadioGroup, PDFTextField } from 'pdf-lib';
+import {
+  PDFCheckBox,
+  PDFDropdown,
+  PDFRadioGroup,
+  PDFTextField,
+  StandardFonts,
+  type PDFField,
+} from 'pdf-lib';
 import { loadPdf, savePdf } from '@/lib/pdfio';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import { AlertTriangle, Download, FileText, Loader2, Upload, X } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/context';
-import { describeError, type ToolError } from '@/lib/errors';
+import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize } from '@/lib/limits';
+import { firstUnsupportedCharacter, UnsupportedCharacterError } from '@/lib/stamp';
+import { verifyFields, type FieldCheck } from '@/lib/studio/verify';
 
 interface FormField {
   name: string;
   type: 'text' | 'checkbox' | 'dropdown' | 'radio';
   value: string;
+  /**
+   * What the document said before the reader touched anything.
+   *
+   * Kept so the result can count what was actually filled IN. The old count
+   * incremented once per field that did not throw — including the thirty-eight
+   * nobody opened — and since pdf-lib does not throw on a read-only field it
+   * came out equal to the total on essentially every real run. «Se completaron
+   * 40 de 40 campos» was a sentence about the loop, not about the document.
+   */
+  original: string;
   options?: string[];
 }
 
 interface FillResult {
   blob: Blob;
+  /** Values that did not survive the write, read back from the produced file. */
+  wrong: FieldCheck[];
   filled: number;
   skipped: string[];
 }
@@ -65,21 +86,27 @@ export default function FillFormPage() {
         const name = field.getName();
 
         if (field instanceof PDFTextField) {
-          detected.push({ name, type: 'text', value: field.getText() ?? '' });
+          const text = field.getText() ?? '';
+          detected.push({ name, type: 'text', value: text, original: text });
         } else if (field instanceof PDFCheckBox) {
-          detected.push({ name, type: 'checkbox', value: field.isChecked() ? 'true' : 'false' });
+          const checked = field.isChecked() ? 'true' : 'false';
+          detected.push({ name, type: 'checkbox', value: checked, original: checked });
         } else if (field instanceof PDFDropdown) {
+          const selected = field.getSelected()[0] ?? '';
           detected.push({
             name,
             type: 'dropdown',
-            value: field.getSelected()[0] ?? '',
+            value: selected,
+            original: selected,
             options: field.getOptions(),
           });
         } else if (field instanceof PDFRadioGroup) {
+          const picked = field.getSelected() ?? '';
           detected.push({
             name,
             type: 'radio',
-            value: field.getSelected() ?? '',
+            value: picked,
+            original: picked,
             options: field.getOptions(),
           });
         }
@@ -115,41 +142,103 @@ export default function FillFormPage() {
       // old empty `catch {}` dropped values the reader had typed and still reported
       // success.
       const skipped: string[] = [];
+      /** Only what the reader actually changed, so the count means something. */
       let filled = 0;
+      const written: Array<{ name: string; field: PDFField }> = [];
+      const wanted: Record<string, string> = {};
 
       for (const field of fields) {
+        const changed = field.value !== field.original;
         try {
+          let handle: PDFField;
           if (field.type === 'text') {
-            form.getTextField(field.name).setText(field.value);
+            const text = form.getTextField(field.name);
+            text.setText(field.value);
+            handle = text;
           } else if (field.type === 'checkbox') {
             const checkbox = form.getCheckBox(field.name);
             if (field.value === 'true') checkbox.check();
             else checkbox.uncheck();
+            handle = checkbox;
           } else if (field.type === 'dropdown') {
             const dropdown = form.getDropdown(field.name);
             if (field.value === '') dropdown.clear();
             else dropdown.select(field.value);
+            handle = dropdown;
           } else {
             const group = form.getRadioGroup(field.name);
             if (field.value === '') group.clear();
             else group.select(field.value);
+            handle = group;
           }
-          filled += 1;
+          // Counted only when the value is not the one the document arrived
+          // with. A field nobody opened was not filled in by anybody.
+          if (changed) filled += 1;
+          written.push({ name: field.name, field: handle });
+          wanted[field.name] = field.value;
         } catch {
+          // A field that refuses its value is named, whether or not the reader
+          // changed it: if the document had a value here and it would not go
+          // back, that is worth knowing.
           skipped.push(humanizeFieldName(field.name));
         }
       }
 
-      // Appearance regeneration is what makes the typed values visible in every
-      // viewer; stated explicitly so nobody 'optimises' it away.
-      const saved = (await savePdf(document_, { updateFieldAppearances: true })).slice();
+      /**
+       * Appearances, one field at a time and never inside `save`.
+       *
+       * Asking `save` to regenerate the whole form re-typesets every field that
+       * happens to lack an appearance stream — and it draws with a WinAnsi font,
+       * so one character it cannot encode throws from inside the save, outside
+       * every try/catch here, and kills the operation with an error in English
+       * that this app's own error mapping does not recognise.
+       *
+       * And it did not need the reader to type anything: every existing value
+       * is read at detection and written back above, so a form that ARRIVED
+       * carrying a Greek or Cyrillic value took the whole run down with nobody
+       * having touched it. `materialize` documents and avoids exactly this;
+       * this tool was still doing it.
+       */
+      const helvetica = await document_.embedFont(StandardFonts.Helvetica);
+      for (const { name, field } of written) {
+        const value = wanted[name] ?? '';
+        const unsupported = firstUnsupportedCharacter(value, helvetica);
+        if (unsupported !== null) throw new UnsupportedCharacterError(unsupported);
+        try {
+          field.defaultUpdateAppearances(helvetica);
+        } catch {
+          // No appearance for this one. The read-back below is what decides
+          // whether that matters.
+        }
+      }
+
+      const saved = (await savePdf(document_, { updateFieldAppearances: false })).slice();
+
+      // Read back, rather than trusting the loop. `verifyFields` opens the
+      // produced bytes and compares every value against what was asked for —
+      // and looks for an appearance stream too, since a value that is in the
+      // file and drawn by nothing is invisible in most viewers.
+      const wrong = await verifyFields(saved, wanted);
+
       setResult({
-        blob: new Blob([saved], { type: 'application/pdf' }),
+        blob: new Blob([saved as unknown as BlobPart], { type: 'application/pdf' }),
         filled,
         skipped,
+        wrong,
       });
     } catch (caught) {
-      setError(describeError(caught, t));
+      setError(
+        caught instanceof UnsupportedCharacterError
+          ? describeError(
+              new KnownToolError(
+                'invalid',
+                t.fillForm.heading,
+                t.stamp.unsupportedCharacter(caught.character)
+              ),
+              t
+            )
+          : describeError(caught, t)
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -327,8 +416,25 @@ export default function FillFormPage() {
                 <FileText className="h-10 w-10" />
               </div>
               <h2 className="mb-2 text-2xl font-bold">
-                {t.fillForm.doneTitle(result.filled, fields.length)}
+                {result.filled === 0
+                  ? t.fillForm.nothingChanged
+                  : t.fillForm.doneTitle(result.filled)}
               </h2>
+
+              {result.wrong.length > 0 && (
+                /* Read back from the produced file, not from the loop that
+                   wrote it. A value that is in the file and drawn by nothing is
+                   invisible in most viewers, and `verifyFields` looks for the
+                   appearance stream as well as the value. */
+                <div className="mb-4 mt-4 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-left">
+                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+                  <p className="text-sm text-red-900">
+                    {t.fillForm.wrongNote(
+                      result.wrong.map((check) => humanizeFieldName(check.field)).join(', ')
+                    )}
+                  </p>
+                </div>
+              )}
 
               {result.skipped.length > 0 ? (
                 <div className="mb-6 mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
