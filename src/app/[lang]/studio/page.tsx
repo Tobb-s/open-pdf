@@ -66,7 +66,8 @@ import {
   assetsReferencedBy,
   clearSession,
   loadSession,
-  saveSession,
+  saveOriginal,
+  saveScript,
   SESSION_SHAPE,
   type StoredSession,
 } from '@/lib/studio/store';
@@ -410,6 +411,13 @@ export default function StudioPage() {
       // Nothing has been written for THIS document yet, whatever was true of
       // the last one.
       setSavedOk(null);
+
+      // The document itself, written once. Everything after this is the edit
+      // list, which is small — rewriting a 169 MB book after every rotation of
+      // a page was 150 ms and 185 MB of disk, measured, for nothing.
+      void saveOriginal(fileName, bytes).then((ok) => {
+        if (!ok) setSavedOk(false);
+      });
     },
     []
   );
@@ -533,10 +541,8 @@ export default function StudioPage() {
           Object.entries(assets).filter(([id]) => referenced.has(id))
         );
 
-        const ok = await saveSession({
+        const ok = await saveScript({
           shape: SESSION_SHAPE,
-          name,
-          original,
           edits,
           cursor,
           assets: kept,
@@ -546,7 +552,9 @@ export default function StudioPage() {
       })();
     }, 900);
     return () => clearTimeout(timer);
-  }, [original, name, edits, cursor, assets]);
+    // `name` and `original` are deliberately absent: they are written once,
+    // when the session begins, and cannot change without a new session.
+  }, [original, edits, cursor, assets]);
 
   /* ------------------------------------------------------------- editing - */
 

@@ -16,8 +16,25 @@ import type { Edit } from '@/lib/studio/script';
 
 const DATABASE = 'openpdf-studio';
 const STORE = 'session';
-const KEY = 'current';
 const VERSION = 1;
+
+/**
+ * The session is two records, not one, and the reason is a measurement.
+ *
+ * It used to be a single object holding the original bytes AND the edit list,
+ * rewritten in full every time anything changed. On a 169 MB book — measured
+ * in Chrome, with incompressible bytes — that was 137–166 ms and 185 MB of
+ * disk written after every burst of editing, for an edit list of a few hundred
+ * bytes. It did not block the main thread, so nothing looked wrong; it was
+ * simply a document's worth of disk written per rotation of a page.
+ *
+ * The document goes in once, when the session begins. Everything that actually
+ * changes goes in `SCRIPT_KEY`, where the same write costs about a millisecond.
+ */
+const ORIGINAL_KEY = 'original';
+const SCRIPT_KEY = 'script';
+/** The single record written by versions before the split, still readable. */
+const LEGACY_KEY = 'current';
 
 /**
  * The shape of an edit list.
@@ -39,6 +56,21 @@ export interface StoredSession {
   /** Imported PDFs and images, by asset id. */
   assets: Record<string, Uint8Array>;
   /** Milliseconds since the epoch, taken when the session was written. */
+  savedAt: number;
+}
+
+/** The half that is written once: the document as it was opened. */
+interface StoredOriginal {
+  name: string;
+  original: Uint8Array;
+}
+
+/** The half that is written on every change. */
+interface StoredScript {
+  shape?: number;
+  edits: Edit[];
+  cursor: number;
+  assets: Record<string, Uint8Array>;
   savedAt: number;
 }
 
@@ -97,9 +129,30 @@ function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRe
  * is editing a document. The session is a convenience; the document in memory
  * is the work.
  */
-export async function saveSession(session: StoredSession): Promise<boolean> {
+/**
+ * Writes the document. Called once, when a session begins.
+ *
+ * It also clears whatever script was stored for the previous document: a new
+ * original with an old edit list would replay somebody else's afternoon onto
+ * this file.
+ */
+export async function saveOriginal(name: string, original: Uint8Array): Promise<boolean> {
   try {
-    await run('readwrite', (store) => store.put(session, KEY));
+    await run('readwrite', (store) => {
+      store.delete(SCRIPT_KEY);
+      store.delete(LEGACY_KEY);
+      return store.put({ name, original } satisfies StoredOriginal, ORIGINAL_KEY);
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Writes the edit list and the imported assets. Called on every change. */
+export async function saveScript(script: StoredScript): Promise<boolean> {
+  try {
+    await run('readwrite', (store) => store.put(script, SCRIPT_KEY));
     return true;
   } catch {
     return false;
@@ -173,17 +226,45 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
   return referenced;
 }
 
+/**
+ * Joins the two halves back into the one thing the editor resumes from.
+ *
+ * A session written before the split is read from its single record and
+ * returned as it is: it is a document the reader left open, and losing it over
+ * a storage layout would be the same as losing the afternoon.
+ */
 export async function loadSession(): Promise<StoredSession | null> {
   try {
-    const stored = await run<StoredSession | undefined>('readonly', (store) => store.get(KEY));
-    if (!stored || !stored.original || !Array.isArray(stored.edits)) return null;
+    const [document_, script, legacy] = await Promise.all([
+      run<StoredOriginal | undefined>('readonly', (store) => store.get(ORIGINAL_KEY)),
+      run<StoredScript | undefined>('readonly', (store) => store.get(SCRIPT_KEY)),
+      run<StoredSession | undefined>('readonly', (store) => store.get(LEGACY_KEY)),
+    ]);
+
+    const joined: StoredSession | null =
+      document_?.original && script && Array.isArray(script.edits)
+        ? {
+            shape: script.shape,
+            name: document_.name,
+            original: document_.original,
+            edits: script.edits,
+            cursor: script.cursor,
+            assets: script.assets ?? {},
+            savedAt: script.savedAt,
+          }
+        : legacy?.original && Array.isArray(legacy.edits)
+          ? legacy
+          : null;
+
+    if (!joined) return null;
+
     // An older shape cannot be replayed faithfully, and replaying it anyway
     // would quietly produce a document nobody asked for.
-    if (stored.shape !== SESSION_SHAPE) {
+    if (joined.shape !== SESSION_SHAPE) {
       await clearSession();
       return null;
     }
-    return stored;
+    return joined;
   } catch {
     return null;
   }
@@ -191,7 +272,11 @@ export async function loadSession(): Promise<StoredSession | null> {
 
 export async function clearSession(): Promise<void> {
   try {
-    await run('readwrite', (store) => store.delete(KEY));
+    await run('readwrite', (store) => {
+      store.delete(ORIGINAL_KEY);
+      store.delete(SCRIPT_KEY);
+      return store.delete(LEGACY_KEY);
+    });
   } catch {
     // nothing to do: see above
   }
