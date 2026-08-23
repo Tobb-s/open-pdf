@@ -111,11 +111,16 @@ async function findSurvivors(
     ...state,
     pages: state.pages.map((page) => ({ ...page, raster: null })),
   };
-  const { bytes } = await engine.render(bare);
+  const { bytes, placed } = await engine.render(bare);
   const source = await openPdf(bytes);
   try {
     for (const entry of painted) {
-      const at = bare.pages.findIndex((page) => page.id === entry.page);
+      // From what the build produced, not from what it was asked to produce.
+      // A page the build had to skip shifts every page after it, and this
+      // lookup would then take the text of a DIFFERENT page, find none of the
+      // painted words in it, and report the document clean — a check that
+      // cannot fail, which is worse than no check at all.
+      const at = placed.indexOf(entry.page);
       if (at === -1) continue;
       const page = await source.document.getPage(at + 1);
       const content = await page.getTextContent();
@@ -238,6 +243,17 @@ type Built = {
   document: PDFDocumentProxy;
   destroy: () => Promise<void>;
   state: ScriptState;
+  /**
+   * The ids really in `document`, in its own order.
+   *
+   * Not `state.pages`. A page whose image will not embed is skipped by the
+   * build rather than allowed to kill it, and every index the editor holds is
+   * one out of step from that page onward: the reader draws on a page they are
+   * not looking at, and the export's redaction check reads the text of the
+   * wrong page and reports the document clean without having looked at what was
+   * painted out.
+   */
+  placed: string[];
 };
 
 /**
@@ -344,7 +360,28 @@ export default function StudioPage() {
 
   /** What is on screen right now, which trails the script during a rebuild. */
   const view = built?.state ?? null;
-  const viewPages = useMemo(() => view?.pages ?? [], [view]);
+
+  /**
+   * The pages the drawn document actually holds, in its order.
+   *
+   * Taken from the build's report rather than from the script it was built
+   * from, so an index into this list and a page in that document can never
+   * disagree. When they agreed by construction, they still disagreed whenever
+   * the build had to skip something.
+   */
+  const viewPages = useMemo(() => {
+    if (!built) return [];
+    const byId = new Map(built.state.pages.map((page) => [page.id, page]));
+    return built.placed
+      .map((id) => byId.get(id))
+      .filter((page): page is NonNullable<typeof page> => page !== undefined);
+  }, [built]);
+
+  /** Pages the script asked for that the build could not produce. */
+  const dropped = useMemo(() => {
+    if (!built) return 0;
+    return Math.max(0, built.state.pages.length - viewPages.length);
+  }, [built, viewPages]);
 
   /**
    * Only the notices whose import is still part of the document. Undo the
@@ -462,7 +499,7 @@ export default function StudioPage() {
     setBuilding(true);
     try {
       const started = performance.now();
-      const { bytes, offMainThread: inWorker } = await engine.render(state);
+      const { bytes, placed, offMainThread: inWorker } = await engine.render(state);
       // Re-read every time: the engine can hand the job to the main thread part
       // way through a session, and the banner has to follow it.
       setOffMainThread(inWorker);
@@ -479,7 +516,7 @@ export default function StudioPage() {
       // The bytes are not kept: exporting re-renders from the script, so a copy
       // of every intermediate document would pin a document's worth of memory
       // for nothing.
-      setBuilt({ document: opened.document, destroy: opened.destroy, state });
+      setBuilt({ document: opened.document, destroy: opened.destroy, state, placed });
       setPageIndex((index) => Math.min(index, opened.document.numPages - 1));
 
       // Measured from the request to the document being ready to draw. It does
@@ -915,10 +952,13 @@ export default function StudioPage() {
             page.id === pageId ? { ...page, raster: null } : page
           ),
         };
-        const at = bare.pages.findIndex((page) => page.id === pageId);
+        const { bytes, placed } = await engine.render(bare);
+        // Same reason as in findSurvivors: the page to photograph is the one
+        // the produced document holds under this id, not the one the script
+        // counted to.
+        const at = placed.indexOf(pageId);
         if (at === -1) return;
 
-        const { bytes } = await engine.render(bare);
         const opened = await openPdf(bytes);
         try {
           const target = await opened.document.getPage(at + 1);
@@ -1305,6 +1345,14 @@ export default function StudioPage() {
           </div>
         )}
 
+        {dropped > 0 && (
+          /* A page the build could not produce. Said rather than absorbed: the
+             alternative is a document that quietly has one page fewer than the
+             rail claims, with every index after it pointing somewhere else. */
+          <p className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            {t.studio.droppedPages(dropped)}
+          </p>
+        )}
         {signed && (
           /* Red rather than amber, and first: every other notice here is about
              something the reader can weigh afterwards. This one is about work

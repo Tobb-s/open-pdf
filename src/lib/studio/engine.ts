@@ -16,6 +16,15 @@ import type { StudioRequest, StudioResponse } from '@/lib/studio/studio.worker';
 
 export interface RenderResult {
   bytes: Uint8Array;
+  /**
+   * The page ids really in those bytes, in the order the document holds them.
+   *
+   * Not the same as the script's page list: a page whose image will not embed
+   * is skipped rather than allowed to kill the build. Everything that maps an
+   * index to a page must come from HERE, or it is one out of step from the
+   * skipped page onward.
+   */
+  placed: string[];
   millis: number;
   /** False when the work had to happen on the main thread. */
   offMainThread: boolean;
@@ -26,6 +35,8 @@ export interface ExportResult {
   bytes: Uint8Array;
   /** Counted from the produced bytes, not from what the script intended. */
   pages: number;
+  /** The page ids really in those bytes, in document order. */
+  placed: string[];
   before: StructuralSummary;
   after: StructuralSummary;
   /** Field values that did not survive the write, read back from the file. */
@@ -58,13 +69,21 @@ class MainThreadEngine implements StudioEngine {
   async render(state: ScriptState): Promise<RenderResult> {
     if (!this.original) throw new Error('No document is open.');
     const started = performance.now();
-    const bytes = await materialize({ original: this.original, assets: this.assets, state });
-    return { bytes, millis: performance.now() - started, offMainThread: false };
+    const { bytes, pages: placed } = await materialize({
+      original: this.original,
+      assets: this.assets,
+      state,
+    });
+    return { bytes, placed, millis: performance.now() - started, offMainThread: false };
   }
 
   async exportDocument(state: ScriptState): Promise<ExportResult> {
     if (!this.original) throw new Error('No document is open.');
-    const bytes = await materialize({ original: this.original, assets: this.assets, state });
+    const { bytes, pages: placed } = await materialize({
+      original: this.original,
+      assets: this.assets,
+      state,
+    });
     const [source, produced] = await Promise.all([
       loadPdf(this.original, { updateMetadata: false }),
       loadPdf(bytes, { updateMetadata: false }),
@@ -72,6 +91,7 @@ class MainThreadEngine implements StudioEngine {
     return {
       bytes,
       pages: produced.getPageCount(),
+      placed,
       before: summarizeStructures(source),
       after: summarizeStructures(produced),
       fields: await verifyFields(bytes, state.fields),
@@ -131,6 +151,7 @@ export class WorkerEngine implements StudioEngine {
       if (message.cmd === 'rendered') {
         (waiting.resolve as (value: RenderResult) => void)({
           bytes: message.bytes,
+          placed: message.placed,
           millis: message.millis,
           offMainThread: true,
         });
@@ -138,6 +159,7 @@ export class WorkerEngine implements StudioEngine {
         (waiting.resolve as (value: ExportResult) => void)({
           bytes: message.bytes,
           pages: message.pages,
+          placed: message.placed,
           before: message.before,
           after: message.after,
           fields: message.fields,

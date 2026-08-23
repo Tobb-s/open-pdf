@@ -29,6 +29,7 @@ import { pageBoxOf, visualSize } from '@/lib/geometry';
 import {
   IMAGE_PAGE_LONG_SIDE,
   isUntouched,
+  type PageId,
   ORIGINAL,
   type Mark,
   type PageState,
@@ -325,17 +326,40 @@ async function drawMark(
   }
 }
 
+/**
+ * What was built, and which pages are really in it.
+ *
+ * `pages` is not the same list as `state.pages`, and the difference is the
+ * point. A page whose image will not embed, whose asset is missing, or whose
+ * index is past the end of its source is skipped rather than allowed to kill
+ * the whole build — the right instinct, since one bad photo must not cost the
+ * reader their afternoon. What was missing is telling the caller it happened.
+ *
+ * Without it every index the editor holds is one out of step from that page
+ * onward: the reader draws on a page they are not looking at, and the export's
+ * redaction check reads the text of the WRONG page, finds nothing to look for,
+ * and reports the document clean without having examined the region that was
+ * painted out. A check that cannot fail is worse than no check.
+ */
+export interface MaterializeResult {
+  bytes: Uint8Array;
+  /** The ids really in the produced document, in the order it holds them. */
+  pages: PageId[];
+}
+
 export async function materialize({
   original,
   assets,
   state,
-}: MaterializeInput): Promise<Uint8Array> {
+}: MaterializeInput): Promise<MaterializeResult> {
   // Nothing asked for means nothing done. The reader gets the file they opened,
   // byte for byte, rather than a re-encoded copy that merely resembles it.
   const originalCount = state.pages.filter((page) => page.origin.asset === ORIGINAL).length;
   if (isUntouched(state, originalCount) && state.pages.length === originalCount) {
     const untouched = await loadPdf(original, { updateMetadata: false });
-    if (untouched.getPageCount() === originalCount) return original.slice();
+    if (untouched.getPageCount() === originalCount) {
+      return { bytes: original.slice(), pages: state.pages.map((page) => page.id) };
+    }
   }
 
   const document = await loadPdf(original, { updateMetadata: false });
@@ -588,5 +612,27 @@ export async function materialize({
 
   // Never the whole form: the appearances that needed regenerating were
   // regenerated above, for the fields the reader wrote and no others.
-  return savePdf(document, { updateFieldAppearances: false });
+  /**
+   * Which pages are really there, read from the page tree rather than from the
+   * script that asked for them.
+   *
+   * The tree is walked directly instead of through `getPages()` because
+   * pdf-lib's page cache is not invalidated by `removePage` — the same quirk
+   * `arrangeOriginalPages` works around above — so a build whose last
+   * structural act was a deletion would report pages no longer in the file.
+   */
+  const idByRef = new Map<string, PageId>();
+  for (const [id, handle] of byId) idByRef.set(handle.ref.tag, id);
+
+  const inDocument: PageId[] = [];
+  document.catalog.Pages().traverse((node, ref) => {
+    if (node.get(PDFName.of('Type'))?.toString() !== '/Page') return;
+    const id = idByRef.get(ref.tag);
+    if (id !== undefined) inDocument.push(id);
+  });
+
+  return {
+    bytes: await savePdf(document, { updateFieldAppearances: false }),
+    pages: inDocument,
+  };
 }

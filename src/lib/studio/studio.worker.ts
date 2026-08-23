@@ -25,12 +25,21 @@ export type StudioRequest =
 
 export type StudioResponse =
   | { cmd: 'opened' }
-  | { cmd: 'rendered'; id: number; bytes: Uint8Array; millis: number }
+  | {
+      cmd: 'rendered';
+      id: number;
+      bytes: Uint8Array;
+      /** The page ids really in those bytes, in the order the document holds them. */
+      placed: string[];
+      millis: number;
+    }
   | {
       cmd: 'exported';
       id: number;
       bytes: Uint8Array;
       pages: number;
+      /** The page ids really in those bytes, in the order the document holds them. */
+      placed: string[];
       before: StructuralSummary;
       after: StructuralSummary;
       /** Field values that did not survive the write, read back from the file. */
@@ -66,7 +75,11 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
       return;
     }
     try {
-      const bytes = await materialize({ original, assets, state: request.state });
+      const { bytes, pages: placed } = await materialize({
+        original,
+        assets,
+        state: request.state,
+      });
       // Read from the produced bytes, here, where pdf-lib already lives. Doing
       // it on the page would parse two whole documents on the main thread — the
       // one thing this file exists to prevent.
@@ -80,6 +93,7 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
           id: request.id,
           bytes,
           pages: produced.getPageCount(),
+          placed,
           before: summarizeStructures(source),
           after: summarizeStructures(produced),
           fields: await verifyFields(bytes, request.state.fields),
@@ -106,9 +120,19 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
     // time a busy main thread spent getting round to the reply.
     const started = performance.now();
     try {
-      const bytes = await materialize({ original, assets, state: request.state });
+      const { bytes, pages: placed } = await materialize({
+        original,
+        assets,
+        state: request.state,
+      });
       post(
-        { cmd: 'rendered', id: request.id, bytes, millis: performance.now() - started },
+        {
+          cmd: 'rendered',
+          id: request.id,
+          bytes,
+          placed,
+          millis: performance.now() - started,
+        },
         // The worker has no further use for these, so hand the memory over
         // instead of copying a whole document across the boundary.
         [bytes.buffer as ArrayBuffer]

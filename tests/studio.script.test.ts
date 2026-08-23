@@ -366,14 +366,14 @@ describe('materialise', () => {
     const edits = twentyEdits();
     const assets = assetsFor();
 
-    const edited = await materialize({
+    const { bytes: edited } = await materialize({
       original: fixture,
       assets,
       state: stateAt(PAGES, edits, 20),
     });
     expect(Array.from(edited)).not.toEqual(Array.from(fixture));
 
-    const undone = await materialize({
+    const { bytes: undone } = await materialize({
       original: fixture,
       assets,
       state: stateAt(PAGES, edits, 0),
@@ -387,7 +387,7 @@ describe('materialise', () => {
     // Without this the gate could pass on a script whose hardest edits silently
     // did nothing.
     const { PDFStream } = await import('pdf-lib');
-    const edited = await materialize({
+    const { bytes: edited } = await materialize({
       original: fixture,
       assets: assetsFor(),
       state: stateAt(PAGES, twentyEdits(), 20),
@@ -412,12 +412,12 @@ describe('materialise', () => {
     const edits = twentyEdits();
     const assets = assetsFor();
     for (const cursor of [3, 11, 20]) {
-      const once = await materialize({
+      const { bytes: once } = await materialize({
         original: fixture,
         assets,
         state: stateAt(PAGES, edits, cursor),
       });
-      const twice = await materialize({
+      const { bytes: twice } = await materialize({
         original: fixture,
         assets,
         state: stateAt(PAGES, edits, cursor),
@@ -431,7 +431,7 @@ describe('materialise', () => {
     // it, which after deleting the last page is one fewer — so without the
     // re-check against the loaded document the reader would be handed back the
     // file they were trying to change.
-    const out = await materialize({
+    const { bytes: out } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, [{ kind: 'delete', page: page(PAGES - 1) }], 1),
@@ -446,7 +446,7 @@ describe('materialise', () => {
       { kind: 'rotate', page: page(0), turns: 1 },
       { kind: 'delete', page: page(2) },
     ];
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, edits, 3),
@@ -463,7 +463,7 @@ describe('materialise', () => {
       { kind: 'rotate', page: page(0), turns: 1 },
       { kind: 'draw', mark: textMark('m', 1, 'anotado') },
     ];
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, edits, 2),
@@ -477,7 +477,7 @@ describe('materialise', () => {
     const before = await PDFDocument.load(fixture);
     expect(before.catalog.get(PDFName.of('PageLabels'))).toBeDefined();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, [{ kind: 'move', page: page(0), before: null }], 1),
@@ -526,7 +526,7 @@ describe('materialise', () => {
 
     expect(countImages(await PDFDocument.load(original))).toBeGreaterThan(0);
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: noAssets,
       state: stateAt(2, [{ kind: 'delete', page: 'o1' }], 1),
@@ -538,7 +538,7 @@ describe('materialise', () => {
   });
 
   it('inserts pages from an imported document at the chosen place', async () => {
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: assetsFor(),
       state: stateAt(
@@ -562,7 +562,7 @@ describe('materialise', () => {
   });
 
   it('crops a page and lets the crop be taken back', async () => {
-    const cropped = await materialize({
+    const { bytes: cropped } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(
@@ -574,7 +574,7 @@ describe('materialise', () => {
     const box = (await PDFDocument.load(cropped)).getPage(1).getCropBox();
     expect([box.x, box.y, box.width, box.height]).toEqual([10, 20, 200, 300]);
 
-    const uncropped = await materialize({
+    const { bytes: uncropped } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(
@@ -597,7 +597,7 @@ describe('defects found by review, kept fixed', () => {
       { kind: 'insert', before: page(0), asset: 'ausente', indices: [0] },
       { kind: 'insert', before: page(1), asset: 'deck', indices: [0] },
     ];
-    const bytes = await materialize({ original: fixture, assets, state: stateAt(PAGES, edits, 2) });
+    const { bytes } = await materialize({ original: fixture, assets, state: stateAt(PAGES, edits, 2) });
     const out = await PDFDocument.load(bytes);
 
     expect(out.getPageCount()).toBe(PAGES + 1);
@@ -615,7 +615,7 @@ describe('defects found by review, kept fixed', () => {
     // A session restored after its asset was replaced by a shorter file. Without
     // the guard this throws out of copyPages and every rebuild fails.
     const assets = new Map([['deck', imported]]);
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets,
       state: stateAt(PAGES, [{ kind: 'insert', before: page(1), asset: 'deck', indices: [7] }], 1),
@@ -635,7 +635,7 @@ describe('defects found by review, kept fixed', () => {
   });
 
   it('still draws everything Spanish needs', async () => {
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(

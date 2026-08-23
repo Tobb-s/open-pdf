@@ -153,7 +153,7 @@ describe('a redacted page in the produced document', () => {
 
   it('THE STAGE GATE: the text under the paint is not in the file', async () => {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: secret,
       assets: new Map([['bitmap', png]]),
       state: stateAt(2, [rasterEdit('o0', [{ x: 30, y: 110, width: 220, height: 40 }])], 1),
@@ -186,7 +186,7 @@ describe('a redacted page in the produced document', () => {
     const { PDFRawStream, PDFStream } = await import('pdf-lib');
     const { inflateSync } = await import('node:zlib');
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: secret,
       assets: new Map([['bitmap', png]]),
       state: stateAt(2, [rasterEdit('o0', [{ x: 30, y: 110, width: 220, height: 40 }])], 1),
@@ -225,7 +225,7 @@ describe('a redacted page in the produced document', () => {
     page.setRotation((await import('pdf-lib')).degrees(90));
     const original = (await rotated.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(1, [rasterEdit('o0', [])], 1),
@@ -240,7 +240,7 @@ describe('a redacted page in the produced document', () => {
   });
 
   it('leaves the other pages exactly as they were', async () => {
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: secret,
       assets: new Map([['bitmap', png]]),
       state: stateAt(2, [rasterEdit('o0', [])], 1),
@@ -252,7 +252,7 @@ describe('a redacted page in the produced document', () => {
 
   it('undoing the redaction gives the file back byte for byte', async () => {
     const edits: Edit[] = [rasterEdit('o0', [{ x: 30, y: 110, width: 220, height: 40 }])];
-    const undone = await materialize({
+    const { bytes: undone } = await materialize({
       original: secret,
       assets: new Map([['bitmap', png]]),
       state: stateAt(2, edits, 0),
@@ -282,7 +282,7 @@ describe('flattening a form', () => {
     field.addToPage(page, { x: 40, y: 200, width: 200, height: 24 });
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(1, [{ kind: 'flattenForms', on: true }], 1),
@@ -313,7 +313,7 @@ describe('flattening a form', () => {
       { kind: 'flattenForms', on: true },
       { kind: 'flattenForms', on: false },
     ];
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(1, edits, 2),
@@ -368,7 +368,7 @@ describe('a document whose pages share their resources', () => {
     const original = (await doc.save()).slice();
     expect(await imageWidths(original)).toEqual([5, 12]);
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(
@@ -422,7 +422,7 @@ describe('a document whose pages share their resources', () => {
     field.addToPage(second, { x: 40, y: 200, width: 300, height: 24 });
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'delete', page: 'o1' }], 1),
@@ -456,7 +456,7 @@ describe('a document whose pages share their resources', () => {
     field.addToPage(second, { x: 40, y: 200, width: 200, height: 24 });
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(2, [{ kind: 'raster', page: 'o0', raster: { asset: 'bitmap', boxes: [] } }], 1),
@@ -513,7 +513,7 @@ describe('what the adversarial pass found', () => {
     doc.addPage([400, 300]);
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(
@@ -557,7 +557,7 @@ describe('what the adversarial pass found', () => {
 
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(2, [{ kind: 'raster', page: 'o0', raster: { asset: 'bitmap', boxes: [] } }], 1),
@@ -582,7 +582,7 @@ describe('what the adversarial pass found', () => {
     field.addToPage(page, { x: 40, y: 200, width: 200, height: 24 });
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(
@@ -636,7 +636,7 @@ describe('a page that was cropped or turned before it was redacted', () => {
       return (await doc.save()).slice();
     })();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(
@@ -662,7 +662,7 @@ describe('a page that was cropped or turned before it was redacted', () => {
       return (await doc.save()).slice();
     })();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(
@@ -690,7 +690,7 @@ describe('a page that was cropped or turned before it was redacted', () => {
       return (await doc.save()).slice();
     })();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map([['bitmap', png]]),
       state: stateAt(

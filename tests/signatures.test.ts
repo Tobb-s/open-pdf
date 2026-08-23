@@ -128,7 +128,7 @@ describe('what the result card would say about a signed document', () => {
     const before = summarizeStructures(await PDFDocument.load(original));
 
     // The lightest edit there is: turn the OTHER page.
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'rotate', page: 'o1', turns: 1 }], 1),
@@ -148,7 +148,7 @@ describe('what the result card would say about a signed document', () => {
 
   it('the file really is rewritten, which is what kills the signature', async () => {
     const original = await signedDocument();
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'rotate', page: 'o1', turns: 1 }], 1),
@@ -166,7 +166,7 @@ describe('what the result card would say about a signed document', () => {
     // fact about the operation rather than as a loss: nothing went missing, and
     // the signature is dead all the same.
     const original = await signedDocument();
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'rotate', page: 'o1', turns: 1 }], 1),
@@ -179,7 +179,7 @@ describe('what the result card would say about a signed document', () => {
 describe('the report the tools render', () => {
   it('says the signature broke when the bytes really were rewritten', async () => {
     const original = await signedDocument();
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'rotate', page: 'o1', turns: 1 }], 1),
@@ -196,7 +196,7 @@ describe('the report the tools render', () => {
     const doc = await PDFDocument.create();
     doc.addPage([400, 300]);
     const original = (await doc.save()).slice();
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(1, [{ kind: 'rotate', page: 'o0', turns: 1 }], 1),
@@ -210,7 +210,7 @@ describe('the report the tools render', () => {
     // Warning about a blank signature field would be noise, and this app's
     // warnings only keep working while every one of them is true.
     const original = await signedDocument({ empty: true });
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'rotate', page: 'o1', turns: 1 }], 1),
@@ -228,7 +228,7 @@ describe('the lie in the other direction', () => {
     // fix, pointed the other way — and it is the one an ordinary reader would
     // hit first, by opening a signed contract to look at it and exporting.
     const original = await signedDocument();
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [], 0),
@@ -240,7 +240,7 @@ describe('the lie in the other direction', () => {
 
   it('says it broke as soon as one page is turned', async () => {
     const original = await signedDocument();
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       state: stateAt(2, [{ kind: 'rotate', page: 'o1', turns: 1 }], 1),
@@ -335,7 +335,7 @@ describe('shapes the first attempt got wrong', () => {
     // the first attempt it came back as no loss at all, beside a line saying
     // the form had been kept.
     const original = await hierarchicalSignedForm({ pages: 2 });
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: new Map(),
       // Every widget was on the first page.

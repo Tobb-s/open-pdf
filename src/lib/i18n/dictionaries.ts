@@ -552,6 +552,7 @@ export interface Dictionary {
      * Said when the file is OPENED, not only at the end: someone who signed a
      * contract needs to know before an afternoon of work, not after.
      */
+    droppedPages: (count: number) => string;
     signedTitle: string;
     signedBody: string;
     /** Stage five: taking information out, and proving it. */
@@ -1334,6 +1335,10 @@ export const es: Dictionary = {
       'Agrega una capa de texto invisible encima de la página, para poder buscar y seleccionar. No cambia lo que se ve.',
     importedLost: (name, list) =>
       `De «${name}» viajaron las páginas, no ${list}. Copiar páginas no copia el documento, y eso no tiene arreglo.`,
+    droppedPages: (count) =>
+      count === 1
+        ? 'Una página no se pudo construir y no está en el documento. Suele ser una imagen que el archivo dice ser y no es. Deshacé esa inserción, o seguí sin ella: lo que ves es lo que va a salir.'
+        : `${count} páginas no se pudieron construir y no están en el documento. Suelen ser imágenes que el archivo dice ser y no son. Deshacé esas inserciones, o seguí sin ellas: lo que ves es lo que va a salir.`,
     signedTitle: 'Este documento está firmado digitalmente',
     signedBody:
       'Cualquier cambio rompe la firma, y no es un defecto que podamos arreglar: una firma cubre los bytes exactos del archivo que se firmó, y guardar de nuevo los reescribe. OpenPDF no puede volver a firmar. Si necesitás conservar la firma, no edites acá — descargá el original y trabajá sobre una copia.',
@@ -2118,6 +2123,10 @@ export const en: Dictionary = {
       'Adds an invisible text layer over the page so it can be searched and selected. It does not change what you see.',
     importedLost: (name, list) =>
       `From "${name}" the pages travelled, but not ${list}. Copying pages does not copy a document, and there is no fixing that.`,
+    droppedPages: (count) =>
+      count === 1
+        ? 'One page could not be built and is not in the document. Usually an image the file claims to be and is not. Undo that insertion, or carry on without it: what you see is what will come out.'
+        : `${count} pages could not be built and are not in the document. Usually images the files claim to be and are not. Undo those insertions, or carry on without them: what you see is what will come out.`,
     signedTitle: 'This document is digitally signed',
     signedBody:
       'Any change breaks the signature, and that is not a defect we can fix: a signature covers the exact bytes of the file it was made over, and saving again rewrites them. OpenPDF cannot sign it again. If the signature has to survive, do not edit here — download the original and work on a copy.',

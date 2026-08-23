@@ -31,7 +31,7 @@ const page = (index: number) => `o${index}`;
 describe('form fields in the session', () => {
   it('writes a value and reads it back out of the produced file', async () => {
     // The fixture carries one text field, `alumno.nombre`, already set.
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, [{ kind: 'setField', field: 'alumno.nombre', value: 'Ana' }], 1),
@@ -44,7 +44,7 @@ describe('form fields in the session', () => {
   it('THE STAGE RISK: the round trip catches a value that did not take', async () => {
     // Appearance regeneration is the part the plan called surprising, so the
     // export reads the file back rather than trusting the write.
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, [{ kind: 'setField', field: 'alumno.nombre', value: 'Ana' }], 1),
@@ -64,12 +64,12 @@ describe('form fields in the session', () => {
 
   it('does not take the untouched shortcut once a field has been set', async () => {
     const state = stateAt(PAGES, [{ kind: 'setField', field: 'alumno.nombre', value: 'Ana' }], 1);
-    const bytes = await materialize({ original: fixture, assets: noAssets, state });
+    const { bytes } = await materialize({ original: fixture, assets: noAssets, state });
     expect(Array.from(bytes)).not.toEqual(Array.from(fixture));
   });
 
   it('a field the document does not have does not sink the document', async () => {
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, [{ kind: 'setField', field: 'inventado', value: 'x' }], 1),
@@ -114,7 +114,7 @@ describe('defects the review found, kept fixed', () => {
       .getTextField('campo.b')
       .acroField.getDefaultAppearance();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: noAssets,
       state: stateAt(1, [{ kind: 'setField', field: 'campo.a', value: 'NUEVO' }], 1),
@@ -131,7 +131,7 @@ describe('defects the review found, kept fixed', () => {
   it('the round trip notices a value that is there but nothing draws', async () => {
     // The stage's named risk, measured rather than assumed: comparing values
     // alone cannot see a field whose appearance never got written.
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, [{ kind: 'setField', field: 'alumno.nombre', value: 'Ana' }], 1),
@@ -154,7 +154,7 @@ describe('defects the review found, kept fixed', () => {
   it('an image that cannot be embedded costs its own page and nothing else', async () => {
     // Magic bytes that say PNG on a file that is not one.
     const broken = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: new Map([['roto', broken]]),
       state: stateAt(PAGES, [{ kind: 'insertImages', before: page(0), assets: ['roto'] }], 1),
@@ -173,14 +173,14 @@ describe('defects the review found, kept fixed', () => {
     const state = stateAt(PAGES, edits, 2);
     expect(state.metadata.title).toBeUndefined();
 
-    const bytes = await materialize({ original: fixture, assets: noAssets, state });
+    const { bytes } = await materialize({ original: fixture, assets: noAssets, state });
     expect(Array.from(bytes)).toEqual(Array.from(fixture));
   });
 });
 
 describe('metadata', () => {
   it('writes title, author and language', async () => {
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(
@@ -197,7 +197,7 @@ describe('metadata', () => {
 
   it('undoing metadata brings the file back byte for byte', async () => {
     const edits: Edit[] = [{ kind: 'metadata', patch: { title: 'Tesis' } }];
-    const undone = await materialize({
+    const { bytes: undone } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, edits, 0),
@@ -209,7 +209,7 @@ describe('metadata', () => {
 describe('images as pages', () => {
   it('makes a page shaped like the image', async () => {
     const assets = new Map([['foto', PNG]]);
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets,
       state: stateAt(PAGES, [{ kind: 'insertImages', before: page(1), assets: ['foto'] }], 1),
@@ -228,7 +228,7 @@ describe('images as pages', () => {
   it('really draws the image rather than leaving a blank page', async () => {
     const { PDFStream } = await import('pdf-lib');
     const assets = new Map([['foto', PNG]]);
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets,
       state: stateAt(PAGES, [{ kind: 'insertImages', before: null, assets: ['foto'] }], 1),
@@ -249,7 +249,7 @@ describe('images as pages', () => {
       ['a', PNG],
       ['b', PNG],
     ]);
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets,
       state: stateAt(PAGES, [{ kind: 'insertImages', before: page(0), assets: ['a', 'b'] }], 1),
@@ -261,7 +261,7 @@ describe('images as pages', () => {
 describe('the OCR text layer', () => {
   it('puts words on the page that a reader can find', async () => {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(
@@ -297,7 +297,7 @@ describe('the OCR text layer', () => {
 
   it('skips a word the font cannot draw instead of losing the layer', async () => {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(
@@ -353,7 +353,7 @@ describe('the stage-two tools as session operations', () => {
       { kind: 'numbering', spec: numbering },
       { kind: 'move', page: page(4), before: page(0) },
     ];
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, edits, 2),
@@ -372,7 +372,7 @@ describe('the stage-two tools as session operations', () => {
 
   it('a watermark reaches every page unless told otherwise', async () => {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(
@@ -427,7 +427,7 @@ describe('the stage-two tools as session operations', () => {
       },
       { kind: 'watermark', spec: null },
     ];
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: fixture,
       assets: noAssets,
       state: stateAt(PAGES, edits, 2),
@@ -484,7 +484,7 @@ describe('THE STAGE GATE: importing declares what it could not bring', () => {
     host.addPage([300, 300]);
     const hostBytes = (await host.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: hostBytes,
       assets: new Map([['rico', fixture]]),
       // Page 1 of the fixture is the one carrying the field's widget.
@@ -524,7 +524,7 @@ describe('THE STAGE GATE: importing declares what it could not bring', () => {
     host.addPage([200, 200]);
     const hostBytes = (await host.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original: hostBytes,
       assets: new Map([['rico', fixture]]),
       state: stateAt(
@@ -553,7 +553,7 @@ describe('a text field with an unusual font still round-trips', () => {
     await doc.embedFont(StandardFonts.Helvetica);
     const original = (await doc.save()).slice();
 
-    const bytes = await materialize({
+    const { bytes } = await materialize({
       original,
       assets: noAssets,
       state: stateAt(1, [{ kind: 'setField', field: 'raro', value: 'valor' }], 1),
