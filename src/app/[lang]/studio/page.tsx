@@ -31,7 +31,7 @@ import {
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
-import { pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
+import { fitWithin, pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
 import { assertFileSize } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
@@ -89,6 +89,8 @@ const SLOW_MS = 1500;
  * much that a long document turns into a pile of huge bitmaps.
  */
 const RASTER_SCALE = 2;
+/** The square, in points, a placed image is fitted inside. */
+const IMAGE_STAMP_BOX = 140;
 
 /**
  * Looks for the redacted words in the file that is about to be handed over.
@@ -303,7 +305,13 @@ export default function StudioPage() {
   const [textSize, setTextSize] = useState(14);
   const [inkWidth, setInkWidth] = useState(2);
   const [color, setColor] = useState('#c62828');
-  const [pendingImage, setPendingImage] = useState<{ id: string; name: string } | null>(null);
+  /** The image waiting to be placed, with its own shape so the stamp can keep it. */
+  const [pendingImage, setPendingImage] = useState<{
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+  } | null>(null);
 
   /* -------------------------------------------------- the document panel -- */
   const [panel, setPanel] = useState<'page' | 'document'>('page');
@@ -376,6 +384,9 @@ export default function StudioPage() {
       .map((id) => byId.get(id))
       .filter((page): page is NonNullable<typeof page> => page !== undefined);
   }, [built]);
+
+  /** The ids in display order, for anything that speaks page numbers to the reader. */
+  const viewPageIds = useMemo(() => viewPages.map((page) => page.id), [viewPages]);
 
   /** Pages the script asked for that the build could not produce. */
   const dropped = useMemo(() => {
@@ -739,8 +750,10 @@ export default function StudioPage() {
     }
 
     if (tool === 'image' && action.kind === 'point' && pendingImage) {
-      // A quarter of the page wide, which is a sensible stamp; the reader can
-      // undo and place it again rather than fight a resize handle.
+      // A quarter of the page wide at most, which is a sensible stamp, in the
+      // image's OWN shape — it used to be forced square, and a scanned
+      // signature came out crushed. The reader can undo and place it again
+      // rather than fight a resize handle.
       addEdit({
         kind: 'draw',
         mark: {
@@ -750,8 +763,7 @@ export default function StudioPage() {
           asset: pendingImage.id,
           x: action.x,
           y: action.y,
-          width: 140,
-          height: 140,
+          ...fitWithin(pendingImage.width, pendingImage.height, IMAGE_STAMP_BOX),
           opacity: 1,
         },
       });
@@ -805,7 +817,20 @@ export default function StudioPage() {
       const id = newId();
       engine.putAsset(id, bytes);
       setAssets((current) => ({ ...current, [id]: bytes }));
-      setPendingImage({ id, name: file.name });
+      // Decoded once, natively, to learn the shape. A file that will not
+      // decode here is placed square and fails to embed later with its own
+      // message; it must not take the editor down at the moment of choosing.
+      let width = 0;
+      let height = 0;
+      try {
+        const bitmap = await createImageBitmap(new Blob([bytes as unknown as BlobPart]));
+        width = bitmap.width;
+        height = bitmap.height;
+        bitmap.close();
+      } catch {
+        // Square it is.
+      }
+      setPendingImage({ id, name: file.name, width, height });
       setTool('image');
     } catch (caught) {
       setError(describeError(caught, t));
@@ -1472,6 +1497,7 @@ export default function StudioPage() {
             {panel === 'document' ? (
               <DocumentPanel
                 state={state}
+                pageIds={viewPageIds}
                 fields={formFields}
                 originalMetadata={originalMetadata}
                 /* Not disabled while rebuilding: every keystroke here schedules

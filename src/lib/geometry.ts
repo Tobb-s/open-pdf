@@ -238,3 +238,22 @@ export function originForRotatedCenter(
     y: target.y - (halfWidth * sin + halfHeight * cos),
   };
 }
+
+/**
+ * The size at which an image fits inside a square box without changing shape.
+ *
+ * A stamp placed on a page used to be 140×140 points whatever the image was,
+ * so a scanned signature of 600×200 pixels came out crushed into a square. The
+ * longest side takes the box and the other follows the image's own ratio — the
+ * same rule `materialize` applies to an image that becomes a whole page. An
+ * image whose size is not known falls back to the square, which is what it was.
+ */
+export function fitWithin(
+  width: number,
+  height: number,
+  box: number
+): { width: number; height: number } {
+  if (!(width > 0) || !(height > 0)) return { width: box, height: box };
+  const scale = box / Math.max(width, height);
+  return { width: width * scale, height: height * scale };
+}

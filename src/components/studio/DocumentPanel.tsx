@@ -1,7 +1,17 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { FileImage, ScanText, Loader2 } from 'lucide-react';
-import { ColorRow, Field, NumberRow, Pills } from '@/components/StampControls';
+import {
+  ColorRow,
+  Field,
+  NumberRow,
+  PageScopePicker,
+  Pills,
+  type PageScope,
+} from '@/components/StampControls';
+import { parsePageSet, summarizePages } from '@/lib/pageRange';
+import { idsForNumbers, numbersForIds } from '@/lib/studio/scope';
 import { useI18n } from '@/lib/i18n/context';
 import { hexToRgb } from '@/lib/stamp';
 import type {
@@ -32,6 +42,8 @@ export interface FormFieldInfo {
 
 interface DocumentPanelProps {
   state: ScriptState;
+  /** The page ids in the order shown, so a scope can speak numbers to the reader. */
+  pageIds: readonly string[];
   fields: readonly FormFieldInfo[];
   /** What the opened document already says, so a box is never blank by mistake. */
   originalMetadata: Metadata;
@@ -76,8 +88,67 @@ const toHex = (color: { r: number; g: number; b: number }) =>
     .map((channel) => Math.round(channel * 255).toString(16).padStart(2, '0'))
     .join('')}`;
 
+/**
+ * Which pages a watermark or a numbering applies to.
+ *
+ * The spec stores page IDS, so «pages 2 and 5» stays on those two pages when the
+ * reader reorders the document. The picker speaks NUMBERS — positions in the
+ * document as it is shown right now — and this is where the two translate.
+ *
+ * The truth is `pages`, on the spec, because undo can change it from outside
+ * at any moment. Only the text the reader is typing is local: it is parsed as
+ * they type, and the spec moves the moment it names at least one real page.
+ * The count line underneath always reads from the spec, so if the box lags an
+ * undo for a moment the line still says what is actually in effect.
+ */
+function ScopeControl({
+  pages,
+  pageIds,
+  onPages,
+}: {
+  pages: readonly string[] | null;
+  pageIds: readonly string[];
+  onPages: (ids: readonly string[] | null) => void;
+}) {
+  const [range, setRange] = useState(() =>
+    pages === null ? '' : summarizePages(numbersForIds(pages, pageIds))
+  );
+  // «Some» chosen but nothing named yet: the spec is still null and every
+  // page is still stamped, and the pill has to say «some» all the same or it
+  // snaps back under the reader's finger.
+  const [choosingSome, setChoosingSome] = useState(false);
+
+  const mode: PageScope['mode'] = pages !== null || choosingSome ? 'some' : 'all';
+  const parsed = useMemo(() => parsePageSet(range, pageIds.length), [range, pageIds.length]);
+  const effective = useMemo(() => numbersForIds(pages, pageIds), [pages, pageIds]);
+
+  return (
+    <PageScopePicker
+      scope={{ mode, range }}
+      pages={effective}
+      invalid={mode === 'some' ? parsed.invalid : []}
+      summary={summarizePages(effective)}
+      onChange={(next) => {
+        if (next.mode === 'all') {
+          setChoosingSome(false);
+          setRange('');
+          if (pages !== null) onPages(null);
+          return;
+        }
+        setChoosingSome(true);
+        setRange(next.range);
+        const set = parsePageSet(next.range, pageIds.length);
+        // The spec moves only when at least one real page is named. A box
+        // half-typed is not an instruction to take the watermark off every page.
+        if (set.pages.length > 0) onPages(idsForNumbers(set.pages, pageIds));
+      }}
+    />
+  );
+}
+
 export default function DocumentPanel({
   state,
+  pageIds,
   fields,
   originalMetadata,
   onMetadata,
@@ -225,6 +296,11 @@ export default function DocumentPanel({
               value={toHex(watermark.color)}
               onChange={(hex) => onWatermark({ ...watermark, color: hexToRgb(hex) })}
             />
+            <ScopeControl
+              pages={watermark.pages}
+              pageIds={pageIds}
+              onPages={(pages) => onWatermark({ ...watermark, pages })}
+            />
             <button
               type="button"
               onClick={() => onWatermark(null)}
@@ -253,15 +329,22 @@ export default function DocumentPanel({
           }}
         />
         {numbering && (
-          <Field label={t.pageNumbers.startAt}>
-            <NumberRow
-              label={t.pageNumbers.startAt}
-              value={numbering.startAt}
-              min={0}
-              max={99999}
-              onChange={(startAt) => onNumbering({ ...numbering, startAt })}
+          <>
+            <Field label={t.pageNumbers.startAt}>
+              <NumberRow
+                label={t.pageNumbers.startAt}
+                value={numbering.startAt}
+                min={0}
+                max={99999}
+                onChange={(startAt) => onNumbering({ ...numbering, startAt })}
+              />
+            </Field>
+            <ScopeControl
+              pages={numbering.pages}
+              pageIds={pageIds}
+              onPages={(pages) => onNumbering({ ...numbering, pages })}
             />
-          </Field>
+          </>
         )}
       </section>
 
