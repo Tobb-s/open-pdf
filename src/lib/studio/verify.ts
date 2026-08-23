@@ -1,4 +1,5 @@
 import {
+  EncryptedPDFError,
   PDFCheckBox,
   PDFDropdown,
   PDFRadioGroup,
@@ -119,7 +120,17 @@ export async function importedStructures(bytes: Uint8Array): Promise<StructureCa
         category !== 'language' &&
         summary.categories[category] > 0
     );
-  } catch {
+  } catch (caught) {
+    // Encryption is the one failure that must reach the reader: pdf.js opened
+    // the file at the door, pdf-lib — which is what the build runs on — will
+    // not, and swallowing that here added the page to the script and failed
+    // every rebuild from then on until the reader guessed what to undo.
+    if (
+      caught instanceof EncryptedPDFError ||
+      (caught instanceof Error && /is encrypted/i.test(caught.message))
+    ) {
+      throw caught;
+    }
     return [];
   }
 }

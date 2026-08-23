@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import type { FormFieldInfo } from '@/lib/studio/facts';
 import { FileImage, ScanText, Loader2 } from 'lucide-react';
 import {
   ColorRow,
@@ -32,13 +33,7 @@ import type {
  * being mistaken for marks.
  */
 
-export interface FormFieldInfo {
-  name: string;
-  type: 'text' | 'checkbox' | 'dropdown' | 'radio';
-  /** What the document itself says, before the reader changes anything. */
-  original: string;
-  options?: string[];
-}
+export type { FormFieldInfo } from '@/lib/studio/facts';
 
 interface DocumentPanelProps {
   state: ScriptState;

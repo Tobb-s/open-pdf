@@ -70,11 +70,21 @@ export async function openPdf(source: ArrayBuffer | Uint8Array): Promise<OpenPdf
 
 /**
  * Renders one page onto a canvas at the requested scale, sizing the canvas to match.
+ *
+ * Takes a signal, and for a reason that cost the editor its picture: pdf.js
+ * refuses a second `render()` on a canvas whose first has not finished or been
+ * cancelled. The Stage used to set a flag in its cleanup and walk away, so
+ * when the page changed mid-render the next render was refused, the catch
+ * blanked the editor, and — if the abandoned render finished anyway — the
+ * canvas showed pixels whose viewport was never recorded, and every click was
+ * mapped through the previous one. Aborting the signal cancels the task, which
+ * releases the canvas at once.
  */
 export async function renderPageToCanvas(
   page: PDFPageProxy,
   canvas: HTMLCanvasElement,
-  scale: number
+  scale: number,
+  options: { signal?: AbortSignal } = {}
 ): Promise<{ width: number; height: number; viewport: PageViewport }> {
   const viewport = page.getViewport({ scale });
   canvas.width = Math.max(1, Math.floor(viewport.width));
@@ -86,7 +96,16 @@ export async function renderPageToCanvas(
   }
   context.clearRect(0, 0, canvas.width, canvas.height);
 
-  await page.render({ canvas, canvasContext: context, viewport }).promise;
+  const task = page.render({ canvas, canvasContext: context, viewport });
+  const { signal } = options;
+  const cancel = () => task.cancel();
+  if (signal?.aborted) cancel();
+  else signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    await task.promise;
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
   // The viewport travels with the pixels: it is the only correct way to map a
   // click on this render back to PDF user space (rotation and CropBox included).
   return { width: canvas.width, height: canvas.height, viewport };

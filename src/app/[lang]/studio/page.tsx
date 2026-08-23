@@ -7,7 +7,8 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import Stage, { type StageAction, type StageTool } from '@/components/studio/Stage';
-import DocumentPanel, { type FormFieldInfo } from '@/components/studio/DocumentPanel';
+import DocumentPanel from '@/components/studio/DocumentPanel';
+import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
 import { ColorRow, Field, NumberRow } from '@/components/StampControls';
 import {
   Crop,
@@ -70,7 +71,6 @@ import {
 } from '@/lib/studio/store';
 import {
   diffStructures,
-  summarizeStructures,
   VERIFIABLE_CATEGORIES,
   type StructuralReport,
 } from '@/lib/verify/structural';
@@ -169,66 +169,6 @@ async function findSurvivors(
     return judgeRedaction(targets, all);
   } finally {
     await opened.destroy().catch(() => {});
-  }
-}
-
-/**
- * What the opened document already says: its form and its metadata.
- *
- * pdf-lib is on the main thread for this single call, and deliberately: it
- * happens once when a file is chosen, before the editor is running, and it is
- * the only way to show the reader what is there before they change it.
- */
-async function readDocumentFacts(
-  bytes: Uint8Array
-): Promise<{ fields: FormFieldInfo[]; metadata: Metadata; signed: boolean }> {
-  const { PDFCheckBox, PDFDropdown, PDFName, PDFRadioGroup, PDFTextField } = await import(
-    'pdf-lib'
-  );
-  const { loadPdf } = await import('@/lib/pdfio');
-  try {
-    const document = await loadPdf(bytes, { updateMetadata: false });
-    const language = document.catalog.get(PDFName.of('Lang'));
-    const metadata: Metadata = {
-      title: document.getTitle() ?? '',
-      author: document.getAuthor() ?? '',
-      language: language ? String(language).replace(/^\(|\)$/g, '') : '',
-    };
-    const found: FormFieldInfo[] = [];
-    for (const field of document.getForm().getFields()) {
-      const name = field.getName();
-      if (field instanceof PDFTextField) {
-        found.push({ name, type: 'text', original: field.getText() ?? '' });
-      } else if (field instanceof PDFCheckBox) {
-        found.push({ name, type: 'checkbox', original: field.isChecked() ? 'true' : 'false' });
-      } else if (field instanceof PDFDropdown) {
-        // `getOptions` returns what a reader sees and `getSelected` returns
-        // what the file stores; on a document that gives them different words
-        // the two do not line up, so the options carry the stored values.
-        found.push({
-          name,
-          type: 'dropdown',
-          original: field.getSelected()[0] ?? '',
-          options: field.acroField.getOptions().map((option) => option.value.decodeText()),
-        });
-      } else if (field instanceof PDFRadioGroup) {
-        found.push({
-          name,
-          type: 'radio',
-          original: field.getSelected() ?? '',
-          options: field.getOptions(),
-        });
-      }
-    }
-    // Read here rather than at export, and the difference is the whole point:
-    // someone who signed a contract has to know BEFORE an afternoon of work
-    // that saving will break the signature, not after.
-    const signed = summarizeStructures(document).categories.signatures > 0;
-
-    return { fields: found, metadata, signed };
-  } catch {
-    // A document with no form, or one pdf-lib will not read: nothing to show.
-    return { fields: [], metadata: {}, signed: false };
   }
 }
 
@@ -780,13 +720,17 @@ export default function StudioPage() {
       const count = opened.document.numPages;
       await opened.destroy().catch(() => {});
 
+      // Asked BEFORE anything is stored. An encrypted file is refused here,
+      // with its own message — pdf.js opened it, pdf-lib will not — rather
+      // than added to the script and failing every rebuild from then on until
+      // the reader guesses what to undo. And said before the reader builds on
+      // the assumption that it came along: copyPages copies pages, not
+      // documents, and nothing can change that.
+      const lost = await importedStructures(bytes);
+
       const id = newId();
       engine.putAsset(id, bytes);
       setAssets((current) => ({ ...current, [id]: bytes }));
-
-      // Said before the reader builds on the assumption that it came along:
-      // copyPages copies pages, not documents, and nothing can change that.
-      const lost = await importedStructures(bytes);
       if (lost.length > 0) {
         setImportNotes((current) => [...current, { asset: id, name: file.name, lost }]);
       }

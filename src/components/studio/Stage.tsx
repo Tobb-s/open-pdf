@@ -56,6 +56,9 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
   useEffect(() => {
     if (!pdf) return;
     let cancelled = false;
+    // Aborting this is what actually stops pdf.js. The flag alone left the
+    // old render running on the canvas the new one needed.
+    const controller = new AbortController();
 
     void (async () => {
       setRendering(true);
@@ -67,7 +70,9 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
         const canvas = canvasRef.current;
         if (!canvas || cancelled) return;
 
-        const rendered = await renderPageToCanvas(page, canvas, scale);
+        const rendered = await renderPageToCanvas(page, canvas, scale, {
+          signal: controller.signal,
+        });
         rotationRef.current = page.rotate;
         page.cleanup();
         if (cancelled) return;
@@ -83,6 +88,7 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [pdf, pageIndex]);
 
