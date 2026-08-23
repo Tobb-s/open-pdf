@@ -39,9 +39,15 @@ describe('applyPageEdits', () => {
   it('is the stage gate: form, bookmarks and attachment survive the edit', async () => {
     // This is the exact scenario the old copyPages rebuild destroyed, measured:
     // it kept 0 of these 4 structures and emptied the form.
+    //
+    // The kept pages deliberately include page 1, the one the field is drawn
+    // on. They did not before, and the test still expected the field name in
+    // the output — which is to say it was asserting a leak: a field whose only
+    // widget had been deleted, surviving in the form with its value. Keeping
+    // the page is what makes this a test of survival rather than of that.
     const out = await applyPageEdits(fixture, [
       { sourceIndex: 2, rotation: 0 },
-      { sourceIndex: 0, rotation: 90 },
+      { sourceIndex: 1, rotation: 90 },
       { sourceIndex: 4, rotation: 0 },
     ]);
     const result = await inspect(out);
@@ -49,6 +55,34 @@ describe('applyPageEdits', () => {
     expect(result.catalogKeys).toEqual(['AcroForm', 'Outlines', 'Names', 'Lang']);
     expect(result.fieldNames).toEqual(['alumno.nombre']);
     expect(result.title).toBe('Fixture');
+  });
+
+  it('takes a field out with the page it was drawn on, value and all', async () => {
+    // The other direction, and the one that was wrong. Emptying a page's
+    // `/Annots` removes the drawing of a field, not the field: the value hangs
+    // off the document's form, which the collector reaches from the trailer, so
+    // it survived whole. The exported file still answered with the value —
+    // while `countLiveFields` counted zero live widgets and the result card
+    // told the reader the form had been LOST. A claim that is the exact
+    // opposite of the bytes is worse than no claim.
+    const out = await applyPageEdits(fixture, [
+      { sourceIndex: 0, rotation: 0 },
+      { sourceIndex: 2, rotation: 0 },
+    ]);
+
+    const document = await PDFDocument.load(out);
+    expect(document.getForm().getFields().map((field) => field.getName())).toEqual([]);
+
+    // Read back, not merely absent from the field list: pdf-lib writes a value
+    // as a hex UTF-16BE string inside a DICTIONARY, so a search of the raw
+    // bytes and of the decompressed streams finds nothing and proves nothing.
+    let all = Buffer.from(out).toString('latin1');
+    for (const [, object] of document.context.enumerateIndirectObjects()) {
+      all += object.toString();
+    }
+    let hex = 'FEFF';
+    for (const character of 'Tobías') hex += character.charCodeAt(0).toString(16).padStart(4, '0');
+    expect(all.toUpperCase()).not.toContain(hex.toUpperCase());
   });
 
   it('reverses a document completely', async () => {

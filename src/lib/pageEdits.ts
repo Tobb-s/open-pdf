@@ -1,4 +1,5 @@
 import { PDFName, degrees } from 'pdf-lib';
+import { annotationRefs, dropFieldsWithoutWidgets } from '@/lib/acroform';
 import { removeUnreachableObjects } from '@/lib/pdfGc';
 import { loadPdf, savePdf } from '@/lib/pdfio';
 
@@ -77,6 +78,9 @@ export async function applyPageEdits(
   const finalOrder = edits.map((edit) => edit.sourceIndex);
   const keep = new Set(finalOrder);
 
+  /** Annotation references that leave with a deleted page. */
+  const strippedAnnots = new Set<string>();
+
   for (let index = original.length - 1; index >= 0; index -= 1) {
     if (!keep.has(index)) {
       // Strip the page's content BEFORE unlinking it. A dangling reference —
@@ -84,6 +88,12 @@ export async function applyPageEdits(
       // reachable, and through it everything the page carried would survive
       // the garbage collector below. Emptying the dict first means that even
       // a husk that stays reachable carries nothing.
+      // Noted before they go. Emptying `/Annots` removes the drawing of a
+      // form field, not the field: the value hangs off the document's form and
+      // survives on its own, so a deleted page's data stayed in the file while
+      // the result card told the reader the form had been LOST.
+      for (const tag of annotationRefs(original[index])) strippedAnnots.add(tag);
+
       const node = original[index].node;
       node.delete(PDFName.of('Contents'));
       node.delete(PDFName.of('Resources'));
@@ -125,6 +135,11 @@ export async function applyPageEdits(
   // more, so a deleted page is actually gone from the bytes handed back. The
   // deleted pages are barriers: a bookmark or form widget still pointing at one
   // must not keep it alive.
+  // A field whose every widget was on a deleted page goes too. Without this the
+  // value survives, undrawn, in a document the verifier then reports as having
+  // lost its form — the reader told they gave up something they still carry.
+  dropFieldsWithoutWidgets(doc, strippedAnnots);
+
   const deleted = original.filter((_, index) => !keep.has(index)).map((page) => page.ref);
   removeUnreachableObjects(doc, { stopAt: deleted });
 

@@ -406,6 +406,40 @@ describe('a document whose pages share their resources', () => {
     expect(whole.includes('SECRETO')).toBe(false);
   }, 60000);
 
+  it('takes a field out when its page is DELETED, not only when it is redacted', async () => {
+    // Same defect, other door. Redaction was fixed first because that is where
+    // it was found; deleting a page emptied its annotations the same way and
+    // left the field, with its value, hanging off the form. Both now go through
+    // src/lib/acroform.ts, so neither can be fixed without the other.
+    const doc = await PDFDocument.create();
+    doc.addPage([400, 300]);
+    const second = doc.addPage([400, 300]);
+    const field = doc.getForm().createTextField('paciente');
+    field.setText('JuanPerezDNI12345678');
+    field.addToPage(second, { x: 40, y: 200, width: 300, height: 24 });
+    const original = (await doc.save()).slice();
+
+    const bytes = await materialize({
+      original,
+      assets: new Map(),
+      state: stateAt(2, [{ kind: 'delete', page: 'o1' }], 1),
+    });
+
+    const out = await PDFDocument.load(bytes);
+    expect(out.getPageCount()).toBe(1);
+    expect(out.getForm().getFields().map((each) => each.getName())).toEqual([]);
+
+    // A dictionary, not a stream: searching the raw bytes and the decompressed
+    // streams finds nothing here and proves nothing.
+    let all = Buffer.from(bytes).toString('latin1');
+    for (const [, object] of out.context.enumerateIndirectObjects()) all += object.toString();
+    let hex = 'FEFF';
+    for (const character of 'JuanPerezDNI12345678') {
+      hex += character.charCodeAt(0).toString(16).padStart(4, '0');
+    }
+    expect(all.toUpperCase()).not.toContain(hex.toUpperCase());
+  }, 60000);
+
   it('leaves the form alone when the page beside it is redacted', async () => {
     // A field's appearance names a font in the AcroForm's own resources, which
     // no page's resources mentions. Unlinking a page must not take it with it:

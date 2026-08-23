@@ -14,6 +14,7 @@ import {
   degrees,
   rgb,
 } from 'pdf-lib';
+import { annotationRefs, dropFieldsWithoutWidgets } from '@/lib/acroform';
 import { removeUnreachableObjects } from '@/lib/pdfGc';
 import { loadPdf, savePdf } from '@/lib/pdfio';
 import {
@@ -341,10 +342,20 @@ export async function materialize({
 
   const { pages: byId, deleted } = arrangeOriginalPages(document, state.pages);
 
+  /** Annotation references that left with a page, by whatever means. */
+  const strippedAnnots = new Set<string>();
+
   // Emptied before they are collected: a dangling reference — a bookmark whose
   // destination is a deleted page — would otherwise keep the page, and
   // everything it carried, inside the exported file.
+  //
+  // The annotations are noted before they go. A widget carries its field's
+  // value, but the value itself lives in the form, which hangs off the
+  // catalogue and survives a page's deletion untouched — so deleting the page
+  // someone's name was typed on used to leave the name in the file while the
+  // result card reported the form as LOST.
   for (const page of deleted) {
+    for (const tag of annotationRefs(page)) strippedAnnots.add(tag);
     page.node.delete(PDFName.of('Contents'));
     page.node.delete(PDFName.of('Resources'));
     page.node.delete(PDFName.of('Annots'));
@@ -388,8 +399,6 @@ export async function materialize({
    * Keeping a /Rotate would turn the picture again, and keeping a crop would
    * hide part of a page that is now nothing but the picture.
    */
-  /** Annotation references that left with a rasterised page. */
-  const strippedAnnots = new Set<string>();
   for (const page of state.pages) {
     if (!page.raster) continue;
     const handle = byId.get(page.id);
@@ -410,16 +419,9 @@ export async function materialize({
     const box = pageBoxOf(handle);
     const visual = visualSize(box);
 
-    // The annotations are noted before they go: a widget carries its field's
-    // value, and a field whose only widget was here has to leave the form as
-    // well. See `stripFieldsOn` below for why that is not optional.
-    const annots = handle.node.Annots();
-    if (annots) {
-      for (let index = 0; index < annots.size(); index += 1) {
-        const entry = annots.get(index);
-        if (entry instanceof PDFRef) strippedAnnots.add(entry.tag);
-      }
-    }
+    // Same reason as for a deleted page: the widget goes, and the field it
+    // draws has to go with it or the value stays behind, undrawn.
+    for (const tag of annotationRefs(handle)) strippedAnnots.add(tag);
 
     handle.node.delete(PDFName.of('Contents'));
     handle.node.delete(PDFName.of('Resources'));
@@ -431,44 +433,10 @@ export async function materialize({
     handle.drawImage(image, { x: 0, y: 0, width: visual.width, height: visual.height });
   }
 
-  /**
-   * Taking the form fields out with the page they were drawn on.
-   *
-   * Deleting a page's annotations removes the widgets, but a widget is only
-   * where a field is DRAWN — the value lives in the field, which hangs off the
-   * document's form and survives on its own. So redacting a page that carried a
-   * filled field left the value sitting in the file, and nothing would have
-   * caught it: the export's check reads the produced document's TEXT, and a
-   * field with no widget draws no text. It would have reported the page clean
-   * and handed over a file with the name still in it.
-   *
-   * A field is removed when every widget it had was on a rasterised page. One
-   * that also appears on a page still standing keeps the field and loses only
-   * the widget that went.
-   */
-  if (strippedAnnots.size > 0 && document.catalog.get(PDFName.of('AcroForm')) !== undefined) {
-    try {
-      const form = document.getForm();
-      for (const field of form.getFields()) {
-        const kids = field.acroField.Kids();
-
-        if (!kids) {
-          // A merged field: the field dictionary is its own widget.
-          if (strippedAnnots.has(field.acroField.ref.tag)) form.removeField(field);
-          continue;
-        }
-
-        for (let index = kids.size() - 1; index >= 0; index -= 1) {
-          const entry = kids.get(index);
-          if (entry instanceof PDFRef && strippedAnnots.has(entry.tag)) kids.remove(index);
-        }
-        if (kids.size() === 0) form.removeField(field);
-      }
-    } catch {
-      // A form too damaged to walk is not a reason to lose the document; the
-      // export's own check is what decides whether the result is acceptable.
-    }
-  }
+  // Whatever lost its last widget above — to a deletion or to a rasterisation —
+  // leaves the form as well. See src/lib/acroform.ts for why this is not
+  // optional, and for the direction of the error it prevents.
+  dropFieldsWithoutWidgets(document, strippedAnnots);
 
   const fonts = new Map<string, Awaited<ReturnType<PDFDocument['embedFont']>>>();
   const images = new Map<string, Awaited<ReturnType<PDFDocument['embedPng']>>>();
