@@ -43,6 +43,8 @@ export default function MergePage() {
   const [progressPercent, setProgressPercent] = useState(0);
   const [result, setResult] = useState<{ blob: Blob; pages: number } | null>(null);
   const [lostCategories, setLostCategories] = useState<StructureCategory[]>([]);
+  /** True when any of the merged files arrived with a digital signature. */
+  const [anyInputSigned, setAnyInputSigned] = useState(false);
   const [error, setError] = useState<ToolError | null>(null);
   const nextId = useRef(1);
   const abortRef = useRef<AbortController | null>(null);
@@ -120,6 +122,11 @@ export default function MergePage() {
       setLostCategories(
         diffStructures(aggregate, summarizeStructures(merged)).map((loss) => loss.category)
       );
+      // One signed input is enough: the merged file is a new file, so whatever
+      // signature came in no longer describes it. It is not in `lostCategories`
+      // because nothing went missing — the dictionary is copied along with the
+      // pages — which is exactly what makes saying it out loud necessary.
+      setAnyInputSigned(inputSummaries.some((item) => item.categories.signatures > 0));
       setResult({
         blob: new Blob([bytes], { type: 'application/pdf' }),
         pages: merged.getPageCount(),
@@ -273,6 +280,12 @@ export default function MergePage() {
               {t.merge.doneTitle(result.pages)}
             </h2>
             <p className="mb-6 text-gray-600">{formatBytes(result.blob.size)}</p>
+
+            {anyInputSigned && (
+              <p className="mx-auto mb-4 max-w-lg rounded-2xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-900">
+                {t.common.signatureBroken}
+              </p>
+            )}
 
             {lostCategories.length > 0 && (
               <div className="mx-auto mb-8 flex max-w-lg items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">

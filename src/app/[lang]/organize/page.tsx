@@ -217,6 +217,16 @@ export default function OrganizePage() {
             </h2>
             <p className="mb-4 text-gray-600">{t.organize.doneBody}</p>
 
+            {report?.signatureBroken && (
+              /* A fact about the operation, not an entry in either list below:
+                 nothing went missing — the signature dictionary comes through
+                 intact — and the signature is dead all the same, because the
+                 bytes its digest described are gone. */
+              <p className="mx-auto mb-4 max-w-lg rounded-2xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-900">
+                {t.common.signatureBroken}
+              </p>
+            )}
+
             {report && report.losses.length > 0 ? (
               <div className="mx-auto mb-8 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
                 {t.organize.lostNote(

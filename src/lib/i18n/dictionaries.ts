@@ -35,6 +35,12 @@ export interface Dictionary {
     github: string;
   };
   common: {
+    /**
+     * Said by every tool that rebuilds a file, because none of them can re-sign
+     * one. It lives here rather than under a tool because three of them need
+     * the same sentence and a signature does not care which tool broke it.
+     */
+    signatureBroken: string;
     choosePdf: string;
     orDropIt: string;
     orDropThem: string;
@@ -535,6 +541,14 @@ export interface Dictionary {
     ocrNone: string;
     ocrNote: string;
     importedLost: (name: string, list: string) => string;
+    /**
+     * A signed document, and the one claim this app cannot make.
+     *
+     * Said when the file is OPENED, not only at the end: someone who signed a
+     * contract needs to know before an afternoon of work, not after.
+     */
+    signedTitle: string;
+    signedBody: string;
     /** Stage five: taking information out, and proving it. */
     redactNote: string;
     redactWorking: string;
@@ -593,6 +607,8 @@ export const es: Dictionary = {
   },
   nav: { switchLanguage: 'Cambiar idioma', github: 'GitHub' },
   common: {
+    signatureBroken:
+      'Este documento venía firmado digitalmente. La firma ya no vale: cubre los bytes exactos del archivo original, y éste es un archivo nuevo. OpenPDF no puede volver a firmar.',
     choosePdf: 'Elegí un archivo PDF',
     orDropIt: 'o soltalo acá',
     orDropThem: 'o soltalos acá',
@@ -642,6 +658,7 @@ export const es: Dictionary = {
   },
   structures: {
     form: 'los campos de formulario',
+    signatures: 'la firma digital',
     bookmarks: 'los marcadores',
     attachments: 'los archivos adjuntos',
     pageLabels: 'las etiquetas de página',
@@ -1306,6 +1323,9 @@ export const es: Dictionary = {
       'Agrega una capa de texto invisible encima de la página, para poder buscar y seleccionar. No cambia lo que se ve.',
     importedLost: (name, list) =>
       `De «${name}» viajaron las páginas, no ${list}. Copiar páginas no copia el documento, y eso no tiene arreglo.`,
+    signedTitle: 'Este documento está firmado digitalmente',
+    signedBody:
+      'Cualquier cambio rompe la firma, y no es un defecto que podamos arreglar: una firma cubre los bytes exactos del archivo que se firmó, y guardar de nuevo los reescribe. OpenPDF no puede volver a firmar. Si necesitás conservar la firma, no edites acá — descargá el original y trabajá sobre una copia.',
     redactNote:
       'Tachar convierte la página en una imagen con la zona pintada encima. Lo que estaba debajo no queda tapado: no queda. A cambio, esa página deja de tener texto seleccionable.',
     redactWorking: 'Tachando y rehaciendo la página…',
@@ -1378,6 +1398,8 @@ export const en: Dictionary = {
   },
   nav: { switchLanguage: 'Change language', github: 'GitHub' },
   common: {
+    signatureBroken:
+      'This document arrived digitally signed. The signature is no longer valid: it covers the exact bytes of the original file, and this is a new file. OpenPDF cannot sign it again.',
     choosePdf: 'Choose a PDF file',
     orDropIt: 'or drop one here',
     orDropThem: 'or drop them here',
@@ -1427,6 +1449,7 @@ export const en: Dictionary = {
   },
   structures: {
     form: 'the form fields',
+    signatures: 'the digital signature',
     bookmarks: 'the bookmarks',
     attachments: 'the attached files',
     pageLabels: 'the page labels',
@@ -2078,6 +2101,9 @@ export const en: Dictionary = {
       'Adds an invisible text layer over the page so it can be searched and selected. It does not change what you see.',
     importedLost: (name, list) =>
       `From "${name}" the pages travelled, but not ${list}. Copying pages does not copy a document, and there is no fixing that.`,
+    signedTitle: 'This document is digitally signed',
+    signedBody:
+      'Any change breaks the signature, and that is not a defect we can fix: a signature covers the exact bytes of the file it was made over, and saving again rewrites them. OpenPDF cannot sign it again. If the signature has to survive, do not edit here — download the original and work on a copy.',
     redactNote:
       'Redacting turns the page into a picture with the area painted over. What was underneath is not covered — it is gone. In exchange, that page stops having selectable text.',
     redactWorking: 'Redacting and rebuilding the page…',

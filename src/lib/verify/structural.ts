@@ -20,6 +20,7 @@ import { loadPdf } from '@/lib/pdfio';
  */
 export type StructureCategory =
   | 'form'
+  | 'signatures'
   | 'bookmarks'
   | 'attachments'
   | 'pageLabels'
@@ -30,6 +31,7 @@ export type StructureCategory =
 
 export const STRUCTURE_CATEGORIES: readonly StructureCategory[] = [
   'form',
+  'signatures',
   'bookmarks',
   'attachments',
   'pageLabels',
@@ -56,6 +58,15 @@ export const STRUCTURE_CATEGORIES: readonly StructureCategory[] = [
  * broken one. Their TOTAL loss is still reported; their SURVIVAL is never
  * claimed, because a claim we cannot verify is exactly what this app must not
  * make.
+ *
+ * Signatures are outside it for a stronger reason: their survival is not
+ * unverifiable, it is impossible. A digital signature covers a byte range of
+ * the file it was made over, and every tool here writes a NEW file rather than
+ * appending an incremental update — so the digest no longer describes the bytes
+ * and the signature is dead, however intact the dictionary looks. There is no
+ * count to compare and no loss to report: the honest statement is not "lost 1
+ * of 1" but "this document was signed, rebuilding it breaks that, and OpenPDF
+ * cannot sign it again".
  */
 export const VERIFIABLE_CATEGORIES: readonly StructureCategory[] = [
   'form',
@@ -117,37 +128,157 @@ function liveAnnotationTags(doc: PDFDocument): Set<string> {
 }
 
 /**
- * A field is live if it, or any descendant widget, is attached to a live page.
- * A field that only ever had widgets on a page that was deleted shows nowhere
- * and must not be reported as surviving.
+ * What a field subtree actually contains: something fillable, and how many
+ * signatures.
+ *
+ * Both answers come from one walk because the first version asked them
+ * separately and got the relationship wrong. It skipped a whole top-level
+ * `/Fields` entry whenever ANY descendant was signed — and pdf-lib builds
+ * exactly that shape for a dotted name, so `formulario.nombre`,
+ * `formulario.dni` and `formulario.firma` are three kids of one parent. One
+ * signature under that parent removed all three fillable fields from the count,
+ * so destroying them was reported as no loss at all, and the card went on to
+ * say the form had been kept. The same inverted claim this file was changed to
+ * stop making, pointed the other way.
+ *
+ * A signed signature is a leaf: its own `/Kids` are its widgets, not fields, so
+ * the walk stops there. Everything else recurses, and a mixed parent counts
+ * toward both answers.
  */
-function isFieldLive(
+interface FieldScan {
+  /** True when at least one live, fillable field lives under here. */
+  fillable: boolean;
+  /** How many signed signatures live under here. */
+  signatures: number;
+}
+
+const NOTHING: FieldScan = { fillable: false, signatures: 0 };
+
+function scanField(
   doc: PDFDocument,
   entry: PDFObject | undefined,
   liveAnnots: Set<string>,
+  inheritedType: string | undefined,
   depth: number
-): boolean {
-  if (!entry || depth > 16) return false;
-  if (entry instanceof PDFRef && liveAnnots.has(entry.tag)) return true;
-
+): FieldScan {
+  if (!entry || depth > 16) return NOTHING;
   const dict = asDict(doc, entry);
-  if (!dict) return false;
-  const kids = asArray(doc, dict.get(PDFName.of('Kids')));
-  if (!kids) return false;
-  for (let index = 0; index < kids.size(); index += 1) {
-    if (isFieldLive(doc, kids.get(index), liveAnnots, depth + 1)) return true;
+  if (!dict) return NOTHING;
+
+  // `/FT` is inheritable, so a kid may carry the value while its parent carries
+  // the type.
+  const type = dict.get(PDFName.of('FT'))?.toString() ?? inheritedType;
+
+  // A signature that has been signed. An empty signature field is a
+  // placeholder — somewhere for a signature to go — and rebuilding a document
+  // that has one breaks nothing, so it is not counted.
+  if (type === '/Sig' && dict.get(PDFName.of('V')) !== undefined) {
+    return { fillable: false, signatures: 1 };
   }
-  return false;
+
+  const live = entry instanceof PDFRef && liveAnnots.has(entry.tag);
+  const kids = asArray(doc, dict.get(PDFName.of('Kids')));
+  if (!kids) return { fillable: live, signatures: 0 };
+
+  let fillable = live;
+  let signatures = 0;
+
+  for (let index = 0; index < kids.size(); index += 1) {
+    const kid = kids.get(index);
+    const kidDict = asDict(doc, kid);
+    if (!kidDict) continue;
+
+    // A kid with a name, a type or kids of its own is a field. One with none of
+    // those is this field's widget, and only says whether it is still drawn.
+    const isField =
+      kidDict.get(PDFName.of('T')) !== undefined ||
+      kidDict.get(PDFName.of('FT')) !== undefined ||
+      kidDict.get(PDFName.of('Kids')) !== undefined;
+
+    if (isField) {
+      const found = scanField(doc, kid, liveAnnots, type, depth + 1);
+      fillable = fillable || found.fillable;
+      signatures += found.signatures;
+    } else if (kid instanceof PDFRef && liveAnnots.has(kid.tag)) {
+      fillable = true;
+    }
+  }
+
+  return { fillable, signatures };
 }
 
+/**
+ * Live fillable fields, counting a signature as a signature rather than as a
+ * form.
+ *
+ * A signature field used to be counted here, so a document whose only field was
+ * a signature came out of a rebuild with the same count it went in with and the
+ * result card reported that the form had survived — about a signature the
+ * rebuild had just destroyed. Fillable fields and signatures are different
+ * things and only one of them can survive being rewritten.
+ *
+ * Counted per top-level entry, which is the granularity the rest of this module
+ * has always used: what matters to a result card is whether the form is still
+ * there, not how many boxes it has.
+ */
 function countLiveFields(doc: PDFDocument, acroForm: PDFDict): number {
   const fields = asArray(doc, acroForm.get(PDFName.of('Fields')));
   if (!fields) return 0;
   const liveAnnots = liveAnnotationTags(doc);
   let count = 0;
   for (let index = 0; index < fields.size(); index += 1) {
-    if (isFieldLive(doc, fields.get(index), liveAnnots, 0)) count += 1;
+    if (scanField(doc, fields.get(index), liveAnnots, undefined, 0).fillable) count += 1;
   }
+  return count;
+}
+
+/**
+ * How many signatures the document carries.
+ *
+ * Counted without regard to which pages survive, and deliberately: unlike a
+ * fillable field, a signature is not made irrelevant by its widget's page being
+ * deleted — it signed the whole file.
+ *
+ * `/Perms` is read as well as the form. A usage-rights signature — the
+ * Reader-extended shape — is document-level and by construction has no entry in
+ * `/Fields`, so a form-only search never saw it and the reader lost the
+ * extended rights their file was distributed for without being told. A
+ * certification signature appears in both places, so the refs are deduplicated.
+ */
+function countSignatures(doc: PDFDocument, acroForm: PDFDict | undefined): number {
+  const seen = new Set<string>();
+  const liveAnnots = liveAnnotationTags(doc);
+  let count = 0;
+
+  if (acroForm) {
+    const fields = asArray(doc, acroForm.get(PDFName.of('Fields')));
+    if (fields) {
+      for (let index = 0; index < fields.size(); index += 1) {
+        const entry = fields.get(index);
+        const found = scanField(doc, entry, liveAnnots, undefined, 0);
+        if (found.signatures > 0 && entry instanceof PDFRef) seen.add(entry.tag);
+        count += found.signatures;
+      }
+    }
+  }
+
+  try {
+    const perms = asDict(doc, doc.catalog.get(PDFName.of('Perms')));
+    if (perms) {
+      for (const key of [PDFName.of('DocMDP'), PDFName.of('UR3'), PDFName.of('UR')]) {
+        const entry = perms.get(key);
+        if (entry === undefined) continue;
+        // A certification signature is named here AND in the form.
+        if (entry instanceof PDFRef && seen.has(entry.tag)) continue;
+        if (!asDict(doc, entry)) continue;
+        if (entry instanceof PDFRef) seen.add(entry.tag);
+        count += 1;
+      }
+    }
+  } catch {
+    // A /Perms this module cannot read tells it nothing either way.
+  }
+
   return count;
 }
 
@@ -285,6 +416,7 @@ export function summarizeStructures(doc: PDFDocument): StructuralSummary {
   const catalog = doc.catalog;
   const categories: Record<StructureCategory, number> = {
     form: 0,
+    signatures: 0,
     bookmarks: 0,
     attachments: 0,
     pageLabels: 0,
@@ -300,6 +432,9 @@ export function summarizeStructures(doc: PDFDocument): StructuralSummary {
     // pages is not "surviving", and an AcroForm dict with no live field at all
     // is not a form worth claiming.
     if (acroForm) categories.form = countLiveFields(doc, acroForm);
+    // Not inside the `if`: a usage-rights signature lives in /Perms and a
+    // document can carry one with no AcroForm at all.
+    categories.signatures = countSignatures(doc, acroForm);
   } catch {
     // documented above: unreadable → 0
   }
@@ -371,6 +506,36 @@ export interface StructuralReport {
   present: StructureCategory[];
   /** The subset of the input's categories the output has less of. */
   losses: StructuralLoss[];
+  /**
+   * True when the input carried a signature AND the bytes were rewritten.
+   *
+   * Not a loss and not a survival — neither word fits. The dictionary comes
+   * through a rebuild intact, so no count moves; what breaks is the digest,
+   * because the bytes it described are gone. So it travels as a fact about the
+   * operation rather than as an entry in either list.
+   *
+   * Both halves are required, and the second one was learned the hard way.
+   * Studio hands back the original file byte for byte when the reader changed
+   * nothing, so a signed document exported untouched still has a perfectly
+   * valid signature — and announcing that it was broken would be the same
+   * failure as the one this whole change exists to fix, pointed the other way.
+   */
+  signatureBroken: boolean;
+}
+
+/**
+ * Whether the output is the input, unchanged.
+ *
+ * The length is checked first because it settles almost every case for the cost
+ * of one comparison, and the byte walk only runs for a file that really might
+ * be identical.
+ */
+function sameBytes(before: Uint8Array, after: Uint8Array): boolean {
+  if (before.length !== after.length) return false;
+  for (let index = 0; index < before.length; index += 1) {
+    if (before[index] !== after[index]) return false;
+  }
+  return true;
 }
 
 /**
@@ -390,6 +555,7 @@ export async function reportStructures(
   return {
     present: VERIFIABLE_CATEGORIES.filter((category) => beforeSummary.categories[category] > 0),
     losses: diffStructures(beforeSummary, afterSummary),
+    signatureBroken: beforeSummary.categories.signatures > 0 && !sameBytes(before, after),
   };
 }
 

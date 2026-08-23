@@ -70,6 +70,7 @@ import {
 } from '@/lib/studio/store';
 import {
   diffStructures,
+  summarizeStructures,
   VERIFIABLE_CATEGORIES,
   type StructuralReport,
 } from '@/lib/verify/structural';
@@ -173,7 +174,7 @@ async function findSurvivors(
  */
 async function readDocumentFacts(
   bytes: Uint8Array
-): Promise<{ fields: FormFieldInfo[]; metadata: Metadata }> {
+): Promise<{ fields: FormFieldInfo[]; metadata: Metadata; signed: boolean }> {
   const { PDFCheckBox, PDFDropdown, PDFName, PDFRadioGroup, PDFTextField } = await import(
     'pdf-lib'
   );
@@ -212,10 +213,15 @@ async function readDocumentFacts(
         });
       }
     }
-    return { fields: found, metadata };
+    // Read here rather than at export, and the difference is the whole point:
+    // someone who signed a contract has to know BEFORE an afternoon of work
+    // that saving will break the signature, not after.
+    const signed = summarizeStructures(document).categories.signatures > 0;
+
+    return { fields: found, metadata, signed };
   } catch {
     // A document with no form, or one pdf-lib will not read: nothing to show.
-    return { fields: [], metadata: {} };
+    return { fields: [], metadata: {}, signed: false };
   }
 }
 
@@ -302,6 +308,8 @@ export default function StudioPage() {
   const [blocked, setBlocked] = useState<string[] | null>(null);
   /** True when a redaction could not be checked because the page had no text. */
   const [unproven, setUnproven] = useState(false);
+  /** True when the opened document carried a digital signature. */
+  const [signed, setSigned] = useState(false);
   const [verifying, setVerifying] = useState(false);
   /**
    * How many words the last run found, and on which page. Kept together so the
@@ -387,6 +395,7 @@ export default function StudioPage() {
       const opening = await readDocumentFacts(bytes);
       setFormFields(opening.fields);
       setOriginalMetadata(opening.metadata);
+      setSigned(opening.signed);
 
       await engine.open(bytes);
       setOffMainThread(engine.offMainThread);
@@ -1005,6 +1014,13 @@ export default function StudioPage() {
         report: {
           present: VERIFIABLE_CATEGORIES.filter((category) => before.categories[category] > 0),
           losses: diffStructures(before, after),
+          // Both halves. The document arrived signed, AND the bytes are not
+          // the ones it arrived as — an untouched export hands back the
+          // original file exactly, and its signature is still good.
+          signatureBroken:
+            before.categories.signatures > 0 &&
+            (bytes.length !== original.length ||
+              !bytes.every((byte, index) => byte === original[index])),
         },
       });
     } catch (caught) {
@@ -1025,6 +1041,7 @@ export default function StudioPage() {
     setPendingImage(null);
     setFormFields([]);
     setOriginalMetadata({});
+    setSigned(false);
     setImportNotes([]);
     setOcrResult(null);
     setPanel('page');
@@ -1135,6 +1152,14 @@ export default function StudioPage() {
               </p>
             ) : (
               <div className="mb-8" />
+            )}
+
+            {result.report.signatureBroken && (
+              /* Said again on the way out. The banner was a warning; this is a
+                 fact about the file now in the reader's hands. */
+              <p className="mx-auto mb-8 max-w-xl rounded-2xl bg-red-50 px-4 py-3 text-left text-sm text-red-900">
+                {t.common.signatureBroken}
+              </p>
             )}
 
             {unproven && (
@@ -1280,6 +1305,15 @@ export default function StudioPage() {
           </div>
         )}
 
+        {signed && (
+          /* Red rather than amber, and first: every other notice here is about
+             something the reader can weigh afterwards. This one is about work
+             they may not want to start. */
+          <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+            <p className="font-bold">{t.studio.signedTitle}</p>
+            <p className="mt-1">{t.studio.signedBody}</p>
+          </div>
+        )}
         {!offMainThread && (
           <p className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             {t.studio.onMainThread}
