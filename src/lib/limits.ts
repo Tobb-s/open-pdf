@@ -24,6 +24,33 @@ export const MAX_FILE_BYTES = 150 * 1024 * 1024;
  */
 export const MAX_STRUCTURAL_BYTES = 400 * 1024 * 1024;
 
+/**
+ * What Studio will open, which is not the same question as what a tool will
+ * process once.
+ *
+ * The 150 MB ceiling turned away an ordinary scanned textbook — 669 pages,
+ * 169.5 MB — that the editor handles without complaint. Measured on that exact
+ * file: pdf-lib parses it in 244 ms, a rotation rebuilds the whole document in
+ * 397 ms, deleting a page 407 ms, and stamping a watermark across all 669 pages
+ * 621 ms. None of that is near the 1500 ms at which the editor stops rebuilding
+ * on its own.
+ *
+ * Memory is what actually binds. Peak resident memory for that file was 1.17 GB
+ * — about seven times its size, because the bytes are held as the original, as
+ * a parsed document, as the produced output and as pdf.js's own copy at once.
+ * 250 MB projects to roughly 1.7 GB, which is the most a browser tab can be
+ * asked to hold with any confidence, so that is where this sits.
+ *
+ * Bytes are a crude proxy and this comment should say so: cost tracks the
+ * number of indirect objects, not the file size. That book holds just 3,049 of
+ * them, because a scan is one large image per page — while a heavily tagged
+ * document of a few megabytes can hold hundreds of thousands and cost far more.
+ * The real defence is downstream: the editor times its own rebuilds and stops
+ * doing them automatically when they get slow, which measures the thing itself
+ * rather than guessing at it from a size.
+ */
+export const MAX_EDITABLE_BYTES = 250 * 1024 * 1024;
+
 /** Pages rendered to pixels at once, which is what actually consumes memory. */
 export const MAX_RENDERED_PAGES = 500;
 

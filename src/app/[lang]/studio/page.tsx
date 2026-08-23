@@ -34,7 +34,7 @@ import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { fitWithin, pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
-import { assertFileSize } from '@/lib/limits';
+import { assertFileSize, MAX_EDITABLE_BYTES } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
@@ -424,7 +424,7 @@ export default function StudioPage() {
 
   const selectFile = async (selected: File) => {
     try {
-      assertFileSize(selected, t);
+      assertFileSize(selected, t, MAX_EDITABLE_BYTES);
       const bytes = new Uint8Array(await selected.arrayBuffer());
       await beginSession(selected.name, bytes);
     } catch (caught) {
@@ -783,7 +783,7 @@ export default function StudioPage() {
     const engine = engineRef.current;
     if (!engine) return;
     try {
-      assertFileSize(file, t);
+      assertFileSize(file, t, MAX_EDITABLE_BYTES);
       const bytes = new Uint8Array(await file.arrayBuffer());
       const opened = await openPdf(bytes);
       const count = opened.document.numPages;
@@ -821,7 +821,7 @@ export default function StudioPage() {
     const engine = engineRef.current;
     if (!engine) return;
     try {
-      assertFileSize(file, t);
+      assertFileSize(file, t, MAX_EDITABLE_BYTES);
       const bytes = new Uint8Array(await file.arrayBuffer());
       if (imageKind(bytes) === null) {
         setError({ kind: 'invalid', title: t.studio.tools.image, detail: t.watermark.imageNote });
@@ -857,7 +857,7 @@ export default function StudioPage() {
       const ids: string[] = [];
       const added: Record<string, Uint8Array> = {};
       for (const file of Array.from(files)) {
-        assertFileSize(file, t);
+        assertFileSize(file, t, MAX_EDITABLE_BYTES);
         const bytes = new Uint8Array(await file.arrayBuffer());
         if (imageKind(bytes) === null) continue;
         const id = newId();
