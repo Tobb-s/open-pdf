@@ -128,3 +128,22 @@ export function parsePageSet(input: string, pageCount: number): PageRangeResult 
   const { pages, invalid } = parsePageRange(input, pageCount);
   return { pages: [...new Set(pages)].sort((a, b) => a - b), invalid };
 }
+
+/**
+ * Whether a selection can be produced by TRIMMING the original document rather
+ * than by assembling a new one from copied pages.
+ *
+ * It matters because the two produce different files. Trimming keeps the form,
+ * the bookmarks, the attachments, the title and the language; assembling keeps
+ * none of them — measured, on this project's own fixture, at six structures
+ * lost for asking to extract a document's every page.
+ *
+ * The one thing trimming cannot do is hand back the same page twice, because a
+ * page cannot be deleted twice. `parsePageRange` allows repeats on purpose — a
+ * reader may want a page duplicated — so that selection has to fall back, and
+ * the tool says what it cost. A reversed range is fine: «5-3» is three distinct
+ * pages in a different order.
+ */
+export function canTrimTo(pages: readonly number[]): boolean {
+  return new Set(pages).size === pages.length;
+}

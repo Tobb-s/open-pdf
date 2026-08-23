@@ -196,6 +196,11 @@ export interface Dictionary {
     downloadZip: string;
     downloadPdf: string;
     another: string;
+    /** Stage: split stopped destroying six things quietly. */
+    checking: string;
+    keptNote: (list: string) => string;
+    lostNote: (list: string) => string;
+    partsLoseNote: (list: string) => string;
   };
   organize: {
     heading: string;
@@ -921,6 +926,12 @@ export const es: Dictionary = {
     downloadZip: 'Descargar ZIP',
     downloadPdf: 'Descargar PDF',
     another: 'Dividir otro archivo',
+    checking: 'Comprobando qué se conservó…',
+    keptNote: (list) => `Se conservaron ${list}.`,
+    lostNote: (list) =>
+      `En el archivo producido no viajaron ${list}. Pediste páginas repetidas, así que hubo que armar un documento nuevo en vez de recortar el original, y eso no tiene vuelta.`,
+    partsLoseNote: (list) =>
+      `Cada parte es un documento nuevo hecho con las páginas que le tocan, así que de ${list} no viaja nada. Copiar páginas no copia un documento. Si necesitás conservarlos, extraé un rango en un solo archivo en vez de dividir en partes.`,
   },
   organize: {
     heading: 'Organizar las páginas de un PDF',
@@ -1708,6 +1719,12 @@ export const en: Dictionary = {
     downloadZip: 'Download ZIP',
     downloadPdf: 'Download PDF',
     another: 'Split another file',
+    checking: 'Checking what survived…',
+    keptNote: (list) => `${list} survived.`,
+    lostNote: (list) =>
+      `From the produced file, ${list} did not travel. You asked for repeated pages, so a new document had to be assembled instead of trimming the original, and there is no way around that.`,
+    partsLoseNote: (list) =>
+      `Each part is a new document made from the pages it gets, so none of ${list} travels. Copying pages does not copy a document. If you need to keep them, extract a range into a single file instead of splitting into parts.`,
   },
   organize: {
     heading: 'Organize PDF pages',

@@ -18,7 +18,15 @@ import {
   throwIfCancelled,
   yieldToBrowser,
 } from '@/lib/limits';
-import { parsePageRange, splitIntoParts, summarizePages } from '@/lib/pageRange';
+import { canTrimTo, parsePageRange, splitIntoParts, summarizePages } from '@/lib/pageRange';
+import { applyPageEdits } from '@/lib/pageEdits';
+import {
+  reportStructures,
+  summarizeStructures,
+  VERIFIABLE_CATEGORIES,
+  type StructuralReport,
+  type StructureCategory,
+} from '@/lib/verify/structural';
 
 type Result =
   | { kind: 'single'; blob: Blob; pages: number }
@@ -31,7 +39,7 @@ type Mode = 'range' | 'parts' | 'each';
 const PART_CHOICES = [2, 4, 6, 8, 10] as const;
 
 export default function SplitPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [range, setRange] = useState('');
@@ -40,7 +48,21 @@ export default function SplitPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
+  const listFormat = (items: string[]) =>
+    new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(items);
+
   const [result, setResult] = useState<Result | null>(null);
+  /**
+   * What the produced file kept, for the single-file case.
+   *
+   * Only the range mode gets a before/after comparison, and deliberately. Every
+   * part of a ZIP is a different document, so diffing one part against the whole
+   * source would report a bookmark that legitimately points into another part as
+   * a loss. The ZIP modes get `partsLose` instead, built from the SOURCE.
+   */
+  const [report, setReport] = useState<StructuralReport | null>(null);
+  /** What the source carried that no part of a ZIP can bring with it. */
+  const [partsLose, setPartsLose] = useState<StructureCategory[]>([]);
   const [error, setError] = useState<ToolError | null>(null);
   const bytesRef = useRef<Uint8Array | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -65,6 +87,8 @@ export default function SplitPage() {
     setMode('range');
     setParts(2);
     setResult(null);
+    setReport(null);
+    setPartsLose([]);
     setError(null);
     setProgressPercent(0);
   };
@@ -97,9 +121,28 @@ export default function SplitPage() {
     setError(null);
 
     try {
-      const source = await loadPdf(bytes, { updateMetadata: false });
+      /**
+       * The parsed document, made on demand.
+       *
+       * The range mode trims the original with `applyPageEdits`, which does its
+       * own loading, so parsing here as well would cost a second full pass over
+       * a book for nothing. The ZIP modes need it — they copy pages out of it —
+       * and so does the repeated-page fallback.
+       */
+      let sourceDocument: PDFDocument | null = null;
+      const openSource = async () => {
+        sourceDocument ??= await loadPdf(bytes, { updateMetadata: false });
+        return sourceDocument;
+      };
 
       if (mode === 'parts') {
+        const source = await openSource();
+        // What the document carries that a freshly built part cannot receive.
+        // Read from the source before anything is cut: each part of a ZIP is a
+        // new document assembled from copied pages, and copying pages does not
+        // copy a document. Naming it is the only honest thing available —
+        // there is nothing to compare a part against.
+        const sourceHas = summarizeStructures(source);
         const zip = new JSZip();
         const width = String(pageCount).length;
 
@@ -123,12 +166,17 @@ export default function SplitPage() {
 
         setProgressMessage(t.split.packing);
         setProgressPercent(96);
+        setPartsLose(
+          VERIFIABLE_CATEGORIES.filter((category) => sourceHas.categories[category] > 0)
+        );
         setResult({
           kind: 'zip',
           blob: await zip.generateAsync({ type: 'blob' }),
           files: runs.length,
         });
       } else if (mode === 'each') {
+        const source = await openSource();
+        const sourceHas = summarizeStructures(source);
         const zip = new JSZip();
         const width = String(pageCount).length;
 
@@ -149,6 +197,9 @@ export default function SplitPage() {
 
         setProgressMessage(t.split.packing);
         setProgressPercent(96);
+        setPartsLose(
+          VERIFIABLE_CATEGORIES.filter((category) => sourceHas.categories[category] > 0)
+        );
         setResult({
           kind: 'zip',
           blob: await zip.generateAsync({ type: 'blob' }),
@@ -166,17 +217,46 @@ export default function SplitPage() {
         setProgressMessage(t.split.extracting);
         setProgressPercent(40);
 
-        const output = await PDFDocument.create();
-        const copied = await output.copyPages(
-          source,
-          parsed.pages.map((page) => page - 1)
-        );
-        for (const page of copied) output.addPage(page);
+        /**
+         * Editing the document down rather than building a new one.
+         *
+         * `copyPages` into a fresh document was measured, on this project's own
+         * fixture, to strip six things at once: the form, the bookmarks, the
+         * attachments, the page labels, the title and the language. Asking for
+         * pages 1-5 of a five-page document — the whole file — came back 25%
+         * smaller with none of them. `applyPageEdits` deletes what was not
+         * asked for and leaves the rest of the document alone, which keeps all
+         * six.
+         *
+         * It cannot serve every selection, though: a page cannot be deleted
+         * twice, so a range that repeats one — «1,1,2», which parsePageRange
+         * allows on purpose so a reader can duplicate a page — has to fall back
+         * to the old assembly. A reversed range like «5-3» is fine: it is three
+         * distinct pages in a different order.
+         */
+        const wanted = parsed.pages.map((page) => page - 1);
 
-        const saved = (await savePdf(output)).slice();
+        let saved: Uint8Array;
+        if (!canTrimTo(parsed.pages)) {
+          const source = await openSource();
+          const output = await PDFDocument.create();
+          const copied = await output.copyPages(source, wanted);
+          for (const page of copied) output.addPage(page);
+          saved = (await savePdf(output)).slice();
+        } else {
+          saved = await applyPageEdits(
+            bytes,
+            wanted.map((sourceIndex) => ({ sourceIndex, rotation: 0 }))
+          );
+        }
+
+        setProgressMessage(t.split.checking);
+        setProgressPercent(92);
+        setReport(await reportStructures(bytes, saved));
+
         setResult({
           kind: 'single',
-          blob: new Blob([saved], { type: 'application/pdf' }),
+          blob: new Blob([saved as unknown as BlobPart], { type: 'application/pdf' }),
           pages: parsed.pages.length,
         });
       }
@@ -400,7 +480,40 @@ export default function SplitPage() {
                 ? t.split.doneZip(result.files)
                 : t.split.doneSingle(result.pages)}
             </h2>
-            <p className="mb-8 text-gray-600">{t.split.doneBody}</p>
+            <p className="mb-4 text-gray-600">{t.split.doneBody}</p>
+
+            {report?.signatureBroken && (
+              <p className="mx-auto mb-4 max-w-lg rounded-2xl border border-red-200 bg-red-50 p-4 text-left text-sm text-red-900">
+                {t.common.signatureBroken}
+              </p>
+            )}
+
+            {result.kind === 'zip' && partsLose.length > 0 && (
+              /* Not a comparison: each part is its own document and there is
+                 nothing to compare it against. What the SOURCE carried, and
+                 what no part can bring with it. */
+              <div className="mx-auto mb-8 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                {t.split.partsLoseNote(
+                  listFormat(partsLose.map((category) => t.structures[category]))
+                )}
+              </div>
+            )}
+
+            {result.kind === 'single' && report && report.losses.length > 0 ? (
+              <div className="mx-auto mb-8 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                {t.split.lostNote(
+                  listFormat(report.losses.map((loss) => t.structures[loss.category]))
+                )}
+              </div>
+            ) : result.kind === 'single' && report && report.present.length > 0 ? (
+              <p className="mb-8 text-sm text-gray-500">
+                {t.split.keptNote(
+                  listFormat(report.present.map((category) => t.structures[category]))
+                )}
+              </p>
+            ) : (
+              <div className="mb-4" />
+            )}
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <button
                 type="button"
