@@ -122,6 +122,9 @@ describe('judgeRedaction', () => {
     expect(judgeRedaction(targets, 'PUBLICO OTRA PAGINA')).toEqual({
       clean: true,
       survivors: [],
+      // Two words were looked for and neither was found. That is different from
+      // having had nothing to look for, which is what `checked: 0` means.
+      checked: 2,
     });
   });
 

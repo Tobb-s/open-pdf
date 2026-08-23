@@ -53,9 +53,11 @@ import {
 } from '@/lib/studio/script';
 import { importedStructures, type FieldCheck } from '@/lib/studio/verify';
 import {
+  allTextIn,
   insideAny,
   judgeRedaction,
   redactedPages,
+  type RedactionVerdict,
   type RedactionTarget,
 } from '@/lib/studio/redaction';
 import {
@@ -101,7 +103,7 @@ async function findSurvivors(
   state: ScriptState,
   painted: ReturnType<typeof redactedPages>,
   produced: Uint8Array
-): Promise<string[]> {
+): Promise<RedactionVerdict> {
   const targets: RedactionTarget[] = [];
 
   const bare: ScriptState = {
@@ -140,24 +142,23 @@ async function findSurvivors(
       page.cleanup();
     }
 
-    // Form values belong in the haystack too, and the reason is a defect this
-    // check could not see: a field's value lives in the document's form, not on
-    // the page, so a widget that goes with a redacted page leaves the value
-    // behind and nothing draws it. Reading only page text called that clean.
-    // The build no longer leaves such a field standing — and this looks anyway,
-    // because 'it cannot happen by construction' is what was believed before.
+    // Everything else the file carries. Page text is only what a viewer DRAWS,
+    // and a name can outlive a redaction somewhere nothing draws it: the title,
+    // the XMP block, a bookmark, a comment on another page, the filename of an
+    // attachment, a form value whose widget went with its page. `materialize`
+    // edits the original document in place rather than rebuilding it from
+    // copied pages — deliberately, because rebuilding destroys the form and the
+    // bookmarks — so all of those survive by default.
     try {
-      const fields = await opened.document.getFieldObjects();
-      for (const entries of Object.values(fields ?? {})) {
-        for (const entry of entries as Array<{ value?: unknown }>) {
-          if (typeof entry.value === 'string') all += entry.value + ' ';
-        }
-      }
+      const { loadPdf } = await import('@/lib/pdfio');
+      const produced_ = await loadPdf(produced, { updateMetadata: false });
+      all += ' ' + allTextIn(produced_);
     } catch {
-      // A document whose form will not be read is judged on its text alone.
+      // A document pdf-lib will not open is judged on its page text alone. The
+      // export's own error path handles a file that cannot be read at all.
     }
 
-    return judgeRedaction(targets, all).survivors;
+    return judgeRedaction(targets, all);
   } finally {
     await opened.destroy().catch(() => {});
   }
@@ -299,6 +300,8 @@ export default function StudioPage() {
   const [rasterising, setRasterising] = useState(false);
   /** Set when an export was refused because redacted words survived. */
   const [blocked, setBlocked] = useState<string[] | null>(null);
+  /** True when a redaction could not be checked because the page had no text. */
+  const [unproven, setUnproven] = useState(false);
   const [verifying, setVerifying] = useState(false);
   /**
    * How many words the last run found, and on which page. Kept together so the
@@ -978,15 +981,22 @@ export default function StudioPage() {
       // this one withholds, because a document that looks redacted and is not
       // teaches the reader to stop being careful.
       const painted = redactedPages(state);
+      let unproven = false;
       if (painted.length > 0) {
         setVerifying(true);
-        const survivors = await findSurvivors(engine, state, painted, bytes);
+        const verdict = await findSurvivors(engine, state, painted, bytes);
         setVerifying(false);
-        if (survivors.length > 0) {
-          setBlocked(survivors);
+        if (verdict.survivors.length > 0) {
+          setBlocked(verdict.survivors);
           return;
         }
+        // Nothing was found because there was nothing to look for. The page was
+        // still replaced by a picture, so the redaction happened — but calling
+        // that verified would be the same box-ticking this whole check exists
+        // to refuse. A scan is the ordinary case, not an edge one.
+        unproven = verdict.checked === 0;
       }
+      setUnproven(unproven);
 
       setResult({
         blob: new Blob([bytes as unknown as BlobPart], { type: 'application/pdf' }),
@@ -1125,6 +1135,15 @@ export default function StudioPage() {
               </p>
             ) : (
               <div className="mb-8" />
+            )}
+
+            {unproven && (
+              /* Said out loud rather than left to a green tick: the redaction
+                 happened, and it could not be proven. Those are different
+                 things, and the reader is the one who gets to weigh them. */
+              <p className="mx-auto mb-8 max-w-xl rounded-2xl bg-amber-50 px-4 py-3 text-left text-sm text-amber-900">
+                {t.studio.redactUnproven}
+              </p>
             )}
 
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">

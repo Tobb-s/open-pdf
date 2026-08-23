@@ -1,3 +1,14 @@
+import {
+  PDFArray,
+  PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFRawStream,
+  PDFStream,
+  PDFString,
+  type PDFDocument,
+  type PDFObject,
+} from 'pdf-lib';
 import type { Rect, ScriptState } from '@/lib/studio/script';
 
 /**
@@ -26,6 +37,18 @@ export interface RedactionVerdict {
   clean: boolean;
   /** The words that survived, if any. Empty when clean. */
   survivors: string[];
+  /**
+   * How many words were actually looked for.
+   *
+   * Zero does not mean the page was clean; it means there was nothing to check.
+   * A scanned page — a photographed contract, an image of a document, the
+   * ordinary case for redaction — has no text under the painted region for the
+   * check to take, so it comes back with an empty list and would otherwise be
+   * reported as verified. The page really was replaced by a picture, so the
+   * redaction did happen. What did not happen is the proof, and saying so is
+   * the difference between this project and one that ticks a box.
+   */
+  checked: number;
 }
 
 /**
@@ -82,7 +105,86 @@ export function judgeRedaction(
     }
   }
 
-  return { clean: survivors.length === 0, survivors };
+  let checked = 0;
+  for (const target of targets) {
+    for (const word of target.words) if (worthChecking(word)) checked += 1;
+  }
+
+  return { clean: survivors.length === 0, survivors, checked };
+}
+
+/**
+ * Every piece of text in a document, wherever it is kept.
+ *
+ * The check used to read two things: the text pdf.js draws on each page, and
+ * the values of the form fields. A name can outlive a redaction in neither of
+ * those and still be trivially findable — in the title, in the XMP metadata
+ * block, in a bookmark, in a comment on another page, in the filename of an
+ * attachment. `materialize` edits the original document in place rather than
+ * rebuilding it from copied pages, which is deliberate and right, and it means
+ * all of those survive by default.
+ *
+ * Rather than enumerate the hiding places and be wrong about one, this walks
+ * every object in the file and takes every string it finds, decoded. Strings
+ * are what carry text; a hex string is decoded rather than matched raw, since
+ * pdf-lib writes anything non-ASCII as UTF-16BE hex and a raw search would
+ * silently find nothing. Metadata streams are decompressed and read as XML.
+ *
+ * It is a haystack, not an index: over-collecting costs nothing but a longer
+ * string, while missing a place costs the guarantee.
+ */
+export function allTextIn(document: PDFDocument): string {
+  const parts: string[] = [];
+
+  const take = (value: PDFObject | undefined, depth: number): void => {
+    if (value === undefined || depth > 24) return;
+
+    if (value instanceof PDFString) {
+      parts.push(value.asString());
+      return;
+    }
+    if (value instanceof PDFHexString) {
+      // Decoded, not raw: `<FEFF004D…>` matches no needle a reader would type.
+      try {
+        parts.push(value.decodeText());
+      } catch {
+        parts.push(value.asString());
+      }
+      return;
+    }
+    if (value instanceof PDFArray) {
+      for (let index = 0; index < value.size(); index += 1) take(value.get(index), depth + 1);
+      return;
+    }
+    if (value instanceof PDFStream) {
+      // The dictionary of a stream carries strings too, and an XMP packet is
+      // plain XML: the title, author and keywords live there in readable text
+      // even when /Info has been cleared.
+      take(value.dict, depth + 1);
+      const subtype = value.dict.get(PDFName.of('Subtype'))?.toString();
+      const type = value.dict.get(PDFName.of('Type'))?.toString();
+      if (subtype === '/XML' || type === '/Metadata') {
+        try {
+          const contents =
+            value instanceof PDFRawStream ? value.contents : value.getContents();
+          parts.push(new TextDecoder().decode(contents));
+        } catch {
+          // A metadata stream that will not decode carries nothing a reader
+          // could recover either.
+        }
+      }
+      return;
+    }
+    if (value instanceof PDFDict) {
+      for (const entry of value.values()) take(entry, depth + 1);
+    }
+  };
+
+  // Every indirect object is visited on its own, so following references would
+  // only repeat work — and risk a cycle.
+  for (const [, object] of document.context.enumerateIndirectObjects()) take(object, 0);
+
+  return parts.join(' ');
 }
 
 /** The pages a state has painted regions on, with the regions. */

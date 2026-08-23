@@ -546,6 +546,7 @@ export interface Dictionary {
     flattenFormsNote: string;
     flattenFormsOff: string;
     checkingRedaction: string;
+    redactUnproven: string;
     exportBlockedTitle: string;
     exportBlockedBody: (list: string) => string;
     keepEditing: string;
@@ -1320,6 +1321,8 @@ export const es: Dictionary = {
       'Los campos se vuelven parte de la página: se siguen leyendo, ya no se pueden completar.',
     flattenFormsOff: 'Dejar el formulario como está',
     checkingRedaction: 'Comprobando que lo tachado no esté…',
+    redactUnproven:
+      'La página se rehízo como imagen, así que lo que estaba debajo no está. Pero no había texto seleccionable bajo la zona pintada, así que no hubo nada que buscar en el archivo producido: no te lo podemos demostrar, sólo decírtelo. Suele pasar con documentos escaneados.',
     exportBlockedTitle: 'No se entregó el archivo',
     exportBlockedBody: (list) =>
       `Todavía se puede encontrar esto en el documento producido: ${list}. No te lo damos para descargar, porque un archivo que parece tachado y no lo está es peor que ninguno. Probá tachando un área un poco más grande.`,
@@ -2090,6 +2093,8 @@ export const en: Dictionary = {
       'The fields become part of the page: still readable, no longer fillable.',
     flattenFormsOff: 'Leave the form as it is',
     checkingRedaction: 'Checking that what you redacted is gone…',
+    redactUnproven:
+      'The page was rebuilt as a picture, so what was underneath is gone. But there was no selectable text under the painted area, so there was nothing to search the produced file for: we can tell you, not show you. This is usual for scanned documents.',
     exportBlockedTitle: 'The file was not handed over',
     exportBlockedBody: (list) =>
       `This can still be found in the produced document: ${list}. We are not giving it to you to download, because a file that looks redacted and is not is worse than no file. Try redacting a slightly larger area.`,
