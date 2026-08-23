@@ -354,6 +354,28 @@ export async function materialize({
   await insertImportedPages(document, state, assets, byId);
 
   /**
+   * Turning and cropping, before anything measures the page.
+   *
+   * The order matters and was wrong once. A rasterised page is sized from the
+   * box it presents, and the bitmap it receives was rendered from this same
+   * script state — crop and turns already applied. Measuring the page BEFORE
+   * applying them meant a cropped page kept its original size and the picture
+   * was stretched edge to edge to fill it, and a quarter-turned page came out
+   * squashed. Nothing caught it: the painted regions were still black, so the
+   * export check passed and handed over the distorted file as correct.
+   */
+  for (const page of state.pages) {
+    const handle = byId.get(page.id);
+    if (!handle) continue;
+    if (page.turns !== 0) {
+      handle.setRotation(degrees((((handle.getRotation().angle + page.turns * 90) % 360) + 360) % 360));
+    }
+    if (page.crop) {
+      handle.setCropBox(page.crop.x, page.crop.y, page.crop.width, page.crop.height);
+    }
+  }
+
+  /**
    * Replacing a page with a picture of itself.
    *
    * This is what makes redaction real. The bitmap arrives with the regions
@@ -361,11 +383,11 @@ export async function materialize({
    * the bitmap, and the page's own content, fonts and images are unlinked here
    * and collected at the end.
    *
-   * The page comes out flat: the size it looked, no rotation, no crop. Keeping
-   * a /Rotate would turn the picture again, and keeping a crop would hide part
-   * of a page that is now nothing but the picture.
+   * The page comes out flat: the size it LOOKED — crop and turns included,
+   * because those were applied just above — with no rotation and no crop left.
+   * Keeping a /Rotate would turn the picture again, and keeping a crop would
+   * hide part of a page that is now nothing but the picture.
    */
-  const rasterised = new Set<string>();
   /** Annotation references that left with a rasterised page. */
   const strippedAnnots = new Set<string>();
   for (const page of state.pages) {
@@ -407,7 +429,6 @@ export async function materialize({
     handle.setMediaBox(0, 0, visual.width, visual.height);
     handle.setCropBox(0, 0, visual.width, visual.height);
     handle.drawImage(image, { x: 0, y: 0, width: visual.width, height: visual.height });
-    rasterised.add(page.id);
   }
 
   /**
@@ -446,20 +467,6 @@ export async function materialize({
     } catch {
       // A form too damaged to walk is not a reason to lose the document; the
       // export's own check is what decides whether the result is acceptable.
-    }
-  }
-
-  for (const page of state.pages) {
-    const handle = byId.get(page.id);
-    if (!handle) continue;
-    // A rasterised page has already been squared up; turning or cropping it
-    // again here would undo that.
-    if (rasterised.has(page.id)) continue;
-    if (page.turns !== 0) {
-      handle.setRotation(degrees((((handle.getRotation().angle + page.turns * 90) % 360) + 360) % 360));
-    }
-    if (page.crop) {
-      handle.setCropBox(page.crop.x, page.crop.y, page.crop.width, page.crop.height);
     }
   }
 

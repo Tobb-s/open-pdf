@@ -106,6 +106,73 @@ export async function saveSession(session: StoredSession): Promise<boolean> {
   }
 }
 
+/**
+ * The assets an edit list still refers to.
+ *
+ * Anything not named here belonged to an edit that was truncated away, and
+ * carrying it would grow the saved session for bytes the document can no longer
+ * reach. The whole list is scanned rather than the part before the cursor, so
+ * redo still works after a resume.
+ *
+ * The `switch` is exhaustive on purpose. This filter has now been wrong twice —
+ * first for `insertImages`, whose pages came back blank, then for `raster`,
+ * which silently brought a redacted page back UN-redacted — and both times
+ * because a new kind of edit that carries bytes was added and this list was not
+ *. The `never` below makes that a compile error instead of a defect nobody
+ * sees until a document is already out the door.
+ */
+export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
+  const referenced = new Set<string>();
+
+  for (const edit of edits) {
+    switch (edit.kind) {
+      case 'insert':
+        referenced.add(edit.asset);
+        break;
+
+      // Plural, and easy to forget: an image page's bytes live here and nowhere
+      // else, so missing this deleted them on the next save.
+      case 'insertImages':
+        for (const asset of edit.assets) referenced.add(asset);
+        break;
+
+      case 'draw':
+        if (edit.mark.kind === 'image') referenced.add(edit.mark.asset);
+        break;
+
+      // The bitmap a redacted page was replaced by. Without it the rebuild
+      // falls back to the original page, and for a scanned page — the ordinary
+      // case for redaction — there is no text under the box for the export
+      // check to look for, so it would report the file clean and hand over the
+      // untouched scan.
+      case 'raster':
+        if (edit.raster) referenced.add(edit.raster.asset);
+        break;
+
+      case 'rotate':
+      case 'delete':
+      case 'move':
+      case 'crop':
+      case 'erase':
+      case 'setField':
+      case 'metadata':
+      case 'watermark':
+      case 'numbering':
+      case 'flattenForms':
+        break;
+
+      default: {
+        // If this stops compiling, a new Edit kind was added: decide whether it
+        // carries bytes before adding it to the list above.
+        const exhaustive: never = edit;
+        void exhaustive;
+      }
+    }
+  }
+
+  return referenced;
+}
+
 export async function loadSession(): Promise<StoredSession | null> {
   try {
     const stored = await run<StoredSession | undefined>('readonly', (store) => store.get(KEY));

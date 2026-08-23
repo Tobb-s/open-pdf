@@ -569,3 +569,107 @@ describe('what the adversarial pass found', () => {
     expect(text).not.toContain('VIEJO');
   }, 60000);
 });
+
+/**
+ * The bitmap and the page it goes into have to be the same shape.
+ *
+ * The bitmap is rendered from the script state, so it already carries the
+ * reader's crop and turns. If the page it is drawn into is sized from the
+ * ORIGINAL box instead, the picture is stretched to fit — and nothing catches
+ * it: the painted regions are still black, so the export check passes and the
+ * distorted file is handed over as correct.
+ */
+describe('a page that was cropped or turned before it was redacted', () => {
+  /** What materialize would hand pdf.js: the visible box, after rotation. */
+  async function visibleSize(bytes: Uint8Array, index: number) {
+    const document = await PDFDocument.load(bytes);
+    const page = document.getPages()[index];
+    const { width, height } = page.getSize();
+    const angle = ((page.getRotation().angle % 360) + 360) % 360;
+    return angle === 90 || angle === 270
+      ? { width: height, height: width, angle }
+      : { width, height, angle };
+  }
+
+  it('comes out the size it looked cropped, not the size it started', async () => {
+    const original = await (async () => {
+      const doc = await PDFDocument.create();
+      doc.addPage([400, 300]);
+      doc.addPage([400, 300]);
+      return (await doc.save()).slice();
+    })();
+
+    const bytes = await materialize({
+      original,
+      assets: new Map([['bitmap', png]]),
+      state: stateAt(
+        2,
+        [
+          { kind: 'crop', page: 'o0', box: { x: 50, y: 40, width: 120, height: 200 } },
+          { kind: 'raster', page: 'o0', raster: { asset: 'bitmap', boxes: [] } },
+        ],
+        2
+      ),
+    });
+
+    const size = await visibleSize(bytes, 0);
+    expect(size.angle).toBe(0);
+    expect(Math.round(size.width)).toBe(120);
+    expect(Math.round(size.height)).toBe(200);
+  }, 60000);
+
+  it('comes out the size it looked turned, not the size it started', async () => {
+    const original = await (async () => {
+      const doc = await PDFDocument.create();
+      doc.addPage([400, 300]);
+      return (await doc.save()).slice();
+    })();
+
+    const bytes = await materialize({
+      original,
+      assets: new Map([['bitmap', png]]),
+      state: stateAt(
+        1,
+        [
+          { kind: 'rotate', page: 'o0', turns: 1 },
+          { kind: 'raster', page: 'o0', raster: { asset: 'bitmap', boxes: [] } },
+        ],
+        2
+      ),
+    });
+
+    // A quarter turn of a 400x300 page looks 300x400. The page must be that,
+    // flat — not 400x300 with the picture squashed into it.
+    const size = await visibleSize(bytes, 0);
+    expect(size.angle).toBe(0);
+    expect(Math.round(size.width)).toBe(300);
+    expect(Math.round(size.height)).toBe(400);
+  }, 60000);
+
+  it('handles both at once, in the order the reader did them', async () => {
+    const original = await (async () => {
+      const doc = await PDFDocument.create();
+      doc.addPage([400, 300]);
+      return (await doc.save()).slice();
+    })();
+
+    const bytes = await materialize({
+      original,
+      assets: new Map([['bitmap', png]]),
+      state: stateAt(
+        1,
+        [
+          { kind: 'crop', page: 'o0', box: { x: 0, y: 0, width: 200, height: 100 } },
+          { kind: 'rotate', page: 'o0', turns: 1 },
+          { kind: 'raster', page: 'o0', raster: { asset: 'bitmap', boxes: [] } },
+        ],
+        3
+      ),
+    });
+
+    const size = await visibleSize(bytes, 0);
+    expect(size.angle).toBe(0);
+    expect(Math.round(size.width)).toBe(100);
+    expect(Math.round(size.height)).toBe(200);
+  }, 60000);
+});

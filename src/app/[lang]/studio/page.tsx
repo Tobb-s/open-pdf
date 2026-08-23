@@ -59,6 +59,7 @@ import {
   type RedactionTarget,
 } from '@/lib/studio/redaction';
 import {
+  assetsReferencedBy,
   clearSession,
   loadSession,
   saveSession,
@@ -523,19 +524,10 @@ export default function StudioPage() {
     if (!original) return;
     const timer = setTimeout(() => {
       void (async () => {
-        // Only what the edit list still refers to. Anything else belonged to an
-        // edit that was truncated away, and carrying it would grow the saved
-        // session for a document that cannot reach it. The whole list is
-        // scanned, not just the part before the cursor, so redo still works.
-        const referenced = new Set<string>();
-        for (const edit of edits) {
-          if (edit.kind === 'insert') referenced.add(edit.asset);
-          // Plural, and easy to forget: an image page's bytes live here and
-          // nowhere else, so missing this line deleted them on the next save
-          // and the pages came back blank after a resume.
-          if (edit.kind === 'insertImages') for (const asset of edit.assets) referenced.add(asset);
-          if (edit.kind === 'draw' && edit.mark.kind === 'image') referenced.add(edit.mark.asset);
-        }
+        // Which bytes the edit list still reaches. This lives in store.ts as a
+        // pure, exhaustive function rather than inline here, because inline is
+        // where it was wrong twice and where no test could reach it.
+        const referenced = assetsReferencedBy(edits);
         const kept = Object.fromEntries(
           Object.entries(assets).filter(([id]) => referenced.has(id))
         );
@@ -607,7 +599,12 @@ export default function StudioPage() {
         const crop = page.crop
           ? `${page.crop.x},${page.crop.y},${page.crop.width},${page.crop.height}`
           : '-';
-        return `${page.id}:${page.turns}:${crop}:${marks}`;
+        // The bitmap counts too. Without it a redaction changed nothing in this
+        // string, the rail kept its cached thumbnail, and the page went on
+        // showing the name the reader had just painted out — for the rest of
+        // the session, or until some unrelated edit happened to move this page.
+        const raster = page.raster ? page.raster.asset : '-';
+        return `${page.id}:${page.turns}:${crop}:${raster}:${marks}`;
       }),
     [view]
   );
