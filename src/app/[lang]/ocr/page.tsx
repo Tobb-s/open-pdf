@@ -8,7 +8,7 @@ import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import ProgressPanel from '@/components/ProgressPanel';
-import { CheckCircle2, Download, FileText, Languages, ScanText, Type } from 'lucide-react';
+import { CheckCircle2, Download, FileText, Languages, ScanText, Type, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
@@ -16,7 +16,14 @@ import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize, assertPageCount, MAX_OCR_PAGES, throwIfCancelled } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 import { OCR_SCALE, TESSERACT_PATHS } from '@/lib/ocrRuntime';
-import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
+import {
+  confidenceSummary,
+  extractOcrWords,
+  fitFontSize,
+  losesCharacters,
+  RECOGNIZE_OUTPUT,
+  toWinAnsi,
+} from '@/lib/ocr';
 
 type OcrLanguage = 'spa' | 'eng' | 'fra' | 'deu' | 'ita' | 'por';
 
@@ -27,7 +34,16 @@ interface OcrResult {
   text: string;
   pages: number;
   wordsFound: number;
+  /** Mean tesseract confidence over the words in the layer, 0–100. */
+  meanConfidence: number;
+  /** Words under LOW_CONFIDENCE: the engine itself was not sure. */
+  lowConfidence: number;
+  /** Words whose search-layer copy lost characters the PDF font cannot carry. */
+  stripped: number;
 }
+
+/** Pages sampled for an existing text layer when a file is chosen. */
+const TEXT_SAMPLE_PAGES = 3;
 
 export default function OcrPage() {
   const { t } = useI18n();
@@ -39,20 +55,55 @@ export default function OcrPage() {
   const [result, setResult] = useState<OcrResult | null>(null);
   const [error, setError] = useState<ToolError | null>(null);
   const [copied, setCopied] = useState(false);
+  /** True when the chosen file already carries real text on its first pages. */
+  const [hasRealText, setHasRealText] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const reset = () => {
     setFile(null);
     setResult(null);
     setError(null);
+    setHasRealText(false);
     setProgressPercent(0);
     setProgressMessage('');
   };
 
-  const selectFile = (selected: File) => {
+  /**
+   * Takes the file, and looks at its first pages for a text layer.
+   *
+   * OCR turns every page into a photograph and recognises it again. On a
+   * scanned document that is the whole point; on a document that already has
+   * real text it trades a perfect layer for a recognised one, silently, and the
+   * reader ends up with a worse file than they started with. Compress samples
+   * the same way for the same reason; this tool never did.
+   */
+  const selectFile = async (selected: File) => {
     setFile(selected);
     setResult(null);
     setError(null);
+    setHasRealText(false);
+
+    let source: Awaited<ReturnType<typeof openPdf>> | null = null;
+    try {
+      source = await openPdf(await selected.arrayBuffer());
+      const sampled = Math.min(TEXT_SAMPLE_PAGES, source.document.numPages);
+      let characters = 0;
+      for (let pageNumber = 1; pageNumber <= sampled; pageNumber += 1) {
+        const page = await source.document.getPage(pageNumber);
+        const content = await page.getTextContent();
+        characters += content.items.reduce(
+          (total, item) => total + ('str' in item ? item.str.trim().length : 0),
+          0
+        );
+        page.cleanup();
+      }
+      setHasRealText(characters > 200 * sampled);
+    } catch {
+      // Advice, not a gate: a file this cannot open is reported properly by
+      // the run itself, with the message that case deserves.
+    } finally {
+      await source?.destroy().catch(() => {});
+    }
   };
 
   const runOcr = async () => {
@@ -89,6 +140,8 @@ export default function OcrPage() {
 
       let fullText = '';
       let wordsFound = 0;
+      const confidences: number[] = [];
+      let stripped = 0;
 
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         throwIfCancelled(signal, t);
@@ -121,6 +174,11 @@ export default function OcrPage() {
         for (const word of extractOcrWords(data)) {
           const text = toWinAnsi(word.text);
           if (text === '') continue;
+          // What the engine thought of this word, kept rather than thrown away;
+          // and whether the search layer is about to carry it with something
+          // missing, which the reader is told instead of finding out.
+          confidences.push(word.confidence);
+          if (losesCharacters(word.text)) stripped += 1;
 
           // Measured on the text that will actually be drawn. Measuring the
           // ORIGINAL meant one word mixing Spanish with a character the font
@@ -155,11 +213,15 @@ export default function OcrPage() {
         );
       }
 
+      const confidence = confidenceSummary(confidences);
       setResult({
         pdf: new Blob([bytes], { type: 'application/pdf' }),
         text: fullText.trim(),
         pages: pageCount,
         wordsFound,
+        meanConfidence: confidence.mean,
+        lowConfidence: confidence.low,
+        stripped,
       });
       setProgressPercent(100);
     } catch (caught) {
@@ -215,7 +277,7 @@ export default function OcrPage() {
                     inputId="ocr-file-input"
                     kind={PDF_FILES}
                     disabled={isProcessing}
-                    onFilesSelected={([selected]) => selectFile(selected)}
+                    onFilesSelected={([selected]) => void selectFile(selected)}
                     className={cn(
                       'flex h-32 w-full cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed transition-all',
                       file
@@ -261,6 +323,16 @@ export default function OcrPage() {
                   </div>
                 </div>
 
+                {hasRealText && !isProcessing && (
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                    <div>
+                      <p className="font-semibold">{t.ocr.hasTextTitle}</p>
+                      <p className="mt-1 leading-relaxed">{t.ocr.hasTextBody}</p>
+                    </div>
+                  </div>
+                )}
+
                 <ErrorNotice error={error} onDismiss={() => setError(null)} />
 
                 <div className="space-y-6 pt-2">
@@ -294,9 +366,28 @@ export default function OcrPage() {
                 <h2 className="mb-2 text-center text-2xl font-semibold text-gray-900">
                   {t.ocr.doneTitle(result.wordsFound)}
                 </h2>
-                <p className="mb-10 text-center text-gray-500">
+                <p className="mb-2 text-center text-gray-500">
                   {t.ocr.doneBody(result.pages)}
                 </p>
+                <p className="mb-6 text-center text-sm text-gray-500">
+                  {t.ocr.confidenceLine(result.meanConfidence)}
+                </p>
+
+                {/* The engine's own doubt, when there is enough of it to matter:
+                    a fifth of the words or more. A handful of uncertain words
+                    is every scan; a fifth is a document to read before trusting
+                    a search in it. */}
+                {result.lowConfidence * 5 >= result.wordsFound && result.lowConfidence > 0 && (
+                  <div className="mx-auto mb-4 max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                    {t.ocr.lowConfidenceNote(result.lowConfidence, result.wordsFound)}
+                  </div>
+                )}
+                {result.stripped > 0 && (
+                  <div className="mx-auto mb-4 max-w-xl rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left text-sm text-gray-700">
+                    {t.ocr.strippedNote(result.stripped)}
+                  </div>
+                )}
+                <div className="mb-6" />
 
                 <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <button

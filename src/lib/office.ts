@@ -143,9 +143,68 @@ interface ZetaHelperMainLike {
 }
 
 export interface EngineProgress {
-  /** 0–1 while the engine downloads, then null once it is booting. */
+  /**
+   * 0–1 while the engine downloads and the total is known; null while it is
+   * booting, and ALSO null while downloading with no total to divide by.
+   */
   fraction: number | null;
+  /** Bytes received so far, decoded. Shown on its own when `fraction` is null. */
+  loadedBytes?: number;
+  /** What is expected in all, or null when nothing could say. */
+  totalBytes?: number | null;
   phase: 'downloading' | 'starting';
+}
+
+/** Where the build writes the size of every vendored file. */
+const MANIFEST_URL = '/vendor/manifest.json';
+
+/**
+ * The sizes the build recorded for these files, by name.
+ *
+ * The download used to divide by `content-length`, which is exactly the header
+ * a browser does not get: it asks with `Accept-Encoding: br`, the CDN answers
+ * compressed and chunked, and there is no length at all. `total` came out as
+ * zero, the `if (total > 0)` around the progress callback never fired, and the
+ * bar sat at 0% for a quarter of a gigabyte — which reads as hung. The build
+ * already writes every file's decoded size into the manifest, and decoded is
+ * what the stream reader counts, so the two agree.
+ */
+export function sizesFromManifest(
+  manifest: unknown,
+  files: readonly string[]
+): Map<string, number> {
+  const sizes = new Map<string, number>();
+  if (!manifest || typeof manifest !== 'object') return sizes;
+  const entries = (manifest as { files?: unknown }).files;
+  if (!Array.isArray(entries)) return sizes;
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { file, bytes } = entry as { file?: unknown; bytes?: unknown };
+    if (typeof file !== 'string' || typeof bytes !== 'number' || bytes <= 0) continue;
+    if (!file.startsWith('lowa/')) continue;
+    const name = file.slice('lowa/'.length);
+    if (files.includes(name)) sizes.set(name, bytes);
+  }
+  return sizes;
+}
+
+/**
+ * Progress from per-file counts.
+ *
+ * A fraction is only offered when EVERY size is known: a partial total would
+ * make the bar run past the end and sit at 100% while bytes still arrive, which
+ * is the same lie as 0% told the other way. Otherwise the bytes so far are
+ * reported on their own, and the interface shows those instead of a percentage.
+ */
+export function downloadProgress(
+  loaded: readonly number[],
+  sizes: ReadonlyArray<number | null>
+): Pick<EngineProgress, 'fraction' | 'loadedBytes' | 'totalBytes'> {
+  const loadedBytes = loaded.reduce((sum, bytes) => sum + bytes, 0);
+  const known = sizes.every((size): size is number => size !== null && size > 0);
+  if (!known) return { fraction: null, loadedBytes, totalBytes: null };
+  const totalBytes = sizes.reduce((sum, size) => sum + size, 0);
+  return { fraction: Math.min(loadedBytes / totalBytes, 1), loadedBytes, totalBytes };
 }
 
 let enginePromise: Promise<OfficeEngine> | null = null;
@@ -347,8 +406,17 @@ export class OfficeEngine {
  */
 async function warmCache(onProgress: (progress: EngineProgress) => void): Promise<void> {
   const files = ['soffice.wasm', 'soffice.data'];
-  const sizes: number[] = [];
   const loaded: number[] = files.map(() => 0);
+
+  // The build's own record of the sizes, fetched first because it is tiny.
+  // Anything that goes wrong here degrades to "unknown", never to a guess.
+  let known = new Map<string, number>();
+  try {
+    const response = await fetch(MANIFEST_URL);
+    if (response.ok) known = sizesFromManifest(await response.json(), files);
+  } catch {
+    // No manifest, no sizes: the bytes so far are still reported honestly.
+  }
 
   const responses = await Promise.all(
     files.map(async (name) => {
@@ -356,12 +424,21 @@ async function warmCache(onProgress: (progress: EngineProgress) => void): Promis
       if (!response.ok) {
         throw new Error(`Could not download the conversion engine (${name}).`);
       }
-      sizes.push(Number(response.headers.get('content-length')) || 0);
       return response;
     })
   );
 
-  const total = sizes.reduce((sum, size) => sum + size, 0);
+  // By name, not by arrival order. `content-length` is the fallback, and it
+  // is usually absent: a browser asks compressed and the CDN answers chunked.
+  const sizes: Array<number | null> = files.map((name, index) => {
+    const recorded = known.get(name);
+    if (recorded !== undefined) return recorded;
+    const header = Number(responses[index].headers.get('content-length')) || 0;
+    return header > 0 ? header : null;
+  });
+
+  const report = () => onProgress({ ...downloadProgress(loaded, sizes), phase: 'downloading' });
+  report();
 
   await Promise.all(
     responses.map(async (response, index) => {
@@ -374,10 +451,7 @@ async function warmCache(onProgress: (progress: EngineProgress) => void): Promis
         const { done, value } = await reader.read();
         if (done) break;
         loaded[index] += value.byteLength;
-        if (total > 0) {
-          const sum = loaded.reduce((a, b) => a + b, 0);
-          onProgress({ fraction: Math.min(sum / total, 1), phase: 'downloading' });
-        }
+        report();
       }
     })
   );

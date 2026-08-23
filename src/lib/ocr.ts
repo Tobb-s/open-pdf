@@ -125,3 +125,33 @@ const WIN_ANSI_UNSUPPORTED =
 export function toWinAnsi(text: string): string {
   return text.replace(WIN_ANSI_UNSUPPORTED, '');
 }
+
+/** Whether the search layer will carry this word with something missing. */
+export function losesCharacters(text: string): boolean {
+  return toWinAnsi(text) !== text;
+}
+
+/**
+ * Below this, tesseract itself was not sure. Its scale is 0–100, and it hands
+ * the number back per word; the tool used to receive it and discard it, then
+ * report the word count as though every word were certain.
+ */
+export const LOW_CONFIDENCE = 60;
+
+export interface ConfidenceSummary {
+  /** Mean confidence over the words, rounded; 0 when there were none. */
+  mean: number;
+  /** How many fell under `LOW_CONFIDENCE`. */
+  low: number;
+}
+
+export function confidenceSummary(confidences: readonly number[]): ConfidenceSummary {
+  if (confidences.length === 0) return { mean: 0, low: 0 };
+  let sum = 0;
+  let low = 0;
+  for (const value of confidences) {
+    sum += value;
+    if (value < LOW_CONFIDENCE) low += 1;
+  }
+  return { mean: Math.round(sum / confidences.length), low };
+}

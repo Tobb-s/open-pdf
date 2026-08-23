@@ -80,7 +80,9 @@ export default function OfficeToPdfPage() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [mode, setMode] = useState<OutputMode>('separate');
   const [stage, setStage] = useState<Stage>('idle');
-  const [percent, setPercent] = useState(0);
+  /** Null while downloading with no total to divide by; the bytes show instead. */
+  const [percent, setPercent] = useState<number | null>(0);
+  const [downloadedBytes, setDownloadedBytes] = useState(0);
   const [current, setCurrent] = useState<{ index: number; name: string; total?: number } | null>(
     null
   );
@@ -167,9 +169,12 @@ export default function OfficeToPdfPage() {
     // before every document rather than holding a reference that may be dead.
     const acquireEngine = () =>
       getOfficeEngine((progress) => {
-        if (progress.phase === 'downloading' && progress.fraction !== null) {
+        if (progress.phase === 'downloading') {
           setStage('downloading');
-          setPercent(Math.round(progress.fraction * 100));
+          // A null fraction is not "starting": it is downloading with nothing
+          // to divide by, and the bar says the bytes instead of a percentage.
+          setPercent(progress.fraction === null ? null : Math.round(progress.fraction * 100));
+          setDownloadedBytes(progress.loadedBytes ?? 0);
         } else {
           setStage('starting');
         }
@@ -696,16 +701,21 @@ export default function OfficeToPdfPage() {
                       <span className="truncate">{stageMessage}</span>
                     </span>
                     {stage === 'downloading' && (
-                      <span className="shrink-0 tabular-nums text-sky-600">{percent}%</span>
+                      <span className="shrink-0 tabular-nums text-sky-600">
+                        {percent !== null ? `${percent}%` : formatBytes(downloadedBytes)}
+                      </span>
                     )}
                   </div>
                   <div className="h-2.5 w-full overflow-hidden rounded-full bg-gray-100">
                     <div
                       className={cn(
                         'h-2.5 rounded-full bg-sky-600 transition-all duration-300',
-                        stage !== 'downloading' && 'animate-pulse'
+                        (stage !== 'downloading' || percent === null) && 'animate-pulse'
                       )}
-                      style={{ width: stage === 'downloading' ? `${percent}%` : '100%' }}
+                      style={{
+                        width:
+                          stage === 'downloading' && percent !== null ? `${percent}%` : '100%',
+                      }}
                     />
                   </div>
                   {stage !== 'downloading' && stage !== 'starting' && (

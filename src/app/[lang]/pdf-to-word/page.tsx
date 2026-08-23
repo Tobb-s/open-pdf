@@ -18,6 +18,14 @@ interface ConversionResult {
   blob: Blob;
   paragraphs: number;
   pages: number;
+  /**
+   * Pages that yielded at least one paragraph.
+   *
+   * «Listo» used to be said the moment the document had ANY text, so a
+   * two-hundred-page scan with one typed cover came back as a success with
+   * one page of content and no word about the other hundred and ninety-nine.
+   */
+  pagesWithText: number;
 }
 
 export default function PdfToWordPage() {
@@ -50,6 +58,7 @@ export default function PdfToWordPage() {
 
       const paragraphs: Paragraph[] = [];
       let paragraphCount = 0;
+      let pagesWithText = 0;
 
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         throwIfCancelled(controller.signal, t);
@@ -60,10 +69,13 @@ export default function PdfToWordPage() {
         const content = await page.getTextContent();
         page.cleanup();
 
+        let onThisPage = 0;
         for (const text of extractParagraphs(toTextFragments(content.items))) {
           paragraphs.push(new Paragraph({ children: [new TextRun({ text })] }));
           paragraphCount += 1;
+          onThisPage += 1;
         }
+        if (onThisPage > 0) pagesWithText += 1;
 
         if (pageNumber < pageCount) {
           paragraphs.push(new Paragraph({ children: [] }));
@@ -90,7 +102,7 @@ export default function PdfToWordPage() {
         })
       );
 
-      setResult({ blob, paragraphs: paragraphCount, pages: pageCount });
+      setResult({ blob, paragraphs: paragraphCount, pages: pageCount, pagesWithText });
       setProgressPercent(100);
     } catch (caught) {
       const described = describeError(caught, t);
@@ -185,9 +197,19 @@ export default function PdfToWordPage() {
               <FileText className="h-10 w-10" />
             </div>
             <h2 className="mb-2 text-2xl font-bold">{t.pdfToWord.doneTitle}</h2>
-            <p className="mb-8 text-gray-600">
-              {t.pdfToWord.doneBody(result.paragraphs, result.pages)}
+            <p className="mb-4 text-gray-600">
+              {t.pdfToWord.doneBody(result.paragraphs, result.pagesWithText)}
             </p>
+            {result.pages - result.pagesWithText > 0 ? (
+              /* The pages that gave nothing, named. The file is still handed
+                 over — it is what it is — but not under a sentence that
+                 implies it holds the whole document. */
+              <div className="mx-auto mb-8 max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+                {t.pdfToWord.emptyPagesNote(result.pages - result.pagesWithText, result.pages)}
+              </div>
+            ) : (
+              <div className="mb-4" />
+            )}
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <button
                 type="button"

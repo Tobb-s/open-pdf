@@ -152,6 +152,13 @@ export interface Dictionary {
     doneTitle: (words: number) => string;
     doneBody: (pages: number) => string;
     searchablePdf: string;
+    /** Said when the chosen file already carries real text. */
+    hasTextTitle: string;
+    hasTextBody: string;
+    /** What the engine thought of what it read, instead of a bare count. */
+    confidenceLine: (mean: number) => string;
+    lowConfidenceNote: (low: number, total: number) => string;
+    strippedNote: (count: number) => string;
     searchablePdfNote: string;
     plainText: string;
     plainTextNote: string;
@@ -249,6 +256,8 @@ export interface Dictionary {
     doneTitle: string;
     doneBody: (paragraphs: number, pages: number) => string;
     downloadDocx: string;
+    /** The pages that gave nothing, named rather than folded into «listo». */
+    emptyPagesNote: (empty: number, total: number) => string;
     another: string;
   };
   edit: {
@@ -894,6 +903,14 @@ export const es: Dictionary = {
     doneBody: (pages) =>
       `En ${pages} ${pages === 1 ? 'página' : 'páginas'}. El PDF de abajo lleva una capa de texto invisible, así que podés buscarlo y seleccionarlo.`,
     searchablePdf: 'PDF buscable',
+    hasTextTitle: 'Este PDF ya tiene texto seleccionable.',
+    hasTextBody:
+      'Lo miramos en las primeras páginas y encontramos texto real, no una imagen. El OCR convierte cada página en una foto y la reconoce de nuevo: perdés la capa de texto original por una reconocida, que es peor. Si lo que querés es buscar o seleccionar, ya podés hacerlo con el archivo que tenés.',
+    confidenceLine: (mean) => `Confianza media del reconocimiento: ${mean} %.`,
+    lowConfidenceNote: (low, total) =>
+      `${low.toLocaleString('es')} de ${total.toLocaleString('es')} palabras salieron con confianza baja: el motor no estaba seguro de lo que leyó. Una búsqueda puede no encontrarlas, o encontrar otra cosa. Revisá el texto antes de confiar en él.`,
+    strippedNote: (count) =>
+      `${count.toLocaleString('es')} ${count === 1 ? 'palabra tenía' : 'palabras tenían'} caracteres que la fuente del PDF no puede llevar —ligaduras, flechas, letras de otro alfabeto— y en la capa de búsqueda van sin ellos. El archivo de texto los conserva enteros.`,
     searchablePdfNote: 'El escaneo, más el texto seleccionable',
     plainText: 'Texto plano',
     plainTextNote: 'Sólo las palabras, en .txt',
@@ -1004,6 +1021,8 @@ export const es: Dictionary = {
     doneBody: (paragraphs, pages) =>
       `${paragraphs.toLocaleString('es')} ${paragraphs === 1 ? 'párrafo' : 'párrafos'} de ${pages} ${pages === 1 ? 'página' : 'páginas'}.`,
     downloadDocx: 'Descargar .docx',
+    emptyPagesNote: (empty, total) =>
+      `${empty} de ${total} páginas no tenían texto que extraer —lo más probable es que sean escaneos— y en el .docx quedan vacías. Si las necesitás, pasá el PDF por OCR y convertí la copia buscable.`,
     another: 'Convertir otro',
   },
   edit: {
@@ -1710,6 +1729,14 @@ export const en: Dictionary = {
     doneBody: (pages) =>
       `Across ${pages} ${pages === 1 ? 'page' : 'pages'}. The PDF below carries an invisible text layer, so you can search and select it.`,
     searchablePdf: 'Searchable PDF',
+    hasTextTitle: 'This PDF already has selectable text.',
+    hasTextBody:
+      'We looked at the first pages and found real text, not a picture. OCR turns every page into a photo and recognises it again: you lose the original text layer for a recognised one, which is worse. If all you want is to search or select, you already can with the file you have.',
+    confidenceLine: (mean) => `Average recognition confidence: ${mean}%.`,
+    lowConfidenceNote: (low, total) =>
+      `${low.toLocaleString('en')} of ${total.toLocaleString('en')} words came out with low confidence: the engine was not sure what it read. A search may miss them, or find something else. Check the text before relying on it.`,
+    strippedNote: (count) =>
+      `${count.toLocaleString('en')} ${count === 1 ? 'word had' : 'words had'} characters the PDF font cannot carry — ligatures, arrows, letters from another alphabet — and they go into the search layer without them. The text file keeps them whole.`,
     searchablePdfNote: 'The scan, plus selectable text',
     plainText: 'Plain text',
     plainTextNote: 'Just the words, .txt',
@@ -1819,6 +1846,8 @@ export const en: Dictionary = {
     doneBody: (paragraphs, pages) =>
       `${paragraphs.toLocaleString('en')} ${paragraphs === 1 ? 'paragraph' : 'paragraphs'} from ${pages} ${pages === 1 ? 'page' : 'pages'}.`,
     downloadDocx: 'Download .docx',
+    emptyPagesNote: (empty, total) =>
+      `${empty} of ${total} pages had no text to extract — most likely scans — and are empty in the .docx. If you need them, run the PDF through OCR and convert the searchable copy.`,
     another: 'Convert another',
   },
   edit: {
