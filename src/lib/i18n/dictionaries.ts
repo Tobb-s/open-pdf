@@ -496,6 +496,10 @@ export interface Dictionary {
     buildFailed: string;
     undo: string;
     redo: string;
+    undoHint: string;
+    redoHint: string;
+    previousHint: string;
+    nextHint: string;
     editCount: (count: number) => string;
     noEdits: string;
     pageOf: (current: number, total: number) => string;
@@ -1309,6 +1313,10 @@ export const es: Dictionary = {
     buildFailed: 'No se pudo rehacer el documento con esta edición.',
     undo: 'Deshacer',
     redo: 'Rehacer',
+    undoHint: 'Deshacer · Ctrl+Z',
+    redoHint: 'Rehacer · Ctrl+Y o Ctrl+Mayús+Z',
+    previousHint: 'Página anterior · ←',
+    nextHint: 'Página siguiente · →',
     editCount: (count) => `${count} ${count === 1 ? 'edición' : 'ediciones'}`,
     noEdits: 'Sin cambios',
     pageOf: (current, total) => `Página ${current} de ${total}`,
@@ -2124,6 +2132,10 @@ export const en: Dictionary = {
     buildFailed: 'The document could not be rebuilt with this edit.',
     undo: 'Undo',
     redo: 'Redo',
+    undoHint: 'Undo · Ctrl+Z',
+    redoHint: 'Redo · Ctrl+Y or Ctrl+Shift+Z',
+    previousHint: 'Previous page · ←',
+    nextHint: 'Next page · →',
     editCount: (count) => `${count} ${count === 1 ? 'edit' : 'edits'}`,
     noEdits: 'No changes',
     pageOf: (current, total) => `Page ${current} of ${total}`,

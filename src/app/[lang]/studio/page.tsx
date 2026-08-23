@@ -7,6 +7,7 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import Stage, { type StageAction, type StageTool } from '@/components/studio/Stage';
+import { isEditableTarget, shortcutFor } from '@/lib/studio/shortcuts';
 import DocumentPanel from '@/components/studio/DocumentPanel';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
 import { ColorRow, Field, NumberRow } from '@/components/StampControls';
@@ -328,6 +329,7 @@ export default function StudioPage() {
   /** The ids in display order, for anything that speaks page numbers to the reader. */
   const viewPageIds = useMemo(() => viewPages.map((page) => page.id), [viewPages]);
 
+
   /** Pages the script asked for that the build could not produce. */
   const dropped = useMemo(() => {
     if (!built) return 0;
@@ -559,6 +561,65 @@ export default function StudioPage() {
    * stale list and silently drop everything the reader did while they waited.
    * One updater returns both halves, so nothing can land between them.
    */
+  const undo = useCallback(() => {
+    setScript((current) => ({ ...current, cursor: Math.max(0, current.cursor - 1) }));
+  }, []);
+
+  const redo = useCallback(() => {
+    setScript((current) => ({
+      ...current,
+      cursor: Math.min(current.edits.length, current.cursor + 1),
+    }));
+  }, []);
+
+  /**
+   * The keyboard. Ctrl+Z and the rest, routed through the pure mapping in
+   * src/lib/studio/shortcuts.ts.
+   *
+   * Bound to the window rather than to a focused element, because the reader's
+   * focus is usually the canvas, which takes none — and skipped the moment the
+   * target is a text box, so a «2» typed into the title stays a 2 instead of
+   * switching to the text tool. A shortcut that maps to something calls
+   * preventDefault; one that does not is left to the browser, so Ctrl+Z inside
+   * the title box still undoes the typing there.
+   */
+  const pageCountShown = viewPages.length;
+  useEffect(() => {
+    if (!original) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      const shortcut = shortcutFor(event);
+      if (!shortcut) return;
+
+      switch (shortcut.kind) {
+        case 'undo':
+          undo();
+          break;
+        case 'redo':
+          redo();
+          break;
+        case 'previousPage':
+          setPageIndex((index) => Math.max(0, index - 1));
+          break;
+        case 'nextPage':
+          setPageIndex((index) => Math.min(pageCountShown - 1, index + 1));
+          break;
+        case 'escape':
+          setTool('pick');
+          break;
+        case 'tool':
+          // The image tool needs a chosen image first; without one it does
+          // nothing, so the digit falls through to leave the tool as it was.
+          if (shortcut.tool === 'image' && !pendingImage) break;
+          setTool(shortcut.tool);
+          break;
+      }
+      event.preventDefault();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [original, undo, redo, pendingImage, pageCountShown]);
+
   const addEdit = useCallback((edit: Edit) => {
     setScript((current) => append(current.edits, current.cursor, edit));
   }, []);
@@ -1235,23 +1296,18 @@ export default function StudioPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={() =>
-                setScript((current) => ({ ...current, cursor: Math.max(0, current.cursor - 1) }))
-              }
+              onClick={undo}
               disabled={cursor === 0}
+              title={t.studio.undoHint}
               className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
             >
               <Undo2 className="h-4 w-4" /> {t.studio.undo}
             </button>
             <button
               type="button"
-              onClick={() =>
-                setScript((current) => ({
-                  ...current,
-                  cursor: Math.min(current.edits.length, current.cursor + 1),
-                }))
-              }
+              onClick={redo}
               disabled={cursor >= edits.length}
+              title={t.studio.redoHint}
               className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
             >
               <Redo2 className="h-4 w-4" /> {t.studio.redo}
@@ -1368,6 +1424,7 @@ export default function StudioPage() {
                 type="button"
                 onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
                 disabled={pageIndex === 0}
+                title={t.studio.previousHint}
                 className="rounded-xl border bg-white px-3 py-1.5 disabled:opacity-30"
               >
                 {t.studio.previous}
@@ -1381,6 +1438,7 @@ export default function StudioPage() {
                 type="button"
                 onClick={() => setPageIndex((index) => Math.min(viewPages.length - 1, index + 1))}
                 disabled={pageIndex >= viewPages.length - 1}
+                title={t.studio.nextHint}
                 className="rounded-xl border bg-white px-3 py-1.5 disabled:opacity-30"
               >
                 {t.studio.next}
@@ -1464,12 +1522,13 @@ export default function StudioPage() {
             ) : (
             <>
             <div className="grid grid-cols-3 gap-2">
-              {TOOLS.map(({ id, label, icon: Icon }) => (
+              {TOOLS.map(({ id, label, icon: Icon }, index) => (
                 <button
                   key={id}
                   type="button"
                   aria-pressed={tool === id}
                   onClick={() => setTool(id)}
+                  title={`${label} · ${index + 1}`}
                   className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-colors ${
                     tool === id
                       ? 'bg-violet-600 text-white'
