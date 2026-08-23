@@ -126,8 +126,13 @@ const nextConfig: NextConfig = {
         headers: ISOLATION_HEADERS,
       },
       {
-        // The vendored engines are content-addressed by the lockfile and change
-        // only when a dependency does.
+        // The vendored engines change only when someone changes them on
+        // purpose: the ones from npm are pinned by the lockfile, and the
+        // LibreOffice build — which is not on npm, and comes from a mutable
+        // `latest` URL — is pinned by sha256 in scripts/vendor-assets.mjs,
+        // which refuses to install anything else. Without that second half
+        // this immutable, year-long cache would strand recurring visitors on
+        // whichever bytes that URL happened to serve.
         source: '/vendor/:path*',
         headers: [
           { key: 'Cache-Control', value: 'public, max-age=31536000, immutable' },

@@ -61,11 +61,19 @@ La promesa es verificable, no declarativa:
 
 - **No hay rutas de servidor.** El build produce sólo páginas estáticas. No existe ningún
   endpoint al que se pueda enviar un archivo.
-- **No se carga código de terceros.** El worker de pdf.js y el motor de OCR se copian
-  desde `node_modules` a `public/vendor/` durante el build y se sirven desde el propio
-  dominio. La `Content-Security-Policy` es `script-src 'self' 'wasm-unsafe-eval'`: el
-  navegador rechaza cualquier script de otro origen.
-- **Funciona sin conexión** una vez cargada la página.
+- **No se carga código de terceros en tiempo de ejecución.** El worker de pdf.js y el
+  motor de OCR se copian desde `node_modules` a `public/vendor/` durante el build, y el
+  motor de LibreOffice —que no está en npm— se baja en el build desde el CDN de
+  ZetaOffice y queda fijado por sha256 en `scripts/vendor-assets.mjs`: si el archivo
+  cambia, el build falla en vez de servir otra cosa. Todo se sirve desde el propio
+  dominio. La `Content-Security-Policy` que se envía es
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'`, y la ruta de Office lleva
+  además cabeceras de aislamiento de origen cruzado. El `'unsafe-inline'` está porque
+  Next inyecta scripts en línea; el navegador rechaza igual cualquier script de otro
+  origen.
+- **Después de cargar una herramienta, no vuelve a pedir nada al servidor** para
+  procesar tu archivo. No hay service worker, así que la primera visita a cada
+  herramienta sí baja lo suyo: sin conexión no arranca de cero.
 
 Esto importa porque el riesgo real de una herramienta así no es que suba tu archivo, sino
 que ejecute código ajeno en la misma pestaña donde está el documento. Con la política
