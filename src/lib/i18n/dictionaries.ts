@@ -33,6 +33,13 @@ export interface Dictionary {
   nav: {
     switchLanguage: string;
     github: string;
+    /** The dropdown that holds the single-task tools. */
+    tools: string;
+    toolsHint: string;
+    allTools: string;
+    /** The phone menu. */
+    menu: string;
+    closeMenu: string;
   };
   common: {
     /**
@@ -83,6 +90,15 @@ export interface Dictionary {
     whyBody: string;
     footer: string;
     readCode: string;
+    /**
+     * The two families on the front page. The names are product names and stay
+     * the same in both languages, like «OpenPDF» itself.
+     */
+    studioName: string;
+    studioBody: string;
+    openStudio: string;
+    toolsName: string;
+    toolsBody: string;
   };
   notFound: {
     title: string;
@@ -615,7 +631,15 @@ export const es: Dictionary = {
       'Herramientas de PDF libres y de código abierto. Une, divide, comprime, aplica OCR, edita y rellena formularios sin subir nada: todo corre en tu navegador.',
     titleSuffix: 'gratis, en tu navegador | OpenPDF',
   },
-  nav: { switchLanguage: 'Cambiar idioma', github: 'GitHub' },
+  nav: {
+    switchLanguage: 'Cambiar idioma',
+    github: 'GitHub',
+    tools: 'Herramientas',
+    toolsHint: 'una por tarea, todas en tu navegador',
+    allTools: 'Ver todas las herramientas',
+    menu: 'Abrir el menú',
+    closeMenu: 'Cerrar el menú',
+  },
   common: {
     signatureBroken:
       'Este documento venía firmado digitalmente. La firma ya no vale: cubre los bytes exactos del archivo original, y éste es un archivo nuevo. OpenPDF no puede volver a firmar.',
@@ -665,6 +689,13 @@ export const es: Dictionary = {
       'La mayoría de las herramientas de PDF en línea te piden subir el documento al servidor de otra persona. OpenPDF no tiene servidor al que subirlo: la aplicación entera son archivos estáticos, y el motor de PDF corre en tu navegador. Nada de lo que abras acá se transmite a ningún lado.',
     footer: 'OpenPDF — libre y de código abierto.',
     readCode: 'Ver el código',
+    studioName: 'OpenPDF Studio',
+    studioBody:
+      'El editor. Abrí el documento y trabajalo entero: reordená, recortá, escribí encima, tachá, deshacé sin límite y exportá una sola vez, con un informe de lo que se conservó.',
+    openStudio: 'Abrir Studio',
+    toolsName: 'OpenPDF Tools',
+    toolsBody:
+      'Doce herramientas, una por tarea. Abrís, hacés lo tuyo y descargás; nada sale de tu dispositivo.',
   },
   structures: {
     form: 'los campos de formulario',
@@ -1419,7 +1450,15 @@ export const en: Dictionary = {
       'Free, open-source PDF tools. Merge, split, compress, OCR, edit and fill PDF forms without uploading anything: every tool runs in your browser.',
     titleSuffix: 'free, in your browser | OpenPDF',
   },
-  nav: { switchLanguage: 'Change language', github: 'GitHub' },
+  nav: {
+    switchLanguage: 'Change language',
+    github: 'GitHub',
+    tools: 'Tools',
+    toolsHint: 'one per task, all in your browser',
+    allTools: 'See all tools',
+    menu: 'Open menu',
+    closeMenu: 'Close menu',
+  },
   common: {
     signatureBroken:
       'This document arrived digitally signed. The signature is no longer valid: it covers the exact bytes of the original file, and this is a new file. OpenPDF cannot sign it again.',
@@ -1469,6 +1508,13 @@ export const en: Dictionary = {
       'Most online PDF tools ask you to upload your document to someone else’s server. OpenPDF has no server to upload to: the whole application is static files, and the PDF engine runs in your browser. Nothing you open here is transmitted anywhere.',
     footer: 'OpenPDF — free and open source.',
     readCode: 'Read the code',
+    studioName: 'OpenPDF Studio',
+    studioBody:
+      'The editor. Open the document and work on the whole of it: reorder, crop, write over, redact, undo without limit and export once, with a report of what survived.',
+    openStudio: 'Open Studio',
+    toolsName: 'OpenPDF Tools',
+    toolsBody:
+      'Twelve tools, one per task. Open, do the one thing, download; nothing leaves your device.',
   },
   structures: {
     form: 'the form fields',

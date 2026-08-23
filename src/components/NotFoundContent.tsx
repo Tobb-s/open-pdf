@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Combine, FileQuestion, FileStack, Minimize2, ScanText } from 'lucide-react';
+import { FileQuestion } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
 import { useI18n } from '@/lib/i18n/context';
 import { TOOLS, type ToolSlug } from '@/lib/tools';
+import { TOOL_ICONS } from '@/lib/toolIcons';
 
 /**
  * The body of the "that page does not exist" page.
@@ -20,12 +21,6 @@ import { TOOLS, type ToolSlug } from '@/lib/tools';
  */
 
 const SUGGESTED: ToolSlug[] = ['merge', 'split', 'compress', 'ocr'];
-const ICONS = {
-  merge: Combine,
-  split: FileStack,
-  compress: Minimize2,
-  ocr: ScanText,
-} as const;
 
 export default function NotFoundContent() {
   const { locale, t } = useI18n();
@@ -51,7 +46,7 @@ export default function NotFoundContent() {
               key={tool.slug}
               title={t.tools[tool.slug].title}
               description={t.tools[tool.slug].tagline}
-              icon={ICONS[tool.slug as keyof typeof ICONS]}
+              icon={TOOL_ICONS[tool.slug]}
               href={`/${locale}/${tool.slug}`}
               color={tool.color}
               bgColor={tool.bgColor}

@@ -2,44 +2,26 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import {
-  Combine,
-  FileStack,
-  FileType,
-  FormInput,
-  Hash,
-  Image as ImageIcon,
-  Minimize2,
-  PenSquare,
-  Presentation,
-  ScanText,
-  Search,
-  Split,
-  SquarePen,
-  Stamp,
-  type LucideIcon,
-} from 'lucide-react';
+import { ArrowRight, Search } from 'lucide-react';
+import GitHubMark from '@/components/GitHubMark';
 import Navbar from '@/components/Navbar';
 import ToolCard from '@/components/ToolCard';
 import { useI18n } from '@/lib/i18n/context';
-import { TOOLS, type ToolSlug } from '@/lib/tools';
+import { STUDIO, TOOLBOX, TOOLS } from '@/lib/tools';
+import { TOOL_ICONS } from '@/lib/toolIcons';
 
-/** Typed by slug, so adding a tool without an icon fails to compile. */
-const ICONS: Record<ToolSlug, LucideIcon> = {
-  compress: Minimize2,
-  ocr: ScanText,
-  merge: Combine,
-  split: Split,
-  organize: FileStack,
-  'pdf-to-word': FileType,
-  edit: PenSquare,
-  'fill-form': FormInput,
-  'office-to-pdf': Presentation,
-  'image-pdf': ImageIcon,
-  watermark: Stamp,
-  'page-numbers': Hash,
-  studio: SquarePen,
-};
+/**
+ * The front page.
+ *
+ * Two families, each in its own container, rather than thirteen equal cards.
+ * OpenPDF Studio is the editor and gets a card of its own, in its colour, with
+ * its button; OpenPDF Tools is the box the twelve single-task tools live in.
+ * The search in the hero flattens all of that into results the moment the
+ * reader types — browsing is structured, searching is not.
+ */
+
+const REPO_URL = 'https://github.com/Tobb-s/open-pdf';
+const StudioIcon = TOOL_ICONS[STUDIO];
 
 export default function Home() {
   const { locale, t } = useI18n();
@@ -57,16 +39,31 @@ export default function Home() {
     return () => window.removeEventListener('keydown', focusSearch);
   }, []);
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (needle === '') return TOOLS;
+  const needle = query.trim().toLowerCase();
+  const searching = needle !== '';
+
+  const results = useMemo(() => {
+    if (!searching) return [];
     return TOOLS.filter((tool) => {
       const copy = t.tools[tool.slug];
       return `${copy.title} ${copy.tagline} ${copy.keywords.join(' ')}`
         .toLowerCase()
         .includes(needle);
     });
-  }, [query, t]);
+  }, [needle, searching, t]);
+
+  const card = (tool: (typeof TOOLS)[number]) => (
+    <ToolCard
+      key={tool.slug}
+      title={t.tools[tool.slug].title}
+      description={t.tools[tool.slug].tagline}
+      icon={TOOL_ICONS[tool.slug]}
+      href={`/${locale}/${tool.slug}`}
+      color={tool.color}
+      bgColor={tool.bgColor}
+      fullReload={tool.needsFreshDocument}
+    />
+  );
 
   return (
     <div className="min-h-screen bg-white">
@@ -108,35 +105,76 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="pb-24">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.length > 0 ? (
-              filtered.map((tool) => (
-                <ToolCard
-                  key={tool.slug}
-                  title={t.tools[tool.slug].title}
-                  description={t.tools[tool.slug].tagline}
-                  icon={ICONS[tool.slug]}
-                  href={`/${locale}/${tool.slug}`}
-                  color={tool.color}
-                  bgColor={tool.bgColor}
-                  fullReload={tool.needsFreshDocument}
-                />
-              ))
-            ) : (
-              <div className="rounded-2xl border border-dashed border-gray-200 py-12 text-center sm:col-span-2 lg:col-span-3">
-                <p className="text-sm text-gray-500">{t.home.noMatches(query.trim())}</p>
-                <button
-                  type="button"
-                  onClick={() => setQuery('')}
-                  className="mt-3 text-sm font-medium text-blue-600 hover:text-blue-700"
+        {searching ? (
+          /* Searching flattens both families into one list of matches. */
+          <section className="pb-24" aria-live="polite">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {results.length > 0 ? (
+                results.map(card)
+              ) : (
+                <div className="rounded-2xl border border-dashed border-gray-200 py-12 text-center sm:col-span-2 lg:col-span-3">
+                  <p className="text-sm text-gray-500">{t.home.noMatches(query.trim())}</p>
+                  <button
+                    type="button"
+                    onClick={() => setQuery('')}
+                    className="mt-3 text-sm font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    {t.home.clearSearch}
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        ) : (
+          <>
+            {/* The editor: one product, in its own colour, with its own door. */}
+            <section className="pb-6" aria-labelledby="studio-heading">
+              <div className="flex flex-col gap-6 rounded-3xl border border-violet-100 bg-violet-50 p-6 sm:flex-row sm:items-center sm:p-8">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-violet-600 shadow-sm">
+                  <StudioIcon className="h-7 w-7" aria-hidden="true" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2
+                    id="studio-heading"
+                    className="text-2xl font-semibold tracking-tight text-gray-900"
+                  >
+                    {t.home.studioName}
+                  </h2>
+                  <p className="mt-1 text-sm leading-relaxed text-gray-600 sm:text-base">
+                    {t.home.studioBody}
+                  </p>
+                </div>
+                <Link
+                  href={`/${locale}/${STUDIO}`}
+                  className="inline-flex shrink-0 items-center gap-2 self-start rounded-full bg-violet-600 px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-violet-700 sm:self-center"
                 >
-                  {t.home.clearSearch}
-                </button>
+                  {t.home.openStudio}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
               </div>
-            )}
-          </div>
-        </section>
+            </section>
+
+            {/* The toolbox: the twelve, inside the thing that holds them. */}
+            <section id="tools" className="scroll-mt-24 pb-24" aria-labelledby="tools-heading">
+              <div className="rounded-3xl border border-gray-100 bg-gray-50 p-6 sm:p-8">
+                <div className="mb-6">
+                  <h2
+                    id="tools-heading"
+                    className="text-2xl font-semibold tracking-tight text-gray-900"
+                  >
+                    {t.home.toolsName}
+                  </h2>
+                  <p className="mt-1 max-w-2xl text-sm leading-relaxed text-gray-500 sm:text-base">
+                    {t.home.toolsBody}
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {TOOLBOX.map(card)}
+                </div>
+              </div>
+            </section>
+          </>
+        )}
 
         <section className="pb-24">
           <div className="rounded-3xl border border-gray-100 bg-gray-50 p-10 text-center sm:p-14">
@@ -180,20 +218,13 @@ export default function Home() {
                 <span className="text-sm font-medium text-gray-700">{t.home.fast}</span>
               </div>
               <Link
-                href="https://github.com/Tobb-s/open-pdf"
+                href={REPO_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group flex flex-col items-center gap-2"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-50 transition-colors group-hover:bg-gray-100">
-                  <svg
-                    className="h-5 w-5 text-gray-600"
-                    fill="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-                  </svg>
+                  <GitHubMark className="text-gray-600" />
                 </div>
                 <span className="text-sm font-medium text-gray-700">{t.home.openSource}</span>
               </Link>
@@ -210,7 +241,7 @@ export default function Home() {
         <p>
           {t.home.footer}{' '}
           <Link
-            href="https://github.com/Tobb-s/open-pdf"
+            href={REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="underline decoration-gray-300 underline-offset-4 hover:text-gray-600"

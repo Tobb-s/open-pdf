@@ -51,3 +51,16 @@ export const TOOLS: Tool[] = [
 ];
 
 export const TOOL_SLUGS = TOOLS.map((tool) => tool.slug);
+
+/** The editor: the one entry that is a product rather than a task. */
+export const STUDIO: ToolSlug = 'studio';
+
+/**
+ * OpenPDF Tools — the single-task tools, as a family.
+ *
+ * Studio is left out on purpose. The front page and the navigation present the
+ * editor as what it is rather than as the thirteenth card in a grid of equals,
+ * and this is the list they iterate over to do that. `TOOLS` stays the whole
+ * catalogue: routes, redirects and the search still cover everything.
+ */
+export const TOOLBOX: Tool[] = TOOLS.filter((tool) => tool.slug !== STUDIO);
