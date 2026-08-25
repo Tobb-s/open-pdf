@@ -41,7 +41,7 @@ export default function LanguageSwitcher({ className }: { className?: string }) 
               'rounded-full px-2.5 py-1 text-xs font-semibold uppercase tracking-wide transition-colors',
               active
                 ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
+                : 'text-gray-600 hover:text-gray-900'
             )}
           >
             {option}

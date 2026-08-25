@@ -20,7 +20,7 @@ en la propia página.
 | **Imágenes y PDF** | Convierte cada página en JPG, o une imágenes JPG, PNG y WebP en un PDF. |
 | **Marca de agua** | Pone un texto o una imagen encima de las páginas que elijas, con opacidad, inclinación y posición. Vista previa de la página real, no una aproximación. |
 | **Numerar** | Numera páginas eligiendo esquina, desde qué número empezar y formato «3» o «3 de 40». Sale derecho también en páginas rotadas. |
-| **Studio** | Editor con sesión: abrís el documento y trabajás sobre él. Páginas (girar, borrar, reordenar, recortar, insertar de otro PDF o de imágenes), marcas (texto, rectángulos, imágenes, trazo a mano), capa de texto por OCR, campos de formulario, marca de agua y numeración, y los datos del documento. Deshacer sin límite, cerrar la pestaña y volver. Exporta una vez, con un informe de qué se conservó y de qué campos no quedaron como los escribiste. |
+| **Studio** | Editor con sesión: abrís el documento y trabajás sobre él. Páginas (girar, borrar, reordenar, recortar, insertar de otro PDF o de imágenes), edición visual (texto, rectángulos, imágenes y trazo a mano) y revisión profesional con resaltado, subrayado, tachado de texto, comentarios y respuestas. Las revisiones se exportan como anotaciones PDF reales, compatibles con lectores como Adobe Acrobat. También incluye OCR, formularios, marca de agua, numeración y datos del documento. Podés deshacer sin límite, cerrar la pestaña y volver. |
 
 ## Idiomas
 

@@ -29,6 +29,20 @@ export interface Rgb {
   b: number;
 }
 
+export interface ReviewReply {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+}
+
+interface ReviewThread {
+  author: string;
+  body: string;
+  createdAt: string;
+  replies: readonly ReviewReply[];
+}
+
 /** Where a page's content comes from: the opened file, or something imported. */
 export interface PageOrigin {
   /** `original` for the opened document, otherwise an imported asset's id. */
@@ -132,7 +146,26 @@ export type Mark =
       points: ReadonlyArray<readonly [number, number]>;
       color: Rgb;
       width: number;
-    };
+    }
+  | (ReviewThread & {
+      kind: 'highlight' | 'underline' | 'strikeout';
+      id: string;
+      page: PageId;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      color: Rgb;
+      opacity: number;
+    })
+  | (ReviewThread & {
+      kind: 'comment';
+      id: string;
+      page: PageId;
+      x: number;
+      y: number;
+      color: Rgb;
+    });
 
 /**
  * Positions are given as "immediately before this page", never as an index.
@@ -220,6 +253,7 @@ export type Edit =
   | { kind: 'crop'; page: PageId; box: Rect | null }
   | { kind: 'insert'; before: PageId | null; asset: string; indices: readonly number[] }
   | { kind: 'draw'; mark: Mark }
+  | { kind: 'replaceMark'; mark: Mark }
   | { kind: 'erase'; markId: string }
   | { kind: 'insertImages'; before: PageId | null; assets: readonly string[] }
   | { kind: 'setField'; field: string; value: string }
@@ -370,6 +404,17 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
       // silently disappear at materialise time; drop it here instead.
       if (!state.pages.some((page) => page.id === edit.mark.page)) return state;
       return { ...state, marks: [...state.marks, edit.mark] };
+    }
+
+    case 'replaceMark': {
+      if (!state.pages.some((page) => page.id === edit.mark.page)) return state;
+      let found = false;
+      const marks = state.marks.map((mark) => {
+        if (mark.id !== edit.mark.id) return mark;
+        found = true;
+        return edit.mark;
+      });
+      return found ? { ...state, marks } : state;
     }
 
     case 'erase': {

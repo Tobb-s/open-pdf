@@ -26,6 +26,7 @@ import {
   UnsupportedCharacterError,
 } from '@/lib/stamp';
 import { pageBoxOf, visualSize } from '@/lib/geometry';
+import { addReviewAnnotation } from '@/lib/studio/reviewAnnotations';
 import {
   IMAGE_PAGE_LONG_SIDE,
   isUntouched,
@@ -322,7 +323,15 @@ async function drawMark(
         const [x, y] = mark.points[0];
         page.drawCircle({ x, y, size: mark.width / 2, color: colorOf(mark.color) });
       }
+      return;
     }
+
+    case 'highlight':
+    case 'underline':
+    case 'strikeout':
+    case 'comment':
+      addReviewAnnotation(document, page, mark);
+      return;
   }
 }
 

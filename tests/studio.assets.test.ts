@@ -44,6 +44,11 @@ describe('assetsReferencedBy', () => {
     expect([...assetsReferencedBy(edits)]).toEqual(['firma']);
   });
 
+  it('keeps image bytes when a mark is replaced', () => {
+    const edits: Edit[] = [{ kind: 'replaceMark', mark: IMAGE_MARK }];
+    expect([...assetsReferencedBy(edits)]).toEqual(['firma']);
+  });
+
   it('THE ONE THAT WAS MISSING: keeps the bitmap a redacted page became', () => {
     // Without this the saved session held the redaction edit and none of its
     // bytes. On resume the page rebuilt from the original — un-redacted — while
