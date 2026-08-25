@@ -18,7 +18,18 @@ import { renderPageToCanvas } from '@/lib/pdfjs';
  * reader clicked on — rotation and crop box included.
  */
 
-export type StageTool = 'pick' | 'text' | 'rect' | 'image' | 'ink' | 'crop' | 'redact';
+export type StageTool =
+  | 'pick'
+  | 'text'
+  | 'rect'
+  | 'image'
+  | 'ink'
+  | 'crop'
+  | 'redact'
+  | 'highlight'
+  | 'underline'
+  | 'strikeout'
+  | 'comment';
 
 export type StageAction =
   | { kind: 'point'; x: number; y: number }
@@ -128,7 +139,7 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
 
-    if (tool === 'text' || tool === 'image') {
+    if (tool === 'text' || tool === 'image' || tool === 'comment') {
       const pdfPoint = toPdf(point);
       if (pdfPoint) onAction({ kind: 'point', ...pdfPoint }, rotationRef.current);
       return;
@@ -214,15 +225,35 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
             preserveAspectRatio="none"
           >
             {drag.kind === 'rect' ? (
-              <rect
-                x={Math.min(drag.from.x, drag.to.x)}
-                y={Math.min(drag.from.y, drag.to.y)}
-                width={Math.abs(drag.to.x - drag.from.x)}
-                height={Math.abs(drag.to.y - drag.from.y)}
-                fill="rgba(59,130,246,0.15)"
-                stroke="rgb(37,99,235)"
-                strokeWidth={2}
-              />
+              tool === 'underline' || tool === 'strikeout' ? (
+                <line
+                  x1={Math.min(drag.from.x, drag.to.x)}
+                  x2={Math.max(drag.from.x, drag.to.x)}
+                  y1={
+                    tool === 'underline'
+                      ? Math.max(drag.from.y, drag.to.y)
+                      : (drag.from.y + drag.to.y) / 2
+                  }
+                  y2={
+                    tool === 'underline'
+                      ? Math.max(drag.from.y, drag.to.y)
+                      : (drag.from.y + drag.to.y) / 2
+                  }
+                  stroke="rgb(220,38,38)"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                />
+              ) : (
+                <rect
+                  x={Math.min(drag.from.x, drag.to.x)}
+                  y={Math.min(drag.from.y, drag.to.y)}
+                  width={Math.abs(drag.to.x - drag.from.x)}
+                  height={Math.abs(drag.to.y - drag.from.y)}
+                  fill={tool === 'highlight' ? 'rgba(250,204,21,0.38)' : 'rgba(59,130,246,0.15)'}
+                  stroke={tool === 'highlight' ? 'rgb(202,138,4)' : 'rgb(37,99,235)'}
+                  strokeWidth={2}
+                />
+              )
             ) : (
               <polyline
                 points={drag.points.map((point) => `${point.x},${point.y}`).join(' ')}

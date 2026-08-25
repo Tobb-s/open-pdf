@@ -63,10 +63,7 @@ describe('shortcutFor', () => {
   });
 
   it('ignores a digit with no tool at that position', () => {
-    // The toolbar has seven tools; 8 and 9 map to nothing rather than to a
-    // crash or a wrap-around.
-    expect(shortcutFor(key({ key: '8' }))).toBeNull();
-    expect(shortcutFor(key({ key: '9' }))).toBeNull();
+    // Zero is never a tool and must not wrap around.
     expect(shortcutFor(key({ key: '0' }))).toBeNull();
   });
 

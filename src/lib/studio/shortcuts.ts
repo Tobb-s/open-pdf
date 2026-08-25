@@ -23,6 +23,8 @@ export const TOOL_ORDER: readonly StageTool[] = [
   'image',
   'crop',
   'redact',
+  'highlight',
+  'underline',
 ];
 
 export type Shortcut =

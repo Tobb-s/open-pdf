@@ -7,7 +7,7 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import Stage, { type StageAction, type StageTool } from '@/components/studio/Stage';
-import { isEditableTarget, shortcutFor } from '@/lib/studio/shortcuts';
+import { isEditableTarget, shortcutFor, TOOL_ORDER } from '@/lib/studio/shortcuts';
 import DocumentPanel from '@/components/studio/DocumentPanel';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
 import { ColorRow, Field, NumberRow } from '@/components/StampControls';
@@ -18,14 +18,19 @@ import {
   FilePlus2,
   FileText,
   Hand,
+  Highlighter,
   Image as ImageIcon,
   ImageUp,
   Loader2,
   Pen,
   Redo2,
+  Send,
+  MessageSquareText,
   Square,
+  Strikethrough,
   Trash2,
   Type,
+  Underline,
   Undo2,
   Upload,
   X,
@@ -93,6 +98,19 @@ const SLOW_MS = 1500;
 const RASTER_SCALE = 2;
 /** The square, in points, a placed image is fitted inside. */
 const IMAGE_STAMP_BOX = 140;
+
+type ReviewMark = Extract<
+  Mark,
+  { kind: 'highlight' | 'underline' | 'strikeout' | 'comment' }
+>;
+
+const isReviewTool = (tool: StageTool): boolean =>
+  tool === 'highlight' ||
+  tool === 'underline' ||
+  tool === 'strikeout' ||
+  tool === 'comment';
+
+const isReviewMark = (mark: Mark): mark is ReviewMark => isReviewTool(mark.kind as StageTool);
 
 /**
  * Looks for the redacted words in the file that is about to be handed over.
@@ -247,6 +265,11 @@ export default function StudioPage() {
   const [textSize, setTextSize] = useState(14);
   const [inkWidth, setInkWidth] = useState(2);
   const [color, setColor] = useState('#c62828');
+  const [toolMode, setToolMode] = useState<'edit' | 'review'>('edit');
+  const [reviewColor, setReviewColor] = useState('#f4c542');
+  const [reviewAuthor, setReviewAuthor] = useState('');
+  const [commentBody, setCommentBody] = useState('');
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
   /** The image waiting to be placed, with its own shape so the stamp can keep it. */
   const [pendingImage, setPendingImage] = useState<{
     id: string;
@@ -400,7 +423,10 @@ export default function StudioPage() {
       setAssets(restoredAssets);
       setPageIndex(0);
       setTool('pick');
+      setToolMode('edit');
       setPendingImage(null);
+      setCommentBody('');
+      setReplyDrafts({});
       setPanel('page');
       setImportNotes([]);
       setOcrResult(null);
@@ -614,12 +640,14 @@ export default function StudioPage() {
           break;
         case 'escape':
           setTool('pick');
+          setToolMode('edit');
           break;
         case 'tool':
           // The image tool needs a chosen image first; without one it does
           // nothing, so the digit falls through to leave the tool as it was.
           if (shortcut.tool === 'image' && !pendingImage) break;
           setTool(shortcut.tool);
+          setToolMode(isReviewTool(shortcut.tool) ? 'review' : 'edit');
           break;
       }
       event.preventDefault();
@@ -631,6 +659,27 @@ export default function StudioPage() {
   const addEdit = useCallback((edit: Edit) => {
     setScript((current) => append(current.edits, current.cursor, edit));
   }, []);
+
+  const addReply = (mark: Extract<Mark, { kind: 'comment' }>) => {
+    const body = replyDrafts[mark.id]?.trim() ?? '';
+    if (body === '') return;
+    addEdit({
+      kind: 'replaceMark',
+      mark: {
+        ...mark,
+        replies: [
+          ...mark.replies,
+          {
+            id: newId(),
+            author: reviewAuthor.trim() || t.studio.defaultReviewer,
+            body,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+    });
+    setReplyDrafts((current) => ({ ...current, [mark.id]: '' }));
+  };
 
   /**
    * The id of the page the reader is looking at.
@@ -681,6 +730,54 @@ export default function StudioPage() {
     const page = pageIdAt(pageIndex);
     if (!page) return;
     const rgbColor = hexToRgb(color);
+    const reviewRgb = hexToRgb(reviewColor);
+
+    if (
+      (tool === 'highlight' || tool === 'underline' || tool === 'strikeout') &&
+      action.kind === 'rect'
+    ) {
+      addEdit({
+        kind: 'draw',
+        mark: {
+          kind: tool,
+          id: newId(),
+          page,
+          x: action.x,
+          y: action.y,
+          width: action.width,
+          height: action.height,
+          color: reviewRgb,
+          opacity: tool === 'highlight' ? 0.38 : 1,
+          author: reviewAuthor.trim() || t.studio.defaultReviewer,
+          body: '',
+          createdAt: new Date().toISOString(),
+          replies: [],
+        },
+      });
+      return;
+    }
+
+    if (tool === 'comment' && action.kind === 'point') {
+      const body = commentBody.trim();
+      if (body === '') return;
+      addEdit({
+        kind: 'draw',
+        mark: {
+          kind: 'comment',
+          id: newId(),
+          page,
+          x: action.x,
+          y: action.y,
+          color: reviewRgb,
+          author: reviewAuthor.trim() || t.studio.defaultReviewer,
+          body,
+          createdAt: new Date().toISOString(),
+          replies: [],
+        },
+      });
+      setCommentBody('');
+      return;
+    }
 
     if (tool === 'redact' && action.kind === 'rect') {
       // Added to whatever was already painted out on this page, so a second
@@ -845,6 +942,7 @@ export default function StudioPage() {
       }
       setPendingImage({ id, name: file.name, width, height });
       setTool('image');
+      setToolMode('edit');
     } catch (caught) {
       setError(describeError(caught, t));
     }
@@ -1278,7 +1376,7 @@ export default function StudioPage() {
     );
   }
 
-  const TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
+  const EDIT_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
     { id: 'pick', label: t.studio.tools.pick, icon: Hand },
     { id: 'text', label: t.studio.tools.text, icon: Type },
     { id: 'rect', label: t.studio.tools.rect, icon: Square },
@@ -1287,6 +1385,13 @@ export default function StudioPage() {
     { id: 'crop', label: t.studio.tools.crop, icon: Crop },
     { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
   ];
+  const REVIEW_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
+    { id: 'highlight', label: t.studio.tools.highlight, icon: Highlighter },
+    { id: 'underline', label: t.studio.tools.underline, icon: Underline },
+    { id: 'strikeout', label: t.studio.tools.strikeout, icon: Strikethrough },
+    { id: 'comment', label: t.studio.tools.comment, icon: MessageSquareText },
+  ];
+  const toolsShown = toolMode === 'review' ? REVIEW_TOOLS : EDIT_TOOLS;
 
   return (
     <div className="min-h-screen bg-white">
@@ -1296,7 +1401,7 @@ export default function StudioPage() {
           <div className="flex min-w-0 items-center gap-3">
             <FileText className="h-5 w-5 shrink-0 text-violet-600" />
             <span className="truncate font-medium">{name}</span>
-            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
+            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
               {cursor === 0 ? t.studio.noEdits : t.studio.editCount(cursor)}
             </span>
           </div>
@@ -1529,26 +1634,78 @@ export default function StudioPage() {
               />
             ) : (
             <>
-            <div className="grid grid-cols-3 gap-2">
-              {TOOLS.map(({ id, label, icon: Icon }, index) => (
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1" role="tablist">
+              {(
+                [
+                  ['edit', t.studio.editTools],
+                  ['review', t.studio.reviewTools],
+                ] as const
+              ).map(([mode, label]) => (
                 <button
-                  key={id}
+                  key={mode}
                   type="button"
-                  aria-pressed={tool === id}
-                  onClick={() => setTool(id)}
-                  title={`${label} · ${index + 1}`}
-                  className={`flex flex-col items-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-colors ${
-                    tool === id
-                      ? 'bg-violet-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  role="tab"
+                  aria-selected={toolMode === mode}
+                  onClick={() => {
+                    setToolMode(mode);
+                    setTool(mode === 'review' ? 'highlight' : 'pick');
+                  }}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    toolMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
                   {label}
                 </button>
               ))}
             </div>
+            <div className="grid grid-cols-3 gap-2">
+              {toolsShown.map(({ id, label, icon: Icon }) => {
+                const shortcutIndex = TOOL_ORDER.indexOf(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={tool === id}
+                    onClick={() => setTool(id)}
+                    title={shortcutIndex === -1 ? label : `${label} · ${shortcutIndex + 1}`}
+                    className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-colors ${
+                      tool === id
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span className="text-center leading-tight">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
             <p className="text-xs text-gray-500">{t.studio.toolHint[tool]}</p>
+
+            {toolMode === 'review' && (
+              <>
+                <Field label={t.studio.reviewer}>
+                  <input
+                    type="text"
+                    value={reviewAuthor}
+                    placeholder={t.studio.defaultReviewer}
+                    onChange={(event) => setReviewAuthor(event.target.value)}
+                    className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                  />
+                </Field>
+                {tool === 'comment' && (
+                  <textarea
+                    value={commentBody}
+                    placeholder={t.studio.commentPlaceholder}
+                    aria-label={t.studio.tools.comment}
+                    rows={4}
+                    onChange={(event) => setCommentBody(event.target.value)}
+                    className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                  />
+                )}
+                <ColorRow label={t.stamp.color} value={reviewColor} onChange={setReviewColor} />
+              </>
+            )}
 
             {tool === 'text' && (
               <>
@@ -1594,10 +1751,12 @@ export default function StudioPage() {
               </Field>
             )}
 
-            {tool !== 'pick' && tool !== 'crop' && tool !== 'image' && (
+            {toolMode === 'edit' && tool !== 'pick' && tool !== 'crop' && tool !== 'image' && (
               <ColorRow label={t.stamp.color} value={color} onChange={setColor} />
             )}
 
+            {toolMode === 'edit' && (
+            <>
             {tool === 'crop' && (
               <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                 {t.studio.cropHides}
@@ -1663,26 +1822,82 @@ export default function StudioPage() {
               </label>
               <p className="mt-1 text-xs text-gray-400">{t.studio.insertHint}</p>
             </div>
+            </>
+            )}
 
             {marksHere.length > 0 && (
               <div className="border-t pt-4">
                 <p className="mb-2 text-xs font-semibold text-gray-700">
                   {t.studio.marksOnPage(marksHere.length)}
                 </p>
-                <ul className="space-y-1">
+                <ul className="divide-y">
                   {marksHere.map((mark) => (
-                    <li key={mark.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="truncate text-gray-500">
-                        {mark.kind === 'text' ? mark.text : t.studio.tools[mark.kind]}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => addEdit({ kind: 'erase', markId: mark.id })}
-                        aria-label={t.studio.removeMark}
-                        className="rounded p-1 text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                    <li key={mark.id} className="space-y-2 py-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate font-medium text-gray-600">
+                          {mark.kind === 'text' ? mark.text : t.studio.tools[mark.kind]}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => addEdit({ kind: 'erase', markId: mark.id })}
+                          aria-label={t.studio.removeMark}
+                          className="rounded p-1 text-gray-400 hover:text-red-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {isReviewMark(mark) && mark.body !== '' && (
+                        <div className="border-l-2 border-amber-300 pl-2 text-gray-600">
+                          <p className="font-semibold">{mark.author}</p>
+                          <p className="mt-0.5 whitespace-pre-wrap break-words">{mark.body}</p>
+                        </div>
+                      )}
+
+                      {mark.kind === 'comment' && (
+                        <>
+                          {mark.replies.length > 0 && (
+                            <div className="space-y-2 pl-3">
+                              <p className="font-medium text-gray-600">
+                                {t.studio.replies(mark.replies.length)}
+                              </p>
+                              {mark.replies.map((reply) => (
+                                <div key={reply.id} className="border-l-2 border-gray-200 pl-2">
+                                  <p className="font-semibold text-gray-600">{reply.author}</p>
+                                  <p className="mt-0.5 whitespace-pre-wrap break-words text-gray-500">
+                                    {reply.body}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex items-end gap-1.5">
+                            <textarea
+                              value={replyDrafts[mark.id] ?? ''}
+                              placeholder={t.studio.replyPlaceholder}
+                              aria-label={t.studio.replyPlaceholder}
+                              rows={2}
+                              onChange={(event) =>
+                                setReplyDrafts((current) => ({
+                                  ...current,
+                                  [mark.id]: event.target.value,
+                                }))
+                              }
+                              className="min-w-0 flex-1 resize-none rounded-lg border px-2 py-1.5 outline-none focus:border-violet-400"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => addReply(mark)}
+                              disabled={(replyDrafts[mark.id]?.trim() ?? '') === ''}
+                              title={t.studio.reply}
+                              aria-label={t.studio.reply}
+                              className="rounded-lg bg-violet-600 p-2 text-white hover:bg-violet-700 disabled:bg-gray-200"
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -1692,7 +1907,7 @@ export default function StudioPage() {
             </>
             )}
 
-            <div className="border-t pt-4 text-xs text-gray-400">
+            <div className="border-t pt-4 text-xs text-gray-600">
               {/* Nothing is claimed until a save has actually completed: the
                   first seconds of a session are exactly when it has not. */}
               {savedOk !== null && <p>{savedOk ? t.studio.saved : t.studio.notSaved}</p>}

@@ -514,6 +514,10 @@ export interface Dictionary {
       ocr: string;
       crop: string;
       redact: string;
+      highlight: string;
+      underline: string;
+      strikeout: string;
+      comment: string;
     };
     toolHint: {
       pick: string;
@@ -523,6 +527,10 @@ export interface Dictionary {
       ink: string;
       crop: string;
       redact: string;
+      highlight: string;
+      underline: string;
+      strikeout: string;
+      comment: string;
     };
     rotateLeft: string;
     rotateRight: string;
@@ -540,6 +548,14 @@ export interface Dictionary {
     stroke: string;
     marksOnPage: (count: number) => string;
     removeMark: string;
+    editTools: string;
+    reviewTools: string;
+    reviewer: string;
+    defaultReviewer: string;
+    commentPlaceholder: string;
+    replyPlaceholder: string;
+    reply: string;
+    replies: (count: number) => string;
     /** The converging preview and its escape hatch. */
     live: string;
     manual: string;
@@ -1331,6 +1347,10 @@ export const es: Dictionary = {
       ocr: 'Capa de texto',
       crop: 'Recortar',
       redact: 'Tachar',
+      highlight: 'Resaltar',
+      underline: 'Subrayar',
+      strikeout: 'Tachar texto',
+      comment: 'Nota',
     },
     toolHint: {
       pick: 'Mirá el documento y usá los controles de página.',
@@ -1340,6 +1360,10 @@ export const es: Dictionary = {
       ink: 'Arrastrá para dibujar a mano alzada.',
       crop: 'Arrastrá el área que querés conservar.',
       redact: 'Arrastrá encima de lo que querés que desaparezca.',
+      highlight: 'Arrastrá sobre el texto o el área que querés resaltar.',
+      underline: 'Arrastrá debajo del texto que querés subrayar.',
+      strikeout: 'Arrastrá sobre el texto que querés marcar como eliminado.',
+      comment: 'Escribí la nota y hacé clic donde quieras dejarla.',
     },
     rotateLeft: 'Girar a la izquierda',
     rotateRight: 'Girar a la derecha',
@@ -1357,6 +1381,14 @@ export const es: Dictionary = {
     stroke: 'Borde',
     marksOnPage: (count) => `${count} ${count === 1 ? 'marca' : 'marcas'} en esta página`,
     removeMark: 'Quitar marca',
+    editTools: 'Editar',
+    reviewTools: 'Revisar',
+    reviewer: 'Autor de los comentarios',
+    defaultReviewer: 'Revisor',
+    commentPlaceholder: 'Escribí el comentario…',
+    replyPlaceholder: 'Responder…',
+    reply: 'Responder',
+    replies: (count) => `${count} ${count === 1 ? 'respuesta' : 'respuestas'}`,
     live: 'Vista en vivo',
     manual: 'Vista manual',
     checkPage: 'Comprobar página',
@@ -2150,6 +2182,10 @@ export const en: Dictionary = {
       ocr: 'Text layer',
       crop: 'Crop',
       redact: 'Redact',
+      highlight: 'Highlight',
+      underline: 'Underline',
+      strikeout: 'Strike out',
+      comment: 'Comment',
     },
     toolHint: {
       pick: 'Look through the document and use the page controls.',
@@ -2159,6 +2195,10 @@ export const en: Dictionary = {
       ink: 'Drag to draw freehand.',
       crop: 'Drag the area you want to keep.',
       redact: 'Drag over whatever you want gone.',
+      highlight: 'Drag over the text or area you want to highlight.',
+      underline: 'Drag under the text you want to underline.',
+      strikeout: 'Drag over the text you want to mark as removed.',
+      comment: 'Write the comment, then click where you want to leave it.',
     },
     rotateLeft: 'Turn left',
     rotateRight: 'Turn right',
@@ -2176,6 +2216,14 @@ export const en: Dictionary = {
     stroke: 'Border',
     marksOnPage: (count) => `${count} ${count === 1 ? 'mark' : 'marks'} on this page`,
     removeMark: 'Remove mark',
+    editTools: 'Edit',
+    reviewTools: 'Review',
+    reviewer: 'Comment author',
+    defaultReviewer: 'Reviewer',
+    commentPlaceholder: 'Write a comment…',
+    replyPlaceholder: 'Reply…',
+    reply: 'Reply',
+    replies: (count) => `${count} ${count === 1 ? 'reply' : 'replies'}`,
     live: 'Live view',
     manual: 'Manual view',
     checkPage: 'Check page',

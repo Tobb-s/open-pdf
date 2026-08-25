@@ -193,6 +193,10 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
         if (edit.mark.kind === 'image') referenced.add(edit.mark.asset);
         break;
 
+      case 'replaceMark':
+        if (edit.mark.kind === 'image') referenced.add(edit.mark.asset);
+        break;
+
       // The bitmap a redacted page was replaced by. Without it the rebuild
       // falls back to the original page, and for a scanned page — the ordinary
       // case for redaction — there is no text under the box for the export
