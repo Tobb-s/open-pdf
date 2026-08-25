@@ -28,6 +28,7 @@ export type StageTool =
   | 'crop'
   | 'redact'
   | 'replaceText'
+  | 'signature'
   | 'highlight'
   | 'underline'
   | 'strikeout'
@@ -171,7 +172,7 @@ export default function Stage({
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
 
-    if (tool === 'text' || tool === 'image' || tool === 'comment') {
+    if (tool === 'text' || tool === 'image' || tool === 'comment' || tool === 'signature') {
       const pdfPoint = toPdf(point);
       if (pdfPoint) onAction({ kind: 'point', ...pdfPoint }, rotationRef.current);
       return;

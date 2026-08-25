@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
+import SignaturePad from '@/components/studio/SignaturePad';
 import Stage, {
   type StageAction,
   type StageTool,
@@ -25,11 +26,13 @@ import {
   Highlighter,
   Image as ImageIcon,
   ImageUp,
+  Keyboard,
   Loader2,
   Pen,
   Redo2,
   Replace,
   Send,
+  Signature as SignatureIcon,
   MessageSquareText,
   Square,
   Strikethrough,
@@ -103,6 +106,8 @@ const SLOW_MS = 1500;
 const RASTER_SCALE = 2;
 /** The square, in points, a placed image is fitted inside. */
 const IMAGE_STAMP_BOX = 140;
+const SIGNATURE_MAX_WIDTH = 190;
+const SIGNATURE_MAX_HEIGHT = 56;
 
 type ReviewMark = Extract<
   Mark,
@@ -289,6 +294,16 @@ export default function StudioPage() {
     width: number;
     height: number;
   } | null>(null);
+  const [signatureMethod, setSignatureMethod] = useState<'typed' | 'drawn' | 'image'>('typed');
+  const [signatureSigner, setSignatureSigner] = useState('');
+  const [signatureReason, setSignatureReason] = useState('');
+  const [pendingSignature, setPendingSignature] = useState<{
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    method: 'typed' | 'drawn' | 'image';
+  } | null>(null);
 
   /* -------------------------------------------------- the document panel -- */
   const [panel, setPanel] = useState<'page' | 'document'>('page');
@@ -437,6 +452,9 @@ export default function StudioPage() {
       setTool('pick');
       setToolMode('edit');
       setPendingImage(null);
+      setPendingSignature(null);
+      setSignatureSigner('');
+      setSignatureReason('');
       setCommentBody('');
       setReplyDrafts({});
       setTextSelection(null);
@@ -887,6 +905,42 @@ export default function StudioPage() {
           opacity: 1,
         },
       });
+      return;
+    }
+
+    if (
+      tool === 'signature' &&
+      action.kind === 'point' &&
+      pendingSignature &&
+      signatureSigner.trim() !== ''
+    ) {
+      const now = new Date();
+      const signedOn = [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, '0'),
+        String(now.getDate()).padStart(2, '0'),
+      ].join('-');
+      const width = pendingSignature.width || SIGNATURE_MAX_WIDTH;
+      const height = pendingSignature.height || SIGNATURE_MAX_HEIGHT;
+      const scale = Math.min(SIGNATURE_MAX_WIDTH / width, SIGNATURE_MAX_HEIGHT / height);
+      addEdit({
+        kind: 'draw',
+        mark: {
+          kind: 'signature',
+          id: newId(),
+          page,
+          asset: pendingSignature.id,
+          x: action.x,
+          y: action.y,
+          width: width * scale,
+          height: height * scale,
+          signer: signatureSigner.trim(),
+          reason: signatureReason.trim(),
+          signedAt: now.toISOString(),
+          signedOn,
+          method: pendingSignature.method,
+        },
+      });
     }
   };
 
@@ -957,6 +1011,71 @@ export default function StudioPage() {
       setPendingImage({ id, name: file.name, width, height });
       setTool('image');
       setToolMode('edit');
+    } catch (caught) {
+      setError(describeError(caught, t));
+    }
+  };
+
+  const keepSignatureAsset = (
+    bytes: Uint8Array,
+    width: number,
+    height: number,
+    method: 'typed' | 'drawn' | 'image',
+    name: string
+  ) => {
+    const engine = engineRef.current;
+    if (!engine || imageKind(bytes) === null) return;
+    const id = newId();
+    engine.putAsset(id, bytes);
+    setAssets((current) => ({ ...current, [id]: bytes }));
+    setPendingSignature({ id, name, width, height, method });
+    setTool('signature');
+    setToolMode('edit');
+  };
+
+  const prepareTypedSignature = async () => {
+    const signer = signatureSigner.trim();
+    if (signer === '') return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 900;
+    canvas.height = 240;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.fillStyle = '#172554';
+    context.textBaseline = 'middle';
+    let size = 112;
+    do {
+      context.font = `italic ${size}px Georgia, "Times New Roman", serif`;
+      if (context.measureText(signer).width <= 840 || size <= 34) break;
+      size -= 4;
+    } while (size > 30);
+    context.fillText(signer, 30, canvas.height / 2, 840);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    canvas.width = 0;
+    canvas.height = 0;
+    if (!blob) return;
+    keepSignatureAsset(new Uint8Array(await blob.arrayBuffer()), 900, 240, 'typed', signer);
+  };
+
+  const onPickSignature = async (file: File) => {
+    try {
+      assertFileSize(file, t, MAX_EDITABLE_BYTES);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (imageKind(bytes) === null) {
+        setError({ kind: 'invalid', title: t.studio.tools.signature, detail: t.watermark.imageNote });
+        return;
+      }
+      let width = 0;
+      let height = 0;
+      try {
+        const bitmap = await createImageBitmap(new Blob([bytes as unknown as BlobPart]));
+        width = bitmap.width;
+        height = bitmap.height;
+        bitmap.close();
+      } catch {
+        // The materializer performs the definitive image validation.
+      }
+      keepSignatureAsset(bytes, width, height, 'image', file.name);
     } catch (caught) {
       setError(describeError(caught, t));
     }
@@ -1491,6 +1610,7 @@ export default function StudioPage() {
     { id: 'crop', label: t.studio.tools.crop, icon: Crop },
     { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
     { id: 'replaceText', label: t.studio.tools.replaceText, icon: Replace },
+    { id: 'signature', label: t.studio.tools.signature, icon: SignatureIcon },
   ];
   const REVIEW_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
     { id: 'highlight', label: t.studio.tools.highlight, icon: Highlighter },
@@ -1891,6 +2011,102 @@ export default function StudioPage() {
               </>
             )}
 
+            {tool === 'signature' && (
+              <>
+                <Field label={t.studio.signatureSigner}>
+                  <input
+                    type="text"
+                    aria-label={t.studio.signatureSigner}
+                    value={signatureSigner}
+                    onChange={(event) => {
+                      setSignatureSigner(event.target.value);
+                      setPendingSignature(null);
+                    }}
+                    className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                  />
+                </Field>
+                <Field label={t.studio.signatureReason} hint={t.studio.signatureReasonOptional}>
+                  <input
+                    type="text"
+                    aria-label={t.studio.signatureReason}
+                    value={signatureReason}
+                    onChange={(event) => setSignatureReason(event.target.value)}
+                    className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                  />
+                </Field>
+                <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1">
+                  {(
+                    [
+                      ['typed', t.studio.signatureTyped, Keyboard],
+                      ['drawn', t.studio.signatureDrawn, Pen],
+                      ['image', t.studio.signatureImage, ImageUp],
+                    ] as const
+                  ).map(([method, label, Icon]) => (
+                    <button
+                      key={method}
+                      type="button"
+                      aria-pressed={signatureMethod === method}
+                      onClick={() => {
+                        setSignatureMethod(method);
+                        setPendingSignature(null);
+                      }}
+                      className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs font-medium ${
+                        signatureMethod === method ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" /> {label}
+                    </button>
+                  ))}
+                </div>
+
+                {signatureMethod === 'typed' && (
+                  <button
+                    type="button"
+                    onClick={() => void prepareTypedSignature()}
+                    disabled={signatureSigner.trim() === ''}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
+                  >
+                    <SignatureIcon className="h-4 w-4" /> {t.studio.signaturePrepare}
+                  </button>
+                )}
+
+                {signatureMethod === 'drawn' && (
+                  <SignaturePad
+                    clearLabel={t.studio.signatureClear}
+                    useLabel={t.studio.signatureUse}
+                    padLabel={t.studio.signaturePad}
+                    onCreate={(bytes, width, height) =>
+                      keepSignatureAsset(bytes, width, height, 'drawn', t.studio.signatureDrawn)
+                    }
+                  />
+                )}
+
+                {signatureMethod === 'image' && (
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-gray-100 px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200">
+                    <ImageUp className="h-4 w-4" /> {t.studio.signatureChooseImage}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg"
+                      className="hidden"
+                      onChange={(event) => {
+                        const chosen = event.target.files?.[0];
+                        if (chosen) void onPickSignature(chosen);
+                      }}
+                    />
+                  </label>
+                )}
+
+                {pendingSignature && (
+                  <p className="rounded-xl bg-emerald-50 p-3 text-xs font-medium text-emerald-950">
+                    {t.studio.signatureReady(pendingSignature.name)}
+                  </p>
+                )}
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  {t.studio.signatureNotice}
+                </p>
+              </>
+            )}
+
             {(tool === 'rect' || tool === 'ink') && (
               <NumberRow
                 label={t.studio.strokeWidth}
@@ -1919,7 +2135,7 @@ export default function StudioPage() {
               </Field>
             )}
 
-            {toolMode === 'edit' && tool !== 'pick' && tool !== 'crop' && tool !== 'image' && (
+            {toolMode === 'edit' && tool !== 'pick' && tool !== 'crop' && tool !== 'image' && tool !== 'signature' && (
               <ColorRow label={t.stamp.color} value={color} onChange={setColor} />
             )}
 

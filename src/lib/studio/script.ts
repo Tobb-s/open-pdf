@@ -125,6 +125,23 @@ export type Mark =
       opacity: number;
     }
   | {
+      /** A visible electronic signature, deliberately not a certificate signature. */
+      kind: 'signature';
+      id: string;
+      page: PageId;
+      asset: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      signer: string;
+      reason: string;
+      signedAt: string;
+      /** Local calendar date shown beside the signature. */
+      signedOn: string;
+      method: 'typed' | 'drawn' | 'image';
+    }
+  | {
       /**
        * A layer of invisible text over a scanned page, so the words can be
        * found and selected. Modelled as a mark rather than as a document

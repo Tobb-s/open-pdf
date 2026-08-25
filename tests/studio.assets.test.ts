@@ -28,6 +28,22 @@ const IMAGE_MARK: Mark = {
   opacity: 1,
 };
 
+const SIGNATURE_MARK: Mark = {
+  kind: 'signature',
+  id: 's1',
+  page: 'o0',
+  asset: 'firma-electronica',
+  x: 10,
+  y: 10,
+  width: 180,
+  height: 50,
+  signer: 'Tobias',
+  reason: '',
+  signedAt: '2026-08-25T20:15:30.000Z',
+  signedOn: '2026-08-25',
+  method: 'typed',
+};
+
 describe('assetsReferencedBy', () => {
   it('keeps the bytes of inserted pages', () => {
     const edits: Edit[] = [{ kind: 'insert', before: null, asset: 'otro-pdf', indices: [0, 1] }];
@@ -47,6 +63,11 @@ describe('assetsReferencedBy', () => {
   it('keeps image bytes when a mark is replaced', () => {
     const edits: Edit[] = [{ kind: 'replaceMark', mark: IMAGE_MARK }];
     expect([...assetsReferencedBy(edits)]).toEqual(['firma']);
+  });
+
+  it('keeps the appearance bytes of an electronic signature', () => {
+    const edits: Edit[] = [{ kind: 'draw', mark: SIGNATURE_MARK }];
+    expect([...assetsReferencedBy(edits)]).toEqual(['firma-electronica']);
   });
 
   it('THE ONE THAT WAS MISSING: keeps the bitmap a redacted page became', () => {
