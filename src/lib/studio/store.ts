@@ -190,11 +190,15 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
         break;
 
       case 'draw':
-        if (edit.mark.kind === 'image') referenced.add(edit.mark.asset);
+        if (edit.mark.kind === 'image' || edit.mark.kind === 'signature') {
+          referenced.add(edit.mark.asset);
+        }
         break;
 
       case 'replaceMark':
-        if (edit.mark.kind === 'image') referenced.add(edit.mark.asset);
+        if (edit.mark.kind === 'image' || edit.mark.kind === 'signature') {
+          referenced.add(edit.mark.asset);
+        }
         break;
 
       // The bitmap a redacted page was replaced by. Without it the rebuild

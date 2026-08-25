@@ -27,6 +27,8 @@ import {
 } from '@/lib/stamp';
 import { pageBoxOf, visualSize } from '@/lib/geometry';
 import { addReviewAnnotation } from '@/lib/studio/reviewAnnotations';
+import { toWinAnsi } from '@/lib/ocr';
+import { buildSignatureAudit, signatureAuditBytes } from '@/lib/studio/signatureAudit';
 import {
   IMAGE_PAGE_LONG_SIDE,
   isUntouched,
@@ -278,6 +280,53 @@ async function drawMark(
       return;
     }
 
+    case 'signature': {
+      const bytes = assets.get(mark.asset);
+      if (!bytes) return;
+      let image = images.get(mark.asset);
+      if (!image) {
+        const kind = imageKind(bytes);
+        if (kind === null) return;
+        image = kind === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
+        images.set(mark.asset, image);
+      }
+
+      const captionFontName = standardFontFor({ family: 'helvetica', bold: false, italic: false });
+      let captionFont = fonts.get(captionFontName);
+      if (!captionFont) {
+        captionFont = await document.embedFont(captionFontName as StandardFonts);
+        fonts.set(captionFontName, captionFont);
+      }
+      const caption = toWinAnsi(`${mark.signer} · ${mark.signedOn}`);
+      const captionSize = Math.min(
+        7,
+        caption === '' ? 7 : (mark.width * 7) / captionFont.widthOfTextAtSize(caption, 7)
+      );
+
+      page.drawImage(image, {
+        x: mark.x,
+        y: mark.y + 16,
+        width: mark.width,
+        height: mark.height,
+      });
+      page.drawLine({
+        start: { x: mark.x, y: mark.y + 14 },
+        end: { x: mark.x + mark.width, y: mark.y + 14 },
+        thickness: 0.7,
+        color: rgb(0.25, 0.29, 0.36),
+      });
+      if (caption !== '') {
+        page.drawText(caption, {
+          x: mark.x,
+          y: mark.y + 4,
+          size: Math.max(captionSize, 4),
+          font: captionFont,
+          color: rgb(0.25, 0.29, 0.36),
+        });
+      }
+      return;
+    }
+
     case 'ocr': {
       // Drawn at zero opacity: the words are there to be found and selected,
       // not to be seen. The page underneath is what the reader looks at.
@@ -499,6 +548,29 @@ export async function materialize({
     const handle = byId.get(mark.page);
     if (!handle) continue;
     await drawMark(document, handle, mark, assets, fonts, images);
+  }
+
+  // One inspectable record per electronic signature. This is evidence about
+  // what OpenPDF placed, not a certificate and not an identity assertion.
+  const placedPageIds = state.pages.filter((page) => byId.has(page.id)).map((page) => page.id);
+  for (const mark of state.marks) {
+    if (mark.kind !== 'signature') continue;
+    const appearance = assets.get(mark.asset);
+    const pageNumber = placedPageIds.indexOf(mark.page) + 1;
+    if (!appearance || pageNumber === 0) continue;
+
+    const record = await buildSignatureAudit(mark, appearance, pageNumber);
+    const timestamp = new Date(mark.signedAt);
+    await document.attach(
+      signatureAuditBytes(record),
+      `openpdf-signature-audit-${mark.id}.json`,
+      {
+        mimeType: 'application/json',
+        description: 'OpenPDF electronic signature audit record',
+        creationDate: Number.isNaN(timestamp.getTime()) ? undefined : timestamp,
+        modificationDate: Number.isNaN(timestamp.getTime()) ? undefined : timestamp,
+      }
+    );
   }
 
   // Form field values.

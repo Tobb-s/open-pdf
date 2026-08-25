@@ -25,7 +25,7 @@ export function Field({
     <div className="space-y-2">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-gray-900">{label}</span>
-        {hint && <span className="text-xs text-gray-400">{hint}</span>}
+        {hint && <span className="text-xs text-gray-600">{hint}</span>}
       </div>
       {children}
     </div>
@@ -257,7 +257,7 @@ export function PageScopePicker({
             onChange={(event) => onChange({ ...scope, range: event.target.value })}
             className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-blue-400"
           />
-          <p className="text-xs text-gray-400">{t.stamp.rangeHelp}</p>
+          <p className="text-xs text-gray-600">{t.stamp.rangeHelp}</p>
 
           {invalid.length > 0 && (
             <p className="text-xs font-medium text-amber-700">

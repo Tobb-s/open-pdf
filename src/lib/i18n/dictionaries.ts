@@ -509,6 +509,7 @@ export interface Dictionary {
       pick: string;
       text: string;
       replaceText: string;
+      signature: string;
       rect: string;
       image: string;
       ink: string;
@@ -524,6 +525,7 @@ export interface Dictionary {
       pick: string;
       text: string;
       replaceText: string;
+      signature: string;
       rect: string;
       image: string;
       ink: string;
@@ -552,6 +554,19 @@ export interface Dictionary {
     replaceTextApply: string;
     replaceTextWorking: string;
     replaceTextNote: string;
+    signatureSigner: string;
+    signatureReason: string;
+    signatureReasonOptional: string;
+    signatureTyped: string;
+    signatureDrawn: string;
+    signatureImage: string;
+    signaturePrepare: string;
+    signatureClear: string;
+    signatureUse: string;
+    signaturePad: string;
+    signatureChooseImage: string;
+    signatureReady: (name: string) => string;
+    signatureNotice: string;
     strokeWidth: string;
     fill: string;
     stroke: string;
@@ -1351,6 +1366,7 @@ export const es: Dictionary = {
       pick: 'Mano',
       text: 'Texto',
       replaceText: 'Reemplazar',
+      signature: 'Firmar',
       rect: 'Rectángulo',
       image: 'Imagen',
       ink: 'Lápiz',
@@ -1366,6 +1382,7 @@ export const es: Dictionary = {
       pick: 'Mirá el documento y usá los controles de página.',
       text: 'Hacé clic donde quieras el texto.',
       replaceText: 'Elegí un fragmento del texto existente para reemplazarlo.',
+      signature: 'Prepará tu firma y hacé clic donde quieras colocarla.',
       rect: 'Arrastrá para dibujar un rectángulo.',
       image: 'Elegí una imagen y hacé clic para ponerla.',
       ink: 'Arrastrá para dibujar a mano alzada.',
@@ -1395,6 +1412,20 @@ export const es: Dictionary = {
     replaceTextWorking: 'Reemplazando…',
     replaceTextNote:
       'Para borrar el texto anterior de verdad, esta página se convierte en una imagen. Conserva su aspecto y vuelve a ser buscable, pero pierde enlaces, formularios, capas y anotaciones interactivas de esa página. El original queda intacto.',
+    signatureSigner: 'Nombre del firmante',
+    signatureReason: 'Motivo',
+    signatureReasonOptional: 'Opcional. Queda en el registro de auditoría.',
+    signatureTyped: 'Escribir',
+    signatureDrawn: 'Dibujar',
+    signatureImage: 'Imagen',
+    signaturePrepare: 'Preparar firma',
+    signatureClear: 'Limpiar',
+    signatureUse: 'Usar firma',
+    signaturePad: 'Área para dibujar la firma',
+    signatureChooseImage: 'Elegir imagen de firma',
+    signatureReady: (name) => `Firma lista: ${name}. Hacé clic en la página para colocarla.`,
+    signatureNotice:
+      'Esta es una firma electrónica visual con fecha, método y hash de auditoría. No usa certificado digital y OpenPDF no verifica la identidad del firmante.',
     strokeWidth: 'Grosor',
     fill: 'Relleno',
     stroke: 'Borde',
@@ -2197,6 +2228,7 @@ export const en: Dictionary = {
       pick: 'Hand',
       text: 'Text',
       replaceText: 'Replace',
+      signature: 'Sign',
       rect: 'Rectangle',
       image: 'Image',
       ink: 'Pen',
@@ -2212,6 +2244,7 @@ export const en: Dictionary = {
       pick: 'Look through the document and use the page controls.',
       text: 'Click where you want the text.',
       replaceText: 'Select an existing text fragment to replace it.',
+      signature: 'Prepare your signature, then click where you want to place it.',
       rect: 'Drag to draw a rectangle.',
       image: 'Choose an image, then click to place it.',
       ink: 'Drag to draw freehand.',
@@ -2241,6 +2274,20 @@ export const en: Dictionary = {
     replaceTextWorking: 'Replacing…',
     replaceTextNote:
       'To truly remove the old text, this page becomes an image. It keeps its appearance and becomes searchable again, but page links, forms, layers, and interactive annotations are lost. The original stays untouched.',
+    signatureSigner: 'Signer name',
+    signatureReason: 'Reason',
+    signatureReasonOptional: 'Optional. Stored in the audit record.',
+    signatureTyped: 'Type',
+    signatureDrawn: 'Draw',
+    signatureImage: 'Image',
+    signaturePrepare: 'Prepare signature',
+    signatureClear: 'Clear',
+    signatureUse: 'Use signature',
+    signaturePad: 'Signature drawing area',
+    signatureChooseImage: 'Choose signature image',
+    signatureReady: (name) => `Signature ready: ${name}. Click the page to place it.`,
+    signatureNotice:
+      'This is a visible electronic signature with a date, method, and audit hash. It does not use a digital certificate, and OpenPDF does not verify the signer’s identity.',
     strokeWidth: 'Thickness',
     fill: 'Fill',
     stroke: 'Border',
