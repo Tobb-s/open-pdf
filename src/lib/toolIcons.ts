@@ -12,6 +12,7 @@ import {
   Split,
   SquarePen,
   Stamp,
+  Workflow,
   type LucideIcon,
 } from 'lucide-react';
 import type { ToolSlug } from '@/lib/tools';
@@ -34,5 +35,6 @@ export const TOOL_ICONS: Record<ToolSlug, LucideIcon> = {
   'image-pdf': ImageIcon,
   watermark: Stamp,
   'page-numbers': Hash,
+  batch: Workflow,
   studio: SquarePen,
 };

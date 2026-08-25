@@ -1,4 +1,5 @@
 import type { Mark } from '@/lib/studio/script';
+import { sha256Hex } from '@/lib/hash';
 
 export type SignatureMark = Extract<Mark, { kind: 'signature' }>;
 
@@ -17,11 +18,6 @@ export interface SignatureAuditRecord {
   notice: string;
 }
 
-async function sha256(bytes: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes.slice());
-  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, '0')).join('');
-}
-
 export async function buildSignatureAudit(
   mark: SignatureMark,
   appearance: Uint8Array,
@@ -36,7 +32,7 @@ export async function buildSignatureAudit(
     signedOn: mark.signedOn,
     method: mark.method,
     page,
-    appearanceSha256: await sha256(appearance),
+    appearanceSha256: await sha256Hex(appearance),
     identityVerified: false,
     certificateBased: false,
     notice:

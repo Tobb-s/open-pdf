@@ -483,6 +483,41 @@ export interface Dictionary {
     doneBody: string;
     another: string;
   };
+  batch: {
+    heading: string;
+    intro: string;
+    choose: string;
+    addFiles: string;
+    fileCount: (count: number) => string;
+    removeFile: string;
+    recipe: string;
+    rotate: string;
+    rotateNone: string;
+    watermark: string;
+    watermarkPlaceholder: string;
+    pageNumbers: string;
+    flattenForms: string;
+    flattenNote: string;
+    signedNote: string;
+    privacyNote: string;
+    action: string;
+    noActionTitle: string;
+    noActionBody: string;
+    working: (current: number, total: number, name: string) => string;
+    cancel: string;
+    outputLimit: string;
+    tooManyFiles: string;
+    reportTitle: string;
+    reportSummary: (success: number, failed: number) => string;
+    cancelledNote: string;
+    signedInputs: (count: number) => string;
+    downloadZip: string;
+    startOver: string;
+    success: string;
+    failed: string;
+    pages: (count: number) => string;
+    formsFixed: (count: number) => string;
+  };
   studio: {
     heading: string;
     intro: string;
@@ -866,6 +901,14 @@ export const es: Dictionary = {
       description:
         'Numerá las páginas de un PDF eligiendo posición, desde qué número empezar y el formato. Funciona también en páginas rotadas. Todo en tu navegador.',
       keywords: ['numerar', 'números', 'página', 'foliar', 'paginación', 'numeración'],
+    },
+    batch: {
+      title: 'Automatizar PDFs por lote',
+      navLabel: 'Lotes',
+      tagline: 'Aplicá la misma receta a varios PDFs.',
+      description:
+        'Procesá varios PDFs de una vez: girá páginas, agregá marca de agua y numeración, fijá formularios y descargá un ZIP con informe. Todo en tu navegador.',
+      keywords: ['lote', 'batch', 'automatizar', 'muchos', 'zip', 'receta', 'acción'],
     },
     studio: {
       title: 'OpenPDF Studio',
@@ -1339,6 +1382,42 @@ export const es: Dictionary = {
     doneBody: 'Tu documento numerado está listo.',
     another: 'Numerar otro',
   },
+  batch: {
+    heading: 'Automatizar PDFs por lote',
+    intro: 'Elegí varios archivos, definí una receta y recibí un ZIP con resultados e informe.',
+    choose: 'Elegí varios PDFs',
+    addFiles: 'Agregar más PDFs',
+    fileCount: (count) => `${count} ${count === 1 ? 'archivo' : 'archivos'}`,
+    removeFile: 'Quitar archivo',
+    recipe: 'Receta del lote',
+    rotate: 'Girar todas las páginas',
+    rotateNone: 'No girar',
+    watermark: 'Agregar marca de agua',
+    watermarkPlaceholder: 'Ejemplo: CONFIDENCIAL',
+    pageNumbers: 'Numerar páginas',
+    flattenForms: 'Fijar formularios',
+    flattenNote: 'Los campos conservan lo que muestran y dejan de ser editables.',
+    signedNote: 'Si un archivo ya tiene firma digital, cualquier cambio la invalida. El informe lo señala.',
+    privacyNote: 'Todo se procesa en este navegador. Ningún PDF se sube a un servidor.',
+    action: 'Procesar lote',
+    noActionTitle: 'La receta está vacía',
+    noActionBody: 'Elegí al menos una acción antes de procesar.',
+    working: (current, total, name) => `Procesando ${current} de ${total}: ${name}`,
+    cancel: 'Cancelar',
+    outputLimit: 'Se alcanzó el límite seguro de 300 MB de resultados en memoria.',
+    tooManyFiles: 'Un lote admite hasta 50 archivos.',
+    reportTitle: 'Lote terminado',
+    reportSummary: (success, failed) => `${success} correctos · ${failed} con error`,
+    cancelledNote:
+      'El lote fue cancelado. El ZIP contiene los archivos terminados antes de detenerlo.',
+    signedInputs: (count) => `${count} ${count === 1 ? 'archivo tenía' : 'archivos tenían'} firma digital y la modificación la invalida.`,
+    downloadZip: 'Descargar ZIP',
+    startOver: 'Procesar otro lote',
+    success: 'Correcto',
+    failed: 'Error',
+    pages: (count) => `${count} ${count === 1 ? 'página' : 'páginas'}`,
+    formsFixed: (count) => `${count} ${count === 1 ? 'campo fijado' : 'campos fijados'}`,
+  },
   studio: {
     heading: 'OpenPDF Studio',
     intro:
@@ -1742,6 +1821,14 @@ export const en: Dictionary = {
       description:
         'Number the pages of a PDF, choosing position, the number to start from and the format. Works on rotated pages too. All in your browser.',
       keywords: ['page numbers', 'numbering', 'paginate', 'folio', 'number pages'],
+    },
+    batch: {
+      title: 'Batch PDF automation',
+      navLabel: 'Batch',
+      tagline: 'Apply one recipe to several PDFs.',
+      description:
+        'Process several PDFs at once: rotate pages, add a watermark and numbering, flatten forms, and download a ZIP with a report. Everything runs in your browser.',
+      keywords: ['batch', 'automate', 'multiple', 'many', 'zip', 'recipe', 'action'],
     },
     studio: {
       title: 'OpenPDF Studio',
@@ -2200,6 +2287,42 @@ export const en: Dictionary = {
     doneTitle: (pages) => `${pages} ${pages === 1 ? 'page numbered' : 'pages numbered'}`,
     doneBody: 'Your numbered document is ready.',
     another: 'Number another',
+  },
+  batch: {
+    heading: 'Batch PDF automation',
+    intro: 'Choose several files, define one recipe, and receive a ZIP with results and a report.',
+    choose: 'Choose several PDFs',
+    addFiles: 'Add more PDFs',
+    fileCount: (count) => `${count} ${count === 1 ? 'file' : 'files'}`,
+    removeFile: 'Remove file',
+    recipe: 'Batch recipe',
+    rotate: 'Rotate every page',
+    rotateNone: 'Do not rotate',
+    watermark: 'Add watermark',
+    watermarkPlaceholder: 'Example: CONFIDENTIAL',
+    pageNumbers: 'Number pages',
+    flattenForms: 'Flatten forms',
+    flattenNote: 'Fields keep what they display and become read-only page content.',
+    signedNote: 'If a file already has a digital signature, any change invalidates it. The report flags it.',
+    privacyNote: 'Everything runs in this browser. No PDF is uploaded to a server.',
+    action: 'Process batch',
+    noActionTitle: 'The recipe is empty',
+    noActionBody: 'Choose at least one action before processing.',
+    working: (current, total, name) => `Processing ${current} of ${total}: ${name}`,
+    cancel: 'Cancel',
+    outputLimit: 'The safe 300 MB in-memory result limit was reached.',
+    tooManyFiles: 'A batch can contain up to 50 files.',
+    reportTitle: 'Batch complete',
+    reportSummary: (success, failed) => `${success} succeeded · ${failed} failed`,
+    cancelledNote:
+      'The batch was cancelled. The ZIP contains the files completed before it stopped.',
+    signedInputs: (count) => `${count} digitally signed ${count === 1 ? 'file was' : 'files were'} changed, invalidating the signature.`,
+    downloadZip: 'Download ZIP',
+    startOver: 'Process another batch',
+    success: 'Succeeded',
+    failed: 'Failed',
+    pages: (count) => `${count} ${count === 1 ? 'page' : 'pages'}`,
+    formsFixed: (count) => `${count} ${count === 1 ? 'field flattened' : 'fields flattened'}`,
   },
   studio: {
     heading: 'OpenPDF Studio',
