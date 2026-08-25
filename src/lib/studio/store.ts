@@ -206,6 +206,10 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
         if (edit.raster) referenced.add(edit.raster.asset);
         break;
 
+      case 'replaceText':
+        referenced.add(edit.raster.asset);
+        break;
+
       case 'rotate':
       case 'delete':
       case 'move':

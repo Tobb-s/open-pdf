@@ -303,6 +303,28 @@ async function drawMark(
       return;
     }
 
+    case 'textLayer': {
+      const name = standardFontFor({ family: 'helvetica', bold: false, italic: false });
+      let font = fonts.get(name);
+      if (!font) {
+        font = await document.embedFont(name as StandardFonts);
+        fonts.set(name, font);
+      }
+      for (const word of mark.words) {
+        if (firstUnsupportedCharacter(word.text, font) !== null) continue;
+        page.drawText(word.text, {
+          x: word.x,
+          y: word.y,
+          size: word.size,
+          font,
+          color: rgb(0, 0, 0),
+          opacity: 0,
+          rotate: degrees(word.rotate),
+        });
+      }
+      return;
+    }
+
     case 'ink': {
       // Segment by segment rather than as an SVG path: pdf-lib's path drawing
       // uses its own top-left convention, and a stroke that lands in the wrong

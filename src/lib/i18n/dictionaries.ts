@@ -508,6 +508,7 @@ export interface Dictionary {
     tools: {
       pick: string;
       text: string;
+      replaceText: string;
       rect: string;
       image: string;
       ink: string;
@@ -522,6 +523,7 @@ export interface Dictionary {
     toolHint: {
       pick: string;
       text: string;
+      replaceText: string;
       rect: string;
       image: string;
       ink: string;
@@ -543,6 +545,13 @@ export interface Dictionary {
     addImageFirst: string;
     cropReset: string;
     textPlaceholder: string;
+    replaceTextOriginal: string;
+    replaceTextNew: string;
+    replaceTextBackground: string;
+    replaceTextPick: string;
+    replaceTextApply: string;
+    replaceTextWorking: string;
+    replaceTextNote: string;
     strokeWidth: string;
     fill: string;
     stroke: string;
@@ -1341,6 +1350,7 @@ export const es: Dictionary = {
     tools: {
       pick: 'Mano',
       text: 'Texto',
+      replaceText: 'Reemplazar',
       rect: 'Rectángulo',
       image: 'Imagen',
       ink: 'Lápiz',
@@ -1355,6 +1365,7 @@ export const es: Dictionary = {
     toolHint: {
       pick: 'Mirá el documento y usá los controles de página.',
       text: 'Hacé clic donde quieras el texto.',
+      replaceText: 'Elegí un fragmento del texto existente para reemplazarlo.',
       rect: 'Arrastrá para dibujar un rectángulo.',
       image: 'Elegí una imagen y hacé clic para ponerla.',
       ink: 'Arrastrá para dibujar a mano alzada.',
@@ -1376,6 +1387,14 @@ export const es: Dictionary = {
     addImageFirst: 'Elegí una imagen',
     cropReset: 'Quitar el recorte',
     textPlaceholder: 'Escribí acá…',
+    replaceTextOriginal: 'Texto original',
+    replaceTextNew: 'Texto nuevo',
+    replaceTextBackground: 'Fondo del documento',
+    replaceTextPick: 'Hacé clic sobre el fragmento que querés reemplazar en la página.',
+    replaceTextApply: 'Aplicar reemplazo',
+    replaceTextWorking: 'Reemplazando…',
+    replaceTextNote:
+      'Para borrar el texto anterior de verdad, esta página se convierte en una imagen. Conserva su aspecto y vuelve a ser buscable, pero pierde enlaces, formularios, capas y anotaciones interactivas de esa página. El original queda intacto.',
     strokeWidth: 'Grosor',
     fill: 'Relleno',
     stroke: 'Borde',
@@ -1401,7 +1420,8 @@ export const es: Dictionary = {
     forget: 'Borrar lo guardado',
     exportAction: 'Exportar',
     exporting: 'Exportando…',
-    doneTitle: (pages) => `${pages} ${pages === 1 ? 'página' : 'páginas'} exportadas`,
+    doneTitle: (pages) =>
+      `${pages} ${pages === 1 ? 'página exportada' : 'páginas exportadas'}`,
     doneBody: 'Tu documento está listo.',
     keptNote: (list) => `Se conservaron ${list}.`,
     lostNote: (list) =>
@@ -2176,6 +2196,7 @@ export const en: Dictionary = {
     tools: {
       pick: 'Hand',
       text: 'Text',
+      replaceText: 'Replace',
       rect: 'Rectangle',
       image: 'Image',
       ink: 'Pen',
@@ -2190,6 +2211,7 @@ export const en: Dictionary = {
     toolHint: {
       pick: 'Look through the document and use the page controls.',
       text: 'Click where you want the text.',
+      replaceText: 'Select an existing text fragment to replace it.',
       rect: 'Drag to draw a rectangle.',
       image: 'Choose an image, then click to place it.',
       ink: 'Drag to draw freehand.',
@@ -2211,6 +2233,14 @@ export const en: Dictionary = {
     addImageFirst: 'Choose an image',
     cropReset: 'Remove the crop',
     textPlaceholder: 'Type here…',
+    replaceTextOriginal: 'Original text',
+    replaceTextNew: 'New text',
+    replaceTextBackground: 'Document background',
+    replaceTextPick: 'Click the text fragment you want to replace on the page.',
+    replaceTextApply: 'Apply replacement',
+    replaceTextWorking: 'Replacing…',
+    replaceTextNote:
+      'To truly remove the old text, this page becomes an image. It keeps its appearance and becomes searchable again, but page links, forms, layers, and interactive annotations are lost. The original stays untouched.',
     strokeWidth: 'Thickness',
     fill: 'Fill',
     stroke: 'Border',
