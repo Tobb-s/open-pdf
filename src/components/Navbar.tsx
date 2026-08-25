@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
  * Two entries, not fourteen. The tools used to be listed across the bar one by
  * one, and by the thirteenth they had begun to overlap the logo; the answer is
  * not a smaller font but a shallower top level. «Herramientas» opens a panel
- * holding the twelve; «Studio» is the editor and stands on its own. Below the
+ * holding the single-task tools; «Studio» is the editor and stands on its own. Below the
  * desktop breakpoint the same panel opens from a menu button — there used to be
  * no navigation at all on a phone.
  *
