@@ -75,6 +75,30 @@ describe('assetsReferencedBy', () => {
     expect([...assetsReferencedBy(edits)]).toEqual([]);
   });
 
+  it('keeps the flattened page used by a text replacement', () => {
+    const edits: Edit[] = [
+      {
+        kind: 'replaceText',
+        page: 'o0',
+        raster: { asset: 'texto-plano', boxes: [] },
+        textLayer: { kind: 'textLayer', id: 'layer', page: 'o0', words: [] },
+        replacement: {
+          kind: 'text',
+          id: 'new',
+          page: 'o0',
+          x: 10,
+          y: 10,
+          text: 'nuevo',
+          size: 12,
+          color: { r: 0, g: 0, b: 0 },
+          rotate: 0,
+          font: { family: 'helvetica', bold: false, italic: false },
+        },
+      },
+    ];
+    expect([...assetsReferencedBy(edits)]).toEqual(['texto-plano']);
+  });
+
   it('names nothing for the edits that carry no bytes', () => {
     // Every remaining kind in the union, so that adding one and forgetting it
     // shows up here as well as at the compiler.

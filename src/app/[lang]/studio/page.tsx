@@ -6,7 +6,11 @@ import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
-import Stage, { type StageAction, type StageTool } from '@/components/studio/Stage';
+import Stage, {
+  type StageAction,
+  type StageTool,
+  type TextSelection,
+} from '@/components/studio/Stage';
 import { isEditableTarget, shortcutFor, TOOL_ORDER } from '@/lib/studio/shortcuts';
 import DocumentPanel from '@/components/studio/DocumentPanel';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
@@ -24,6 +28,7 @@ import {
   Loader2,
   Pen,
   Redo2,
+  Replace,
   Send,
   MessageSquareText,
   Square,
@@ -263,6 +268,13 @@ export default function StudioPage() {
 
   const [textValue, setTextValue] = useState('');
   const [textSize, setTextSize] = useState(14);
+  const [textSelection, setTextSelection] = useState<
+    (TextSelection & { page: string }) | null
+  >(null);
+  const [replacementValue, setReplacementValue] = useState('');
+  const [replacementSize, setReplacementSize] = useState(14);
+  const [replacementBackground, setReplacementBackground] = useState('#ffffff');
+  const [replacingText, setReplacingText] = useState(false);
   const [inkWidth, setInkWidth] = useState(2);
   const [color, setColor] = useState('#c62828');
   const [toolMode, setToolMode] = useState<'edit' | 'review'>('edit');
@@ -427,6 +439,8 @@ export default function StudioPage() {
       setPendingImage(null);
       setCommentBody('');
       setReplyDrafts({});
+      setTextSelection(null);
+      setReplacementValue('');
       setPanel('page');
       setImportNotes([]);
       setOcrResult(null);
@@ -1148,6 +1162,96 @@ export default function StudioPage() {
     [addEdit, describeStudioError, original, pageIndex, state, pageIdAt]
   );
 
+  /**
+   * Replaces selected page text without leaving the old content underneath.
+   *
+   * The current page is photographed exactly as shown, the old glyph box is
+   * painted out in that bitmap, and the flattened page receives the new text
+   * plus an invisible reconstruction of every other text run. One edit owns
+   * all three pieces, so a single undo restores the complete previous page.
+   */
+  const replaceSelectedText = async () => {
+    const engine = engineRef.current;
+    const selection = textSelection;
+    const document_ = built?.document;
+    const page = pageIdAt(pageIndex);
+    const replacement = replacementValue.trim();
+    if (!engine || !selection || !document_ || !page || selection.page !== page || replacement === '') {
+      return;
+    }
+
+    setReplacingText(true);
+    setError(null);
+    try {
+      const target = await document_.getPage(pageIndex + 1);
+      const viewport = target.getViewport({ scale: RASTER_SCALE });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('This browser did not provide a 2D canvas context.');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await target.render({ canvas, canvasContext: context, viewport }).promise;
+
+      const box = selection.selected.visual;
+      const padding = 1.25 * RASTER_SCALE;
+      context.fillStyle = replacementBackground;
+      context.fillRect(
+        box.left * RASTER_SCALE - padding,
+        box.top * RASTER_SCALE - padding,
+        box.width * RASTER_SCALE + padding * 2,
+        box.height * RASTER_SCALE + padding * 2
+      );
+      target.cleanup();
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      canvas.width = 0;
+      canvas.height = 0;
+      if (!blob) throw new Error('This browser could not produce the image.');
+      const raster = new Uint8Array(await blob.arrayBuffer());
+      const asset = newId();
+      engine.putAsset(asset, raster);
+      setAssets((current) => ({ ...current, [asset]: raster }));
+
+      const searchable = selection.runs
+        .filter((run) => run.id !== selection.selected.id)
+        .map((run) => ({ ...run, text: toWinAnsi(run.text) }))
+        .filter((run) => run.text !== '')
+        .map(({ text, x, y, size, rotate }) => ({ text, x, y, size, rotate }));
+
+      addEdit({
+        kind: 'replaceText',
+        page,
+        raster: { asset, boxes: [] },
+        textLayer: {
+          kind: 'textLayer',
+          id: newId(),
+          page,
+          words: searchable,
+        },
+        replacement: {
+          kind: 'text',
+          id: newId(),
+          page,
+          x: selection.selected.x,
+          y: selection.selected.y,
+          text: replacement,
+          size: replacementSize,
+          color: hexToRgb(color),
+          rotate: selection.selected.rotate,
+          font: { family: 'helvetica', bold: false, italic: false },
+        },
+      });
+      setTextSelection(null);
+      setReplacementValue('');
+    } catch (caught) {
+      setError(describeStudioError(caught));
+    } finally {
+      setReplacingText(false);
+    }
+  };
+
   /* -------------------------------------------------------------- export - */
 
   const doExport = async () => {
@@ -1229,7 +1333,9 @@ export default function StudioPage() {
   const listFormat = (items: string[]) =>
     new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(items);
 
-  const marksHere = (view?.marks ?? []).filter((mark) => mark.page === pageIdAt(pageIndex));
+  const marksHere = (view?.marks ?? []).filter(
+    (mark) => mark.page === pageIdAt(pageIndex) && mark.kind !== 'textLayer'
+  );
 
   /* ---------------------------------------------------------------- view - */
 
@@ -1384,6 +1490,7 @@ export default function StudioPage() {
     { id: 'image', label: t.studio.tools.image, icon: ImageUp },
     { id: 'crop', label: t.studio.tools.crop, icon: Crop },
     { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
+    { id: 'replaceText', label: t.studio.tools.replaceText, icon: Replace },
   ];
   const REVIEW_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
     { id: 'highlight', label: t.studio.tools.highlight, icon: Highlighter },
@@ -1528,8 +1635,16 @@ export default function StudioPage() {
               document={built?.document ?? null}
               pageIndex={pageIndex}
               tool={tool}
-              busy={building}
+              busy={building || replacingText}
               onAction={onStageAction}
+              selectedTextId={textSelection?.page === pageIdAt(pageIndex) ? textSelection.selected.id : null}
+              onTextSelect={(selection) => {
+                const page = pageIdAt(pageIndex);
+                if (!page) return;
+                setTextSelection({ ...selection, page });
+                setReplacementValue(selection.selected.text);
+                setReplacementSize(Math.max(4, Math.round(selection.selected.size)));
+              }}
             />
 
             <div className="flex items-center justify-center gap-4 text-sm">
@@ -1666,7 +1781,10 @@ export default function StudioPage() {
                     key={id}
                     type="button"
                     aria-pressed={tool === id}
-                    onClick={() => setTool(id)}
+                    onClick={() => {
+                      setTool(id);
+                      if (id !== 'replaceText') setTextSelection(null);
+                    }}
                     title={shortcutIndex === -1 ? label : `${label} · ${shortcutIndex + 1}`}
                     className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-colors ${
                       tool === id
@@ -1720,6 +1838,56 @@ export default function StudioPage() {
                   />
                 </Field>
                 <NumberRow label={t.stamp.size} value={textSize} min={4} max={200} onChange={setTextSize} />
+              </>
+            )}
+
+            {tool === 'replaceText' && (
+              <>
+                {textSelection?.page === pageIdAt(pageIndex) ? (
+                  <>
+                    <Field label={t.studio.replaceTextOriginal}>
+                      <p className="max-h-24 overflow-auto rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                        {textSelection.selected.text}
+                      </p>
+                    </Field>
+                    <Field label={t.studio.replaceTextNew}>
+                      <textarea
+                        value={replacementValue}
+                        rows={3}
+                        onChange={(event) => setReplacementValue(event.target.value)}
+                        className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                      />
+                    </Field>
+                    <NumberRow
+                      label={t.stamp.size}
+                      value={replacementSize}
+                      min={4}
+                      max={200}
+                      onChange={setReplacementSize}
+                    />
+                    <ColorRow
+                      label={t.studio.replaceTextBackground}
+                      value={replacementBackground}
+                      onChange={setReplacementBackground}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void replaceSelectedText()}
+                      disabled={replacingText || building || replacementValue.trim() === ''}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:bg-gray-300"
+                    >
+                      {replacingText ? <Loader2 className="h-4 w-4 animate-spin" /> : <Replace className="h-4 w-4" />}
+                      {replacingText ? t.studio.replaceTextWorking : t.studio.replaceTextApply}
+                    </button>
+                  </>
+                ) : (
+                  <p className="rounded-xl bg-cyan-50 p-3 text-xs text-cyan-950">
+                    {t.studio.replaceTextPick}
+                  </p>
+                )}
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  {t.studio.replaceTextNote}
+                </p>
               </>
             )}
 
@@ -1803,7 +1971,7 @@ export default function StudioPage() {
                   </>
                 )}
               </button>
-              <p className="text-xs text-gray-400">{t.studio.pageToImageNote}</p>
+              <p className="text-xs text-gray-600">{t.studio.pageToImageNote}</p>
             </div>
 
             <div className="border-t pt-4">
@@ -1820,7 +1988,7 @@ export default function StudioPage() {
                   }}
                 />
               </label>
-              <p className="mt-1 text-xs text-gray-400">{t.studio.insertHint}</p>
+              <p className="mt-1 text-xs text-gray-600">{t.studio.insertHint}</p>
             </div>
             </>
             )}
@@ -1835,7 +2003,11 @@ export default function StudioPage() {
                     <li key={mark.id} className="space-y-2 py-2 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <span className="truncate font-medium text-gray-600">
-                          {mark.kind === 'text' ? mark.text : t.studio.tools[mark.kind]}
+                          {mark.kind === 'text'
+                            ? mark.text
+                            : mark.kind === 'textLayer'
+                              ? t.studio.tools.ocr
+                              : t.studio.tools[mark.kind]}
                         </span>
                         <button
                           type="button"

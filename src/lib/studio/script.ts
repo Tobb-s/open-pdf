@@ -139,6 +139,19 @@ export type Mark =
       words: ReadonlyArray<{ text: string; x: number; y: number; size: number }>;
     }
   | {
+      /** Searchable text rebuilt after a page is flattened for text replacement. */
+      kind: 'textLayer';
+      id: string;
+      page: PageId;
+      words: ReadonlyArray<{
+        text: string;
+        x: number;
+        y: number;
+        size: number;
+        rotate: number;
+      }>;
+    }
+  | {
       kind: 'ink';
       id: string;
       page: PageId;
@@ -261,6 +274,14 @@ export type Edit =
   | { kind: 'watermark'; spec: WatermarkSpec | null }
   | { kind: 'numbering'; spec: NumberingSpec | null }
   | { kind: 'raster'; page: PageId; raster: PageRaster | null }
+  | {
+      /** Flattens a page, replaces its marks, and writes new text in one undo step. */
+      kind: 'replaceText';
+      page: PageId;
+      raster: PageRaster;
+      replacement: Extract<Mark, { kind: 'text' }>;
+      textLayer: Extract<Mark, { kind: 'textLayer' }>;
+    }
   | { kind: 'flattenForms'; on: boolean };
 
 export interface ScriptState {
@@ -458,6 +479,20 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
 
     case 'raster':
       return withPage(state, edit.page, (page) => ({ ...page, raster: edit.raster }));
+
+    case 'replaceText': {
+      if (!state.pages.some((page) => page.id === edit.page)) return state;
+      const pages = state.pages.map((page) =>
+        page.id === edit.page ? { ...page, raster: edit.raster } : page
+      );
+      // Every visible mark on this page is already baked into the new bitmap.
+      // Keeping it would draw it a second time. Only the new visible text and
+      // the rebuilt search layer remain as live content.
+      const marks = state.marks
+        .filter((mark) => mark.page !== edit.page)
+        .concat(edit.textLayer, edit.replacement);
+      return { ...state, pages, marks };
+    }
 
     case 'flattenForms':
       return { ...state, flattenForms: edit.on };

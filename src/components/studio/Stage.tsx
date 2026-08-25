@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Loader2 } from 'lucide-react';
 import { clientToCanvasPoint, viewportToPdfPoint } from '@/lib/geometry';
 import { renderPageToCanvas } from '@/lib/pdfjs';
+import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
 
 /**
  * The page, drawn from the bytes the editor actually produced.
@@ -26,6 +27,7 @@ export type StageTool =
   | 'ink'
   | 'crop'
   | 'redact'
+  | 'replaceText'
   | 'highlight'
   | 'underline'
   | 'strikeout'
@@ -36,6 +38,12 @@ export type StageAction =
   | { kind: 'rect'; x: number; y: number; width: number; height: number }
   | { kind: 'path'; points: Array<[number, number]> };
 
+export interface TextSelection {
+  selected: FlatTextRun;
+  /** All text on the same rendered page, used to rebuild its searchable layer. */
+  runs: readonly FlatTextRun[];
+}
+
 interface StageProps {
   document: PDFDocumentProxy | null;
   /** 0-based page of the materialised document. */
@@ -44,6 +52,8 @@ interface StageProps {
   busy: boolean;
   /** Called with coordinates in the page's PDF user space. */
   onAction: (action: StageAction, pageRotation: number) => void;
+  selectedTextId?: string | null;
+  onTextSelect?: (selection: TextSelection) => void;
 }
 
 const MAX_EDGE = 760;
@@ -53,16 +63,25 @@ type Drag =
   | { kind: 'rect'; from: { x: number; y: number }; to: { x: number; y: number } }
   | { kind: 'path'; points: Array<{ x: number; y: number }> };
 
-export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }: StageProps) {
+export default function Stage({
+  document: pdf,
+  pageIndex,
+  tool,
+  busy,
+  onAction,
+  selectedTextId = null,
+  onTextSelect,
+}: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<Awaited<ReturnType<typeof renderPageToCanvas>>['viewport'] | null>(
     null
   );
   const rotationRef = useRef(0);
   const strokeRotationRef = useRef(0);
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+  const [size, setSize] = useState<{ width: number; height: number; scale: number } | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [textRuns, setTextRuns] = useState<FlatTextRun[]>([]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -84,14 +103,27 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
         const rendered = await renderPageToCanvas(page, canvas, scale, {
           signal: controller.signal,
         });
+        let content: Awaited<ReturnType<typeof page.getTextContent>> | null = null;
+        if (tool === 'replaceText') {
+          try {
+            content = await page.getTextContent();
+          } catch {
+            // A malformed text stream must not make an otherwise renderable
+            // page disappear. It simply has no selectable replacement targets.
+          }
+        }
         rotationRef.current = page.rotate;
         page.cleanup();
         if (cancelled) return;
 
         viewportRef.current = rendered.viewport;
-        setSize({ width: rendered.width, height: rendered.height });
+        setSize({ width: rendered.width, height: rendered.height, scale: rendered.viewport.scale });
+        setTextRuns(content ? flattenTextRuns(content.items, rendered.viewport) : []);
       } catch {
-        if (!cancelled) setSize(null);
+        if (!cancelled) {
+          setSize(null);
+          setTextRuns([]);
+        }
       } finally {
         if (!cancelled) setRendering(false);
       }
@@ -101,7 +133,7 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
       cancelled = true;
       controller.abort();
     };
-  }, [pdf, pageIndex]);
+  }, [pdf, pageIndex, tool]);
 
   const toCanvas = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -134,7 +166,7 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
   };
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (tool === 'pick' || busy) return;
+    if (tool === 'pick' || tool === 'replaceText' || busy) return;
     const point = toCanvas(event);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -198,8 +230,7 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
     );
   };
 
-  const cursor =
-    busy || tool === 'pick' ? 'default' : tool === 'ink' ? 'crosshair' : 'crosshair';
+  const cursor = busy || tool === 'pick' || tool === 'replaceText' ? 'default' : 'crosshair';
 
   return (
     <div className="relative flex min-h-[24rem] items-center justify-center overflow-auto rounded-3xl border bg-gray-100 p-4">
@@ -216,6 +247,41 @@ export default function Stage({ document: pdf, pageIndex, tool, busy, onAction }
             setDrag(null);
           }}
         />
+
+        {tool === 'replaceText' && size && (
+          <div className="pointer-events-none absolute inset-0">
+            {textRuns.map((run) => {
+              const scale = size.scale;
+              const left = (run.visual.left * scale * 100) / size.width;
+              const top = (run.visual.top * scale * 100) / size.height;
+              const width = (run.visual.width * scale * 100) / size.width;
+              const height = (run.visual.height * scale * 100) / size.height;
+              const selected = run.id === selectedTextId;
+              return (
+                <button
+                  key={run.id}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={selected}
+                  aria-label={run.text}
+                  title={run.text}
+                  onClick={() => onTextSelect?.({ selected: run, runs: textRuns })}
+                  className={`pointer-events-auto absolute border-2 transition-colors disabled:pointer-events-none ${
+                    selected
+                      ? 'border-violet-700 bg-violet-300/35'
+                      : 'border-transparent bg-cyan-300/10 hover:border-cyan-700 hover:bg-cyan-300/25'
+                  }`}
+                  style={{
+                    left: `${left}%`,
+                    top: `${top}%`,
+                    width: `${Math.max(width, 0.5)}%`,
+                    height: `${Math.max(height, 0.8)}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
 
         {/* The shape being drawn, in canvas pixels, over the page. */}
         {pdf && size && drag && (
