@@ -15,7 +15,7 @@ import { TOOL_ICONS } from '@/lib/toolIcons';
  *
  * Two families, each in its own container, rather than thirteen equal cards.
  * OpenPDF Studio is the editor and gets a card of its own, in its colour, with
- * its button; OpenPDF Tools is the box the twelve single-task tools live in.
+ * its button; OpenPDF Tools is the box the single-task tools live in.
  * The search in the hero flattens all of that into results the moment the
  * reader types — browsing is structured, searching is not.
  */
@@ -154,7 +154,7 @@ export default function Home() {
               </div>
             </section>
 
-            {/* The toolbox: the twelve, inside the thing that holds them. */}
+            {/* The toolbox: single-task tools inside the thing that holds them. */}
             <section id="tools" className="scroll-mt-24 pb-24" aria-labelledby="tools-heading">
               <div className="rounded-3xl border border-gray-100 bg-gray-50 p-6 sm:p-8">
                 <div className="mb-6">

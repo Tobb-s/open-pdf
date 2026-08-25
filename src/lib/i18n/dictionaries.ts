@@ -783,7 +783,7 @@ export const es: Dictionary = {
     openStudio: 'Abrir Studio',
     toolsName: 'OpenPDF Tools',
     toolsBody:
-      'Doce herramientas, una por tarea. Abrís, hacés lo tuyo y descargás; nada sale de tu dispositivo.',
+      'Trece herramientas, una por tarea. Abrís, hacés lo tuyo y descargás; nada sale de tu dispositivo.',
   },
   structures: {
     form: 'los campos de formulario',
@@ -1703,7 +1703,7 @@ export const en: Dictionary = {
     openStudio: 'Open Studio',
     toolsName: 'OpenPDF Tools',
     toolsBody:
-      'Twelve tools, one per task. Open, do the one thing, download; nothing leaves your device.',
+      'Thirteen tools, one per task. Open, do the one thing, download; nothing leaves your device.',
   },
   structures: {
     form: 'the form fields',
