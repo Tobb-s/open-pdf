@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { Loader2 } from 'lucide-react';
 import { clientToCanvasPoint, viewportToPdfPoint } from '@/lib/geometry';
 import { renderPageToCanvas } from '@/lib/pdfjs';
 import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
+import { groupTextParagraphs, type TextParagraph } from '@/lib/studio/paragraphs';
 
 /**
  * The page, drawn from the bytes the editor actually produced.
@@ -28,6 +29,7 @@ export type StageTool =
   | 'crop'
   | 'redact'
   | 'replaceText'
+  | 'paragraph'
   | 'signature'
   | 'highlight'
   | 'underline'
@@ -45,6 +47,12 @@ export interface TextSelection {
   runs: readonly FlatTextRun[];
 }
 
+export interface ParagraphSelection {
+  selected: TextParagraph;
+  /** All text on the same rendered page, used to rebuild its searchable layer. */
+  runs: readonly FlatTextRun[];
+}
+
 interface StageProps {
   document: PDFDocumentProxy | null;
   /** 0-based page of the materialised document. */
@@ -55,6 +63,8 @@ interface StageProps {
   onAction: (action: StageAction, pageRotation: number) => void;
   selectedTextId?: string | null;
   onTextSelect?: (selection: TextSelection) => void;
+  selectedParagraphId?: string | null;
+  onParagraphSelect?: (selection: ParagraphSelection) => void;
   searchHighlights?: ReadonlyArray<{
     id: string;
     visual: FlatTextRun['visual'];
@@ -77,6 +87,8 @@ export default function Stage({
   onAction,
   selectedTextId = null,
   onTextSelect,
+  selectedParagraphId = null,
+  onParagraphSelect,
   searchHighlights = [],
 }: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -89,6 +101,7 @@ export default function Stage({
   const [drag, setDrag] = useState<Drag | null>(null);
   const [rendering, setRendering] = useState(false);
   const [textRuns, setTextRuns] = useState<FlatTextRun[]>([]);
+  const paragraphs = useMemo(() => groupTextParagraphs(textRuns), [textRuns]);
 
   useEffect(() => {
     if (!pdf) return;
@@ -111,7 +124,7 @@ export default function Stage({
           signal: controller.signal,
         });
         let content: Awaited<ReturnType<typeof page.getTextContent>> | null = null;
-        if (tool === 'replaceText') {
+        if (tool === 'replaceText' || tool === 'paragraph') {
           try {
             content = await page.getTextContent();
           } catch {
@@ -173,7 +186,7 @@ export default function Stage({
   };
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (tool === 'pick' || tool === 'replaceText' || busy) return;
+    if (tool === 'pick' || tool === 'replaceText' || tool === 'paragraph' || busy) return;
     const point = toCanvas(event);
     if (!point) return;
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -237,7 +250,7 @@ export default function Stage({
     );
   };
 
-  const cursor = busy || tool === 'pick' || tool === 'replaceText' ? 'default' : 'crosshair';
+  const cursor = busy || tool === 'pick' || tool === 'replaceText' || tool === 'paragraph' ? 'default' : 'crosshair';
 
   return (
     <div className="relative flex min-h-[24rem] items-center justify-center overflow-auto rounded-3xl border bg-gray-100 p-4">
@@ -277,6 +290,42 @@ export default function Stage({
                     selected
                       ? 'border-violet-700 bg-violet-300/35'
                       : 'border-transparent bg-cyan-300/10 hover:border-cyan-700 hover:bg-cyan-300/25'
+                  }`}
+                  style={{
+                    left: `${left}%`,
+                    top: `${top}%`,
+                    width: `${Math.max(width, 0.5)}%`,
+                    height: `${Math.max(height, 0.8)}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {tool === 'paragraph' && size && (
+          <div className="pointer-events-none absolute inset-0">
+            {paragraphs.map((paragraph) => {
+              const scale = size.scale;
+              const left = (paragraph.visual.left * scale * 100) / size.width;
+              const top = (paragraph.visual.top * scale * 100) / size.height;
+              const width = (paragraph.visual.width * scale * 100) / size.width;
+              const height = (paragraph.visual.height * scale * 100) / size.height;
+              const selected = paragraph.id === selectedParagraphId;
+              const label = paragraph.text.replace(/\s+/g, ' ').trim();
+              return (
+                <button
+                  key={paragraph.id}
+                  type="button"
+                  disabled={busy}
+                  aria-pressed={selected}
+                  aria-label={label}
+                  title={label}
+                  onClick={() => onParagraphSelect?.({ selected: paragraph, runs: textRuns })}
+                  className={`pointer-events-auto absolute border-2 transition-colors disabled:pointer-events-none ${
+                    selected
+                      ? 'border-emerald-700 bg-emerald-300/30'
+                      : 'border-transparent bg-emerald-300/10 hover:border-emerald-700 hover:bg-emerald-300/20'
                   }`}
                   style={{
                     left: `${left}%`,

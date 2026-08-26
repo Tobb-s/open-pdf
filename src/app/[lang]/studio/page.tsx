@@ -10,13 +10,18 @@ import SignaturePad from '@/components/studio/SignaturePad';
 import Stage, {
   type StageAction,
   type StageTool,
+  type ParagraphSelection,
   type TextSelection,
 } from '@/components/studio/Stage';
 import { isEditableTarget, shortcutFor, TOOL_ORDER } from '@/lib/studio/shortcuts';
 import DocumentPanel from '@/components/studio/DocumentPanel';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
-import { ColorRow, Field, NumberRow } from '@/components/StampControls';
+import { ColorRow, Field, NumberRow, SliderRow } from '@/components/StampControls';
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  Bold,
   Crop,
   Download,
   EyeOff,
@@ -26,9 +31,11 @@ import {
   Highlighter,
   Image as ImageIcon,
   ImageUp,
+  Italic,
   Keyboard,
   Loader2,
   Pen,
+  Pilcrow,
   Redo2,
   Replace,
   Send,
@@ -53,7 +60,13 @@ import { assertFileSize, MAX_EDITABLE_BYTES, yieldToBrowser } from '@/lib/limits
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
-import { hexToRgb, imageKind, UnsupportedCharacterError } from '@/lib/stamp';
+import {
+  firstUnsupportedCharacter,
+  hexToRgb,
+  imageKind,
+  standardFontFor,
+  UnsupportedCharacterError,
+} from '@/lib/stamp';
 import { createStudioEngine, type StudioEngine } from '@/lib/studio/engine';
 import {
   append,
@@ -89,6 +102,13 @@ import {
 } from '@/lib/studio/store';
 import { findTextHits, type TextSearchHit } from '@/lib/studio/search';
 import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
+import {
+  alignedLineX,
+  fitParagraphSize,
+  layoutParagraph,
+  type ParagraphAlignment,
+  type ParagraphLayout,
+} from '@/lib/studio/paragraphs';
 import {
   diffStructures,
   VERIFIABLE_CATEGORIES,
@@ -126,6 +146,9 @@ type StudioSearchHit = TextSearchHit & {
   pageNumber: number;
   runs: readonly FlatTextRun[];
 };
+
+type ParagraphFont = Extract<Mark, { kind: 'text' }>['font'];
+type ParagraphPreview = ParagraphLayout & { overflow: boolean; unsupported: string | null };
 
 const isReviewTool = (tool: StageTool): boolean =>
   tool === 'highlight' ||
@@ -297,6 +320,22 @@ export default function StudioPage() {
   const [replacementSize, setReplacementSize] = useState(14);
   const [replacementBackground, setReplacementBackground] = useState('#ffffff');
   const [replacingText, setReplacingText] = useState(false);
+  const [paragraphSelection, setParagraphSelection] = useState<
+    (ParagraphSelection & { page: string }) | null
+  >(null);
+  const [paragraphValue, setParagraphValue] = useState('');
+  const [paragraphSize, setParagraphSize] = useState(12);
+  const [paragraphFont, setParagraphFont] = useState<ParagraphFont>({
+    family: 'helvetica',
+    bold: false,
+    italic: false,
+  });
+  const [paragraphAlignment, setParagraphAlignment] = useState<ParagraphAlignment>('left');
+  const [paragraphLineSpacing, setParagraphLineSpacing] = useState(1.2);
+  const [paragraphColor, setParagraphColor] = useState('#111827');
+  const [paragraphBackground, setParagraphBackground] = useState('#ffffff');
+  const [paragraphPreview, setParagraphPreview] = useState<ParagraphPreview | null>(null);
+  const [paragraphBusy, setParagraphBusy] = useState(false);
   const [inkWidth, setInkWidth] = useState(2);
   const [color, setColor] = useState('#c62828');
   const [toolMode, setToolMode] = useState<'edit' | 'review'>('edit');
@@ -662,6 +701,8 @@ export default function StudioPage() {
    */
   const undo = useCallback(() => {
     setScript((current) => ({ ...current, cursor: Math.max(0, current.cursor - 1) }));
+    setTextSelection(null);
+    setParagraphSelection(null);
   }, []);
 
   const redo = useCallback(() => {
@@ -669,6 +710,8 @@ export default function StudioPage() {
       ...current,
       cursor: Math.min(current.edits.length, current.cursor + 1),
     }));
+    setTextSelection(null);
+    setParagraphSelection(null);
   }, []);
 
   /**
@@ -723,10 +766,56 @@ export default function StudioPage() {
 
   const addEdit = useCallback((edit: Edit) => {
     setScript((current) => append(current.edits, current.cursor, edit));
+    setTextSelection(null);
+    setParagraphSelection(null);
     setSearchHits([]);
     setSelectedSearchHits(new Set());
     setSearchRan(false);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const selection = paragraphSelection;
+    if (!selection) return;
+
+    void (async () => {
+      try {
+        const scratch = await PDFDocument.create();
+        const font = await scratch.embedFont(standardFontFor(paragraphFont));
+        const unsupported = firstUnsupportedCharacter(paragraphValue.replace(/\s/g, ' '), font);
+        if (cancelled) return;
+        if (unsupported !== null) {
+          setParagraphPreview({ lines: [], widths: [], height: 0, overflow: false, unsupported });
+          return;
+        }
+        const width = Math.max(8, selection.selected.visual.width - 4);
+        const layout = layoutParagraph(
+          paragraphValue,
+          width,
+          paragraphSize,
+          paragraphLineSpacing,
+          (value) => font.widthOfTextAtSize(value, paragraphSize)
+        );
+        setParagraphPreview({
+          ...layout,
+          overflow: layout.height > selection.selected.visual.height + paragraphSize * 0.35,
+          unsupported: null,
+        });
+      } catch {
+        if (!cancelled) setParagraphPreview(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    paragraphFont,
+    paragraphLineSpacing,
+    paragraphSelection,
+    paragraphSize,
+    paragraphValue,
+  ]);
 
   const addReply = (mark: Extract<Mark, { kind: 'comment' }>) => {
     const body = replyDrafts[mark.id]?.trim() ?? '';
@@ -1407,6 +1496,164 @@ export default function StudioPage() {
     }
   };
 
+  const selectParagraph = async (selection: ParagraphSelection, page: string) => {
+    const steps = selection.selected.lines
+      .slice(1)
+      .map((line, index) =>
+        Math.abs((selection.selected.lines[index]?.baselineY ?? line.baselineY) - line.baselineY)
+      )
+      .filter((value) => value > 0);
+    const averageStep = steps.length > 0
+      ? steps.reduce((sum, value) => sum + value, 0) / steps.length
+      : selection.selected.size * 1.2;
+    const spacing = Math.min(
+      2,
+      Math.max(0.8, Math.round((averageStep / selection.selected.size) * 10) / 10)
+    );
+    let size = Math.max(4, Math.round(selection.selected.size));
+    try {
+      const scratch = await PDFDocument.create();
+      const font = await scratch.embedFont(standardFontFor(paragraphFont));
+      size = fitParagraphSize(
+        selection.selected.text,
+        Math.max(8, selection.selected.visual.width - 4),
+        selection.selected.visual.height,
+        size,
+        spacing,
+        (value, candidate) => font.widthOfTextAtSize(value, candidate)
+      );
+    } catch {
+      // The live validation below still tells the reader if the fallback does not fit.
+    }
+    setParagraphSelection({ ...selection, page });
+    setParagraphValue(selection.selected.text);
+    setParagraphSize(size);
+    setParagraphAlignment('left');
+    setParagraphLineSpacing(spacing);
+  };
+
+  const replaceSelectedParagraph = async () => {
+    const engine = engineRef.current;
+    const selection = paragraphSelection;
+    const document_ = built?.document;
+    const page = pageIdAt(pageIndex);
+    if (
+      !engine ||
+      !selection ||
+      !document_ ||
+      !page ||
+      selection.page !== page ||
+      paragraphValue.trim() === '' ||
+      paragraphPreview?.overflow ||
+      paragraphPreview?.unsupported
+    ) {
+      return;
+    }
+
+    setParagraphBusy(true);
+    setError(null);
+    try {
+      const scratch = await PDFDocument.create();
+      const font = await scratch.embedFont(standardFontFor(paragraphFont));
+      const unsupported = firstUnsupportedCharacter(paragraphValue.replace(/\s/g, ' '), font);
+      if (unsupported !== null) throw new UnsupportedCharacterError(unsupported);
+
+      const box = selection.selected.visual;
+      const contentLeft = box.left + 2;
+      const contentWidth = Math.max(8, box.width - 4);
+      const layout = layoutParagraph(
+        paragraphValue,
+        contentWidth,
+        paragraphSize,
+        paragraphLineSpacing,
+        (value) => font.widthOfTextAtSize(value, paragraphSize)
+      );
+      if (layout.height > box.height + paragraphSize * 0.35) return;
+
+      const target = await document_.getPage(pageIndex + 1);
+      const viewport = target.getViewport({ scale: RASTER_SCALE });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('This browser did not provide a 2D canvas context.');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      try {
+        await target.render({ canvas, canvasContext: context, viewport }).promise;
+        const padding = 1.25 * RASTER_SCALE;
+        context.fillStyle = paragraphBackground;
+        context.fillRect(
+          box.left * RASTER_SCALE - padding,
+          box.top * RASTER_SCALE - padding,
+          box.width * RASTER_SCALE + padding * 2,
+          box.height * RASTER_SCALE + padding * 2
+        );
+      } finally {
+        target.cleanup();
+      }
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      canvas.width = 0;
+      canvas.height = 0;
+      if (!blob) throw new Error('This browser could not produce the image.');
+      const raster = new Uint8Array(await blob.arrayBuffer());
+      const asset = newId();
+      engine.putAsset(asset, raster);
+      setAssets((current) => ({ ...current, [asset]: raster }));
+
+      const removed = new Set(selection.selected.runs.map((run) => run.id));
+      const searchable = selection.runs
+        .filter((run) => !removed.has(run.id))
+        .map((run) => ({ ...run, text: toWinAnsi(run.text) }))
+        .filter((run) => run.text !== '')
+        .map(({ text, x, y, size, rotate }) => ({ text, x, y, size, rotate }));
+      const originalBaseline = selection.selected.lines[0]?.baselineY ?? selection.selected.runs[0]?.y ?? 0;
+      const firstBaseline = originalBaseline + (selection.selected.size - paragraphSize) * 0.9;
+      const textMarks: Extract<Mark, { kind: 'text' }>[] = layout.lines.flatMap((line, index) =>
+        line === ''
+          ? []
+          : [{
+              kind: 'text' as const,
+              id: newId(),
+              page,
+              x: alignedLineX(contentLeft, contentWidth, layout.widths[index], paragraphAlignment),
+              y: firstBaseline - index * paragraphSize * paragraphLineSpacing,
+              text: line,
+              size: paragraphSize,
+              color: hexToRgb(paragraphColor),
+              rotate: 0,
+              font: paragraphFont,
+            }]
+      );
+
+      addEdit({
+        kind: 'rewritePages',
+        pages: [
+          {
+            page,
+            raster: { asset, boxes: [] },
+            marks: [
+              {
+                kind: 'textLayer',
+                id: newId(),
+                page,
+                words: searchable,
+              },
+              ...textMarks,
+            ],
+          },
+        ],
+      });
+      setParagraphSelection(null);
+      setParagraphValue('');
+    } catch (caught) {
+      setError(describeStudioError(caught));
+    } finally {
+      setParagraphBusy(false);
+    }
+  };
+
   const runDocumentSearch = async () => {
     const document_ = built?.document;
     const query = searchQuery.trim();
@@ -1829,6 +2076,7 @@ export default function StudioPage() {
     { id: 'crop', label: t.studio.tools.crop, icon: Crop },
     { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
     { id: 'replaceText', label: t.studio.tools.replaceText, icon: Replace },
+    { id: 'paragraph', label: t.studio.tools.paragraph, icon: Pilcrow },
     { id: 'signature', label: t.studio.tools.signature, icon: SignatureIcon },
   ];
   const REVIEW_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
@@ -1974,7 +2222,7 @@ export default function StudioPage() {
               document={built?.document ?? null}
               pageIndex={pageIndex}
               tool={tool}
-              busy={building || replacingText || bulkTextBusy}
+              busy={building || replacingText || paragraphBusy || bulkTextBusy}
               onAction={onStageAction}
               selectedTextId={textSelection?.page === pageIdAt(pageIndex) ? textSelection.selected.id : null}
               onTextSelect={(selection) => {
@@ -1983,6 +2231,14 @@ export default function StudioPage() {
                 setTextSelection({ ...selection, page });
                 setReplacementValue(selection.selected.text);
                 setReplacementSize(Math.max(4, Math.round(selection.selected.size)));
+              }}
+              selectedParagraphId={
+                paragraphSelection?.page === pageIdAt(pageIndex) ? paragraphSelection.selected.id : null
+              }
+              onParagraphSelect={(selection) => {
+                const page = pageIdAt(pageIndex);
+                if (!page) return;
+                void selectParagraph(selection, page);
               }}
               searchHighlights={searchHits
                 .filter((hit) => hit.pageIndex === pageIndex)
@@ -2328,6 +2584,7 @@ export default function StudioPage() {
                     onClick={() => {
                       setTool(id);
                       if (id !== 'replaceText') setTextSelection(null);
+                      if (id !== 'paragraph') setParagraphSelection(null);
                     }}
                     title={shortcutIndex === -1 ? label : `${label} · ${shortcutIndex + 1}`}
                     className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-colors ${
@@ -2431,6 +2688,154 @@ export default function StudioPage() {
                 )}
                 <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
                   {t.studio.replaceTextNote}
+                </p>
+              </>
+            )}
+
+            {tool === 'paragraph' && (
+              <>
+                {paragraphSelection?.page === pageIdAt(pageIndex) ? (
+                  <>
+                    <Field label={t.studio.paragraphOriginal}>
+                      <p className="max-h-24 whitespace-pre-line overflow-auto rounded-xl bg-gray-100 px-3 py-2 text-sm text-gray-700">
+                        {paragraphSelection.selected.text}
+                      </p>
+                    </Field>
+                    <Field label={t.studio.paragraphNew}>
+                      <textarea
+                        value={paragraphValue}
+                        rows={6}
+                        onChange={(event) => setParagraphValue(event.target.value)}
+                        className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      />
+                    </Field>
+                    <Field label={t.stamp.typeface}>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={paragraphFont.family}
+                          aria-label={t.stamp.typeface}
+                          onChange={(event) =>
+                            setParagraphFont((current) => ({
+                              ...current,
+                              family: event.target.value as ParagraphFont['family'],
+                            }))
+                          }
+                          className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                        >
+                          <option value="helvetica">{t.stamp.fontHelvetica}</option>
+                          <option value="times">{t.stamp.fontTimes}</option>
+                          <option value="courier">{t.stamp.fontCourier}</option>
+                        </select>
+                        {([
+                          ['bold', t.stamp.bold, Bold],
+                          ['italic', t.stamp.italic, Italic],
+                        ] as const).map(([key, label, Icon]) => (
+                          <button
+                            key={key}
+                            type="button"
+                            aria-label={label}
+                            title={label}
+                            aria-pressed={paragraphFont[key]}
+                            onClick={() =>
+                              setParagraphFont((current) => ({ ...current, [key]: !current[key] }))
+                            }
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border ${
+                              paragraphFont[key]
+                                ? 'border-emerald-700 bg-emerald-700 text-white'
+                                : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-100'
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                    <NumberRow
+                      label={t.stamp.size}
+                      value={paragraphSize}
+                      min={4}
+                      max={72}
+                      onChange={setParagraphSize}
+                    />
+                    <ColorRow label={t.stamp.color} value={paragraphColor} onChange={setParagraphColor} />
+                    <ColorRow
+                      label={t.studio.replaceTextBackground}
+                      value={paragraphBackground}
+                      onChange={setParagraphBackground}
+                    />
+                    <Field label={t.studio.paragraphAlignment}>
+                      <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-100 p-1" role="group">
+                        {([
+                          ['left', t.studio.paragraphAlignLeft, AlignLeft],
+                          ['center', t.studio.paragraphAlignCenter, AlignCenter],
+                          ['right', t.studio.paragraphAlignRight, AlignRight],
+                        ] as const).map(([alignment, label, Icon]) => (
+                          <button
+                            key={alignment}
+                            type="button"
+                            aria-label={label}
+                            title={label}
+                            aria-pressed={paragraphAlignment === alignment}
+                            onClick={() => setParagraphAlignment(alignment)}
+                            className={`flex h-9 items-center justify-center rounded-lg ${
+                              paragraphAlignment === alignment
+                                ? 'bg-white text-emerald-800 shadow-sm'
+                                : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+                    <SliderRow
+                      label={t.studio.paragraphLineSpacing}
+                      value={paragraphLineSpacing}
+                      min={0.8}
+                      max={2}
+                      step={0.1}
+                      format={(value) => `${value.toFixed(1)}×`}
+                      onChange={setParagraphLineSpacing}
+                    />
+                    {paragraphPreview && paragraphPreview.unsupported === null && (
+                      <p className="text-xs font-medium text-gray-600" aria-live="polite">
+                        {t.studio.paragraphLines(paragraphPreview.lines.length)}
+                      </p>
+                    )}
+                    {paragraphPreview?.overflow && (
+                      <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950" role="alert">
+                        {t.studio.paragraphOverflow}
+                      </p>
+                    )}
+                    {paragraphPreview?.unsupported && (
+                      <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900" role="alert">
+                        {t.studio.paragraphUnsupported(paragraphPreview.unsupported)}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void replaceSelectedParagraph()}
+                      disabled={
+                        paragraphBusy ||
+                        building ||
+                        paragraphValue.trim() === '' ||
+                        !paragraphPreview ||
+                        paragraphPreview.overflow ||
+                        paragraphPreview.unsupported !== null
+                      }
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-3 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 disabled:bg-gray-300"
+                    >
+                      {paragraphBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pilcrow className="h-4 w-4" />}
+                      {paragraphBusy ? t.studio.paragraphWorking : t.studio.paragraphApply}
+                    </button>
+                  </>
+                ) : (
+                  <p className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-950">
+                    {t.studio.paragraphPick}
+                  </p>
+                )}
+                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  {t.studio.paragraphNote}
                 </p>
               </>
             )}

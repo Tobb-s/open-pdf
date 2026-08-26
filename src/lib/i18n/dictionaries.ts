@@ -544,6 +544,7 @@ export interface Dictionary {
       pick: string;
       text: string;
       replaceText: string;
+      paragraph: string;
       signature: string;
       rect: string;
       image: string;
@@ -560,6 +561,7 @@ export interface Dictionary {
       pick: string;
       text: string;
       replaceText: string;
+      paragraph: string;
       signature: string;
       rect: string;
       image: string;
@@ -589,6 +591,20 @@ export interface Dictionary {
     replaceTextApply: string;
     replaceTextWorking: string;
     replaceTextNote: string;
+    paragraphOriginal: string;
+    paragraphNew: string;
+    paragraphLineSpacing: string;
+    paragraphAlignment: string;
+    paragraphAlignLeft: string;
+    paragraphAlignCenter: string;
+    paragraphAlignRight: string;
+    paragraphLines: (count: number) => string;
+    paragraphOverflow: string;
+    paragraphUnsupported: (character: string) => string;
+    paragraphPick: string;
+    paragraphApply: string;
+    paragraphWorking: string;
+    paragraphNote: string;
     signatureSigner: string;
     signatureReason: string;
     signatureReasonOptional: string;
@@ -1470,6 +1486,7 @@ export const es: Dictionary = {
       pick: 'Mano',
       text: 'Texto',
       replaceText: 'Reemplazar',
+      paragraph: 'Párrafo',
       signature: 'Firmar',
       rect: 'Rectángulo',
       image: 'Imagen',
@@ -1486,6 +1503,7 @@ export const es: Dictionary = {
       pick: 'Mirá el documento y usá los controles de página.',
       text: 'Hacé clic donde quieras el texto.',
       replaceText: 'Elegí un fragmento del texto existente para reemplazarlo.',
+      paragraph: 'Elegí un bloque horizontal para editar su texto y formato.',
       signature: 'Prepará tu firma y hacé clic donde quieras colocarla.',
       rect: 'Arrastrá para dibujar un rectángulo.',
       image: 'Elegí una imagen y hacé clic para ponerla.',
@@ -1516,6 +1534,21 @@ export const es: Dictionary = {
     replaceTextWorking: 'Reemplazando…',
     replaceTextNote:
       'Para borrar el texto anterior de verdad, esta página se convierte en una imagen. Conserva su aspecto y vuelve a ser buscable, pero pierde enlaces, formularios, capas y anotaciones interactivas de esa página. El original queda intacto.',
+    paragraphOriginal: 'Párrafo original',
+    paragraphNew: 'Contenido del párrafo',
+    paragraphLineSpacing: 'Interlineado',
+    paragraphAlignment: 'Alineación',
+    paragraphAlignLeft: 'Alinear a la izquierda',
+    paragraphAlignCenter: 'Centrar',
+    paragraphAlignRight: 'Alinear a la derecha',
+    paragraphLines: (count) => `${count} ${count === 1 ? 'línea' : 'líneas'}`,
+    paragraphOverflow: 'El texto no entra en el bloque. Reducí el tamaño, el interlineado o el contenido.',
+    paragraphUnsupported: (character) => `La fuente PDF elegida no admite «${character}».`,
+    paragraphPick: 'Hacé clic sobre un bloque de texto horizontal para editarlo.',
+    paragraphApply: 'Aplicar edición de párrafo',
+    paragraphWorking: 'Recomponiendo…',
+    paragraphNote:
+      'El texto debe caber dentro del bloque original para no tapar otro contenido. La página se reconstruye y vuelve a ser buscable, pero pierde enlaces, formularios, capas y anotaciones interactivas. El original queda intacto.',
     signatureSigner: 'Nombre del firmante',
     signatureReason: 'Motivo',
     signatureReasonOptional: 'Opcional. Queda en el registro de auditoría.',
@@ -2403,6 +2436,7 @@ export const en: Dictionary = {
       pick: 'Hand',
       text: 'Text',
       replaceText: 'Replace',
+      paragraph: 'Paragraph',
       signature: 'Sign',
       rect: 'Rectangle',
       image: 'Image',
@@ -2419,6 +2453,7 @@ export const en: Dictionary = {
       pick: 'Look through the document and use the page controls.',
       text: 'Click where you want the text.',
       replaceText: 'Select an existing text fragment to replace it.',
+      paragraph: 'Select a horizontal block to edit its text and formatting.',
       signature: 'Prepare your signature, then click where you want to place it.',
       rect: 'Drag to draw a rectangle.',
       image: 'Choose an image, then click to place it.',
@@ -2449,6 +2484,21 @@ export const en: Dictionary = {
     replaceTextWorking: 'Replacing…',
     replaceTextNote:
       'To truly remove the old text, this page becomes an image. It keeps its appearance and becomes searchable again, but page links, forms, layers, and interactive annotations are lost. The original stays untouched.',
+    paragraphOriginal: 'Original paragraph',
+    paragraphNew: 'Paragraph content',
+    paragraphLineSpacing: 'Line spacing',
+    paragraphAlignment: 'Alignment',
+    paragraphAlignLeft: 'Align left',
+    paragraphAlignCenter: 'Center',
+    paragraphAlignRight: 'Align right',
+    paragraphLines: (count) => `${count} ${count === 1 ? 'line' : 'lines'}`,
+    paragraphOverflow: 'The text does not fit this block. Reduce its size, spacing, or content.',
+    paragraphUnsupported: (character) => `The selected PDF font does not support “${character}”.`,
+    paragraphPick: 'Click a horizontal text block on the page to edit it.',
+    paragraphApply: 'Apply paragraph edit',
+    paragraphWorking: 'Reflowing…',
+    paragraphNote:
+      'Text must fit the original block so it cannot cover other content. The page is rebuilt and becomes searchable again, but loses links, forms, layers, and interactive annotations. The original stays untouched.',
     signatureSigner: 'Signer name',
     signatureReason: 'Reason',
     signatureReasonOptional: 'Optional. Stored in the audit record.',
