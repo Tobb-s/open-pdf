@@ -57,6 +57,8 @@ export interface ParagraphSelection {
 interface StageProps {
   document: PDFDocumentProxy | null;
   embeddedFonts?: readonly EmbeddedPdfFontProgram[];
+  /** Multiplier applied after the page is fitted into Studio's viewer. */
+  zoom?: number;
   /** 0-based page of the materialised document. */
   pageIndex: number;
   tool: StageTool;
@@ -84,6 +86,7 @@ type Drag =
 export default function Stage({
   document: pdf,
   embeddedFonts = [],
+  zoom = 1,
   pageIndex,
   tool,
   busy,
@@ -119,7 +122,7 @@ export default function Stage({
         const number = Math.min(Math.max(pageIndex + 1, 1), pdf.numPages);
         const page = await pdf.getPage(number);
         const base = page.getViewport({ scale: 1 });
-        const scale = Math.min(MAX_EDGE / base.width, MAX_EDGE / base.height, 2);
+        const scale = Math.min(MAX_EDGE / base.width, MAX_EDGE / base.height, 2) * zoom;
         const canvas = canvasRef.current;
         if (!canvas || cancelled) return;
 
@@ -157,7 +160,7 @@ export default function Stage({
       cancelled = true;
       controller.abort();
     };
-  }, [pdf, pageIndex, tool, embeddedFonts]);
+  }, [pdf, pageIndex, tool, embeddedFonts, zoom]);
 
   const toCanvas = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -257,11 +260,11 @@ export default function Stage({
   const cursor = busy || tool === 'pick' || tool === 'replaceText' || tool === 'paragraph' ? 'default' : 'crosshair';
 
   return (
-    <div className="relative flex min-h-[24rem] items-center justify-center overflow-auto rounded-3xl border bg-gray-100 p-4">
-      <div className="relative">
+    <div className="relative flex min-h-[30rem] items-start justify-center overflow-auto rounded-lg border bg-gray-100 p-4 sm:items-center">
+      <div className="relative min-w-max">
         <canvas
           ref={canvasRef}
-          className="max-w-full rounded bg-white shadow-md"
+          className="rounded bg-white shadow-md"
           style={{ cursor, touchAction: 'none' }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}

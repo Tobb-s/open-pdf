@@ -174,13 +174,15 @@ export default function PageStrip({
   const requestVisible = useCallback(() => {
     const list = listRef.current;
     if (!list) return;
-    const from = list.scrollLeft - LOOKAHEAD;
-    const to = list.scrollLeft + list.clientWidth + LOOKAHEAD;
+    const vertical = getComputedStyle(list).flexDirection === 'column';
+    const from = (vertical ? list.scrollTop : list.scrollLeft) - LOOKAHEAD;
+    const to = (vertical ? list.scrollTop + list.clientHeight : list.scrollLeft + list.clientWidth) + LOOKAHEAD;
 
     for (const item of list.children) {
       const element = item as HTMLElement;
-      const left = element.offsetLeft;
-      if (left + element.offsetWidth < from || left > to) continue;
+      const start = vertical ? element.offsetTop : element.offsetLeft;
+      const length = vertical ? element.offsetHeight : element.offsetWidth;
+      if (start + length < from || start > to) continue;
       const signature = element.dataset.signature;
       if (signature) request(signature);
     }
@@ -192,22 +194,29 @@ export default function PageStrip({
     const list = listRef.current;
     if (!list) return;
     list.addEventListener('scroll', requestVisible, { passive: true });
-    return () => list.removeEventListener('scroll', requestVisible);
+    window.addEventListener('resize', requestVisible);
+    return () => {
+      list.removeEventListener('scroll', requestVisible);
+      window.removeEventListener('resize', requestVisible);
+    };
   }, [pdf, key, requestVisible]);
 
   const total = signatures.length;
 
   return (
-    <ul ref={listRef} className="flex gap-3 overflow-x-auto pb-2">
+    <ul
+      ref={listRef}
+      className="flex max-h-44 gap-3 overflow-x-auto pb-2 lg:max-h-[calc(100dvh-15rem)] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pr-2"
+    >
       {signatures.map((signature, index) => {
         const url = thumbnails[signature];
         return (
-          <li key={`${index}-${signature}`} data-signature={signature} className="shrink-0">
+          <li key={`${index}-${signature}`} data-signature={signature} className="shrink-0 lg:w-full">
             <button
               type="button"
               onClick={() => onSelect(index)}
               aria-current={index === current}
-              className={`block overflow-hidden rounded-xl border-2 bg-white transition-colors ${
+              className={`block overflow-hidden rounded-lg border-2 bg-white transition-colors lg:mx-auto ${
                 index === current
                   ? 'border-violet-500'
                   : 'border-transparent hover:border-violet-200'
