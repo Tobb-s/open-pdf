@@ -99,7 +99,7 @@ export type Mark =
       color: Rgb;
       /** Degrees counter-clockwise in PDF user space, so it turns with the page. */
       rotate: number;
-      font: { family: 'helvetica' | 'times' | 'courier'; bold: boolean; italic: boolean };
+      font: TextFont;
     }
   | {
       kind: 'rect';
@@ -217,6 +217,20 @@ export interface FontChoice {
   bold: boolean;
   italic: boolean;
 }
+
+/**
+ * A font recovered from the opened PDF. The bytes live in Studio's local asset
+ * store so undo, redo and a resumed browser session always use the same face.
+ */
+export interface EmbeddedTextFont {
+  kind: 'embedded';
+  asset: string;
+  name: string;
+  /** Standard face selected as the visible alternative in Studio. */
+  fallback: FontChoice;
+}
+
+export type TextFont = FontChoice | EmbeddedTextFont;
 
 export type Anchor =
   | 'top-left'
