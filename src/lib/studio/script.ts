@@ -71,6 +71,8 @@ export interface PageRaster {
   asset: string;
   /** The painted regions, in the page's PDF user space. */
   boxes: readonly Rect[];
+  /** Exact visible terms intentionally removed, retained for the export proof. */
+  redactedWords?: readonly string[];
 }
 
 export interface PageState {
@@ -276,6 +278,20 @@ export interface Metadata {
  */
 export type MetadataPatch = { [K in keyof Metadata]?: string | null };
 
+export interface SanitizationSpec {
+  metadata: boolean;
+  comments: boolean;
+  attachments: boolean;
+  actions: boolean;
+}
+
+export interface PageRewrite {
+  page: PageId;
+  raster: PageRaster;
+  /** Marks that remain live after the visible page has been baked into the raster. */
+  marks: readonly Mark[];
+}
+
 export type Edit =
   | { kind: 'rotate'; page: PageId; turns: number }
   | { kind: 'delete'; page: PageId }
@@ -299,6 +315,8 @@ export type Edit =
       replacement: Extract<Mark, { kind: 'text' }>;
       textLayer: Extract<Mark, { kind: 'textLayer' }>;
     }
+  | { kind: 'rewritePages'; pages: readonly PageRewrite[] }
+  | { kind: 'sanitize'; spec: SanitizationSpec | null }
   | { kind: 'flattenForms'; on: boolean };
 
 export interface ScriptState {
@@ -311,6 +329,7 @@ export interface ScriptState {
   metadata: Metadata;
   watermark: WatermarkSpec | null;
   numbering: NumberingSpec | null;
+  sanitize: SanitizationSpec | null;
 }
 
 /** The id an original page carries for the whole session. */
@@ -346,6 +365,7 @@ export function initialState(pageCount: number): ScriptState {
     metadata: {},
     watermark: null,
     numbering: null,
+    sanitize: null,
   };
 }
 
@@ -511,6 +531,23 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
       return { ...state, pages, marks };
     }
 
+    case 'rewritePages': {
+      const available = new Set(state.pages.map((page) => page.id));
+      const rewrites = new Map(edit.pages.filter((entry) => available.has(entry.page)).map((entry) => [entry.page, entry]));
+      if (rewrites.size === 0) return state;
+      const pages = state.pages.map((page) => {
+        const rewrite = rewrites.get(page.id);
+        return rewrite ? { ...page, raster: rewrite.raster } : page;
+      });
+      const marks = state.marks
+        .filter((mark) => !rewrites.has(mark.page))
+        .concat(...[...rewrites.values()].map((entry) => [...entry.marks]));
+      return { ...state, pages, marks };
+    }
+
+    case 'sanitize':
+      return { ...state, sanitize: edit.spec };
+
     case 'flattenForms':
       return { ...state, flattenForms: edit.on };
 
@@ -553,6 +590,7 @@ export function isUntouched(state: ScriptState, pageCount: number): boolean {
   if (Object.keys(state.fields).length > 0) return false;
   if (Object.keys(state.metadata).length > 0) return false;
   if (state.watermark !== null || state.numbering !== null) return false;
+  if (state.sanitize !== null) return false;
   if (state.flattenForms) return false;
   return state.pages.every(
     (page, index) =>

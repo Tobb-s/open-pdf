@@ -201,6 +201,7 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
     metadata: {},
     watermark: null,
     numbering: null,
+    sanitize: null,
   };
 }
 

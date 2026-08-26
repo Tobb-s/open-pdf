@@ -187,9 +187,15 @@ export function allTextIn(document: PDFDocument): string {
   return parts.join(' ');
 }
 
-/** The pages a state has painted regions on, with the regions. */
-export function redactedPages(state: ScriptState): Array<{ page: string; boxes: readonly Rect[] }> {
+/** The pages a state has painted regions on, with the regions and any remembered targets. */
+export function redactedPages(
+  state: ScriptState
+): Array<{ page: string; boxes: readonly Rect[]; words: readonly string[] }> {
   return state.pages
     .filter((page) => page.raster !== null && page.raster.boxes.length > 0)
-    .map((page) => ({ page: page.id, boxes: page.raster!.boxes }));
+    .map((page) => ({
+      page: page.id,
+      boxes: page.raster!.boxes,
+      words: page.raster!.redactedWords ?? [],
+    }));
 }

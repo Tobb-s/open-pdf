@@ -34,6 +34,8 @@ import {
   Send,
   Signature as SignatureIcon,
   MessageSquareText,
+  Search as SearchIcon,
+  ShieldCheck,
   Square,
   Strikethrough,
   Trash2,
@@ -47,7 +49,7 @@ import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { fitWithin, pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
-import { assertFileSize, MAX_EDITABLE_BYTES } from '@/lib/limits';
+import { assertFileSize, MAX_EDITABLE_BYTES, yieldToBrowser } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
@@ -64,6 +66,7 @@ import {
   type Rect,
   type NumberingSpec,
   type ScriptState,
+  type SanitizationSpec,
   type WatermarkSpec,
 } from '@/lib/studio/script';
 import { importedStructures, type FieldCheck } from '@/lib/studio/verify';
@@ -84,6 +87,8 @@ import {
   SESSION_SHAPE,
   type StoredSession,
 } from '@/lib/studio/store';
+import { findTextHits, type TextSearchHit } from '@/lib/studio/search';
+import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
 import {
   diffStructures,
   VERIFIABLE_CATEGORIES,
@@ -113,6 +118,14 @@ type ReviewMark = Extract<
   Mark,
   { kind: 'highlight' | 'underline' | 'strikeout' | 'comment' }
 >;
+
+type StudioSearchHit = TextSearchHit & {
+  key: string;
+  page: string;
+  pageIndex: number;
+  pageNumber: number;
+  runs: readonly FlatTextRun[];
+};
 
 const isReviewTool = (tool: StageTool): boolean =>
   tool === 'highlight' ||
@@ -147,6 +160,10 @@ async function findSurvivors(
   const source = await openPdf(bytes);
   try {
     for (const entry of painted) {
+      if (entry.words.length > 0) {
+        targets.push({ page: entry.page, words: [...entry.words] });
+        continue;
+      }
       // From what the build produced, not from what it was asked to produce.
       // A page the build had to skip shifts every page after it, and this
       // lookup would then take the text of a DIFFERENT page, find none of the
@@ -306,7 +323,7 @@ export default function StudioPage() {
   } | null>(null);
 
   /* -------------------------------------------------- the document panel -- */
-  const [panel, setPanel] = useState<'page' | 'document'>('page');
+  const [panel, setPanel] = useState<'page' | 'document' | 'search'>('page');
   const [formFields, setFormFields] = useState<FormFieldInfo[]>([]);
   /** What the opened document already said, so the boxes are never blank by mistake. */
   const [originalMetadata, setOriginalMetadata] = useState<Metadata>({});
@@ -319,6 +336,22 @@ export default function StudioPage() {
     Array<{ asset: string; name: string; lost: string[] }>
   >([]);
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
+  const [searchWholeWord, setSearchWholeWord] = useState(false);
+  const [searchHits, setSearchHits] = useState<StudioSearchHit[]>([]);
+  const [selectedSearchHits, setSelectedSearchHits] = useState<Set<string>>(new Set());
+  const [searching, setSearching] = useState(false);
+  const [searchRan, setSearchRan] = useState(false);
+  const [bulkTextBusy, setBulkTextBusy] = useState(false);
+  const [bulkTextProgress, setBulkTextProgress] = useState<{ current: number; total: number } | null>(null);
+  const [bulkReplacement, setBulkReplacement] = useState('');
+  const [sanitization, setSanitization] = useState<SanitizationSpec>({
+    metadata: true,
+    comments: true,
+    attachments: true,
+    actions: true,
+  });
   const [rasterising, setRasterising] = useState(false);
   /** Set when an export was refused because redacted words survived. */
   const [blocked, setBlocked] = useState<string[] | null>(null);
@@ -690,6 +723,9 @@ export default function StudioPage() {
 
   const addEdit = useCallback((edit: Edit) => {
     setScript((current) => append(current.edits, current.cursor, edit));
+    setSearchHits([]);
+    setSelectedSearchHits(new Set());
+    setSearchRan(false);
   }, []);
 
   const addReply = (mark: Extract<Mark, { kind: 'comment' }>) => {
@@ -1371,6 +1407,189 @@ export default function StudioPage() {
     }
   };
 
+  const runDocumentSearch = async () => {
+    const document_ = built?.document;
+    const query = searchQuery.trim();
+    if (!document_ || query === '' || building || bulkTextBusy) return;
+
+    setSearching(true);
+    setSearchRan(false);
+    setError(null);
+    try {
+      const found: StudioSearchHit[] = [];
+      for (let index = 0; index < document_.numPages; index += 1) {
+        const page = await document_.getPage(index + 1);
+        try {
+          const content = await page.getTextContent();
+          const runs = flattenTextRuns(content.items, page.getViewport({ scale: 1 }));
+          const pageId = built.placed[index];
+          if (!pageId) continue;
+          for (const hit of findTextHits(runs, query, {
+            caseSensitive: searchCaseSensitive,
+            wholeWord: searchWholeWord,
+          })) {
+            found.push({
+              ...hit,
+              key: `${pageId}:${hit.id}`,
+              page: pageId,
+              pageIndex: index,
+              pageNumber: index + 1,
+              runs,
+            });
+          }
+        } finally {
+          page.cleanup();
+        }
+        if (index % 4 === 3) await yieldToBrowser();
+      }
+      setSearchHits(found);
+      setSelectedSearchHits(new Set(found.map((hit) => hit.key)));
+      setSearchRan(true);
+      if (found[0]) setPageIndex(found[0].pageIndex);
+    } catch (caught) {
+      setError(describeStudioError(caught));
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const applyBulkText = async (mode: 'replace' | 'redact') => {
+    const document_ = built?.document;
+    const engine = engineRef.current;
+    const chosen = searchHits.filter((hit) => selectedSearchHits.has(hit.key));
+    if (!document_ || !engine || chosen.length === 0) return;
+    if (mode === 'replace' && bulkReplacement === '') return;
+
+    setBulkTextBusy(true);
+    setError(null);
+    const byPage = new Map<string, StudioSearchHit[]>();
+    for (const hit of chosen) {
+      const pageHits = byPage.get(hit.page) ?? [];
+      pageHits.push(hit);
+      byPage.set(hit.page, pageHits);
+    }
+
+    const rewrites: Extract<Edit, { kind: 'rewritePages' }>['pages'][number][] = [];
+    const addedAssets: Record<string, Uint8Array> = {};
+    let current = 0;
+    try {
+      for (const [pageId, pageHits] of byPage) {
+        current += 1;
+        setBulkTextProgress({ current, total: byPage.size });
+        await yieldToBrowser();
+
+        const pageIndex_ = pageHits[0].pageIndex;
+        const target = await document_.getPage(pageIndex_ + 1);
+        const viewport = target.getViewport({ scale: RASTER_SCALE });
+        const baseViewport = target.getViewport({ scale: 1 });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.floor(viewport.width));
+        canvas.height = Math.max(1, Math.floor(viewport.height));
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('This browser did not provide a 2D canvas context.');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        await target.render({ canvas, canvasContext: context, viewport }).promise;
+
+        context.fillStyle = mode === 'redact' ? '#000000' : replacementBackground;
+        const padding = 1.25 * RASTER_SCALE;
+        for (const hit of pageHits) {
+          context.fillRect(
+            hit.visual.left * RASTER_SCALE - padding,
+            hit.visual.top * RASTER_SCALE - padding,
+            hit.visual.width * RASTER_SCALE + padding * 2,
+            hit.visual.height * RASTER_SCALE + padding * 2
+          );
+        }
+
+        const boxes =
+          mode === 'redact'
+            ? pageHits.map((hit) => {
+                const [ax, ay] = baseViewport.convertToPdfPoint(hit.visual.left, hit.visual.top);
+                const [bx, by] = baseViewport.convertToPdfPoint(
+                  hit.visual.left + hit.visual.width,
+                  hit.visual.top + hit.visual.height
+                );
+                return {
+                  x: Math.min(ax, bx),
+                  y: Math.min(ay, by),
+                  width: Math.abs(bx - ax),
+                  height: Math.abs(by - ay),
+                };
+              })
+            : [];
+        target.cleanup();
+
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+        canvas.width = 0;
+        canvas.height = 0;
+        if (!blob) throw new Error('This browser could not produce the image.');
+        const raster = new Uint8Array(await blob.arrayBuffer());
+        const asset = newId();
+        engine.putAsset(asset, raster);
+        addedAssets[asset] = raster;
+
+        const excluded = new Set(pageHits.flatMap((hit) => hit.runIds));
+        const runs = pageHits[0].runs;
+        const searchable = runs
+          .filter((run) => !excluded.has(run.id))
+          .map((run) => ({ ...run, text: toWinAnsi(run.text) }))
+          .filter((run) => run.text !== '')
+          .map(({ text, x, y, size, rotate }) => ({ text, x, y, size, rotate }));
+        const marks: Mark[] = [];
+        if (searchable.length > 0) {
+          marks.push({ kind: 'textLayer', id: newId(), page: pageId, words: searchable });
+        }
+
+        if (mode === 'replace') {
+          const clusters = new Map<string, StudioSearchHit[]>();
+          for (const hit of pageHits) {
+            const key = hit.runIds.join('|');
+            clusters.set(key, [...(clusters.get(key) ?? []), hit]);
+          }
+          for (const hits of clusters.values()) {
+            const base = hits[0];
+            let text = base.selectedText;
+            for (const hit of [...hits].sort((a, b) => b.relativeStart - a.relativeStart)) {
+              text = `${text.slice(0, hit.relativeStart)}${bulkReplacement}${text.slice(hit.relativeEnd)}`;
+            }
+            marks.push({
+              kind: 'text',
+              id: newId(),
+              page: pageId,
+              x: base.x,
+              y: base.y,
+              text,
+              size: Math.max(4, Math.round(base.size)),
+              color: hexToRgb(color),
+              rotate: base.rotate,
+              font: { family: 'helvetica', bold: false, italic: false },
+            });
+          }
+        }
+
+        rewrites.push({
+          page: pageId,
+          raster: {
+            asset,
+            boxes,
+            redactedWords: mode === 'redact' ? [...new Set(pageHits.map((hit) => hit.text))] : [],
+          },
+          marks,
+        });
+      }
+
+      setAssets((existing) => ({ ...existing, ...addedAssets }));
+      addEdit({ kind: 'rewritePages', pages: rewrites });
+      setBulkReplacement('');
+    } catch (caught) {
+      setError(describeStudioError(caught));
+    } finally {
+      setBulkTextProgress(null);
+      setBulkTextBusy(false);
+    }
+  };
+
   /* -------------------------------------------------------------- export - */
 
   const doExport = async () => {
@@ -1749,13 +1968,13 @@ export default function StudioPage() {
           </p>
         )}
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <div className="space-y-4">
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="min-w-0 space-y-4">
             <Stage
               document={built?.document ?? null}
               pageIndex={pageIndex}
               tool={tool}
-              busy={building || replacingText}
+              busy={building || replacingText || bulkTextBusy}
               onAction={onStageAction}
               selectedTextId={textSelection?.page === pageIdAt(pageIndex) ? textSelection.selected.id : null}
               onTextSelect={(selection) => {
@@ -1765,6 +1984,13 @@ export default function StudioPage() {
                 setReplacementValue(selection.selected.text);
                 setReplacementSize(Math.max(4, Math.round(selection.selected.size)));
               }}
+              searchHighlights={searchHits
+                .filter((hit) => hit.pageIndex === pageIndex)
+                .map((hit) => ({
+                  id: hit.key,
+                  visual: hit.visual,
+                  active: selectedSearchHits.has(hit.key),
+                }))}
             />
 
             <div className="flex items-center justify-center gap-4 text-sm">
@@ -1819,12 +2045,13 @@ export default function StudioPage() {
             />
           </div>
 
-          <aside className="space-y-5 rounded-3xl border bg-white p-5">
+          <aside className="min-w-0 space-y-5 rounded-3xl border bg-white p-5">
             <div role="tablist" className="flex gap-2 border-b pb-3">
               {(
                 [
                   ['page', t.studio.tabPage],
                   ['document', t.studio.tabDocument],
+                  ['search', t.studio.tabSearch],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -1867,6 +2094,203 @@ export default function StudioPage() {
                   ocrResult && ocrResult.page === pageIdAt(pageIndex) ? ocrResult.words : null
                 }
               />
+            ) : panel === 'search' ? (
+              <>
+                <section aria-labelledby="studio-search-heading" className="space-y-3">
+                  <h2 id="studio-search-heading" className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <SearchIcon className="h-4 w-4 text-violet-600" /> {t.studio.searchHeading}
+                  </h2>
+                  <Field label={t.studio.searchQuery}>
+                    <input
+                      type="search"
+                      value={searchQuery}
+                      placeholder={t.studio.searchPlaceholder}
+                      onChange={(event) => {
+                        setSearchQuery(event.target.value);
+                        setSearchHits([]);
+                        setSelectedSearchHits(new Set());
+                        setSearchRan(false);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') void runDocumentSearch();
+                      }}
+                      className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                    />
+                  </Field>
+                  <label className="flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={searchCaseSensitive}
+                      onChange={(event) => {
+                        setSearchCaseSensitive(event.target.checked);
+                        setSearchHits([]);
+                        setSelectedSearchHits(new Set());
+                        setSearchRan(false);
+                      }}
+                      className="h-4 w-4 accent-violet-600"
+                    />
+                    {t.studio.searchCase}
+                  </label>
+                  <label className="flex items-center gap-2 text-xs text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={searchWholeWord}
+                      onChange={(event) => {
+                        setSearchWholeWord(event.target.checked);
+                        setSearchHits([]);
+                        setSelectedSearchHits(new Set());
+                        setSearchRan(false);
+                      }}
+                      className="h-4 w-4 accent-violet-600"
+                    />
+                    {t.studio.searchWholeWord}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void runDocumentSearch()}
+                    disabled={building || searching || bulkTextBusy || searchQuery.trim() === ''}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:bg-gray-300"
+                  >
+                    {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <SearchIcon className="h-4 w-4" />}
+                    {searching ? t.studio.searchRunning : t.studio.searchAction}
+                  </button>
+                </section>
+
+                {searchHits.length > 0 ? (
+                  <section className="space-y-3 border-t pt-4" aria-live="polite">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-gray-900">{t.studio.searchResults(searchHits.length)}</p>
+                      <label className="flex items-center gap-1.5 text-xs text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={selectedSearchHits.size === searchHits.length}
+                          onChange={(event) =>
+                            setSelectedSearchHits(
+                              event.target.checked ? new Set(searchHits.map((hit) => hit.key)) : new Set()
+                            )
+                          }
+                          className="h-4 w-4 accent-violet-600"
+                        />
+                        {t.studio.searchSelectAll}
+                      </label>
+                    </div>
+                    <div className="max-h-48 divide-y overflow-auto border-y">
+                      {searchHits.map((hit) => (
+                        <div key={hit.key} className="flex items-start gap-2 py-2 text-xs">
+                          <label className="mt-0.5 flex shrink-0">
+                            <span className="sr-only">{`${t.studio.searchPage(hit.pageNumber)}: ${hit.text}`}</span>
+                            <input
+                              type="checkbox"
+                              checked={selectedSearchHits.has(hit.key)}
+                              onChange={(event) => {
+                                setSelectedSearchHits((current) => {
+                                  const next = new Set(current);
+                                  if (event.target.checked) next.add(hit.key);
+                                  else next.delete(hit.key);
+                                  return next;
+                                });
+                              }}
+                              className="h-4 w-4 accent-violet-600"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setPageIndex(hit.pageIndex)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <span className="block font-semibold text-violet-700">{t.studio.searchPage(hit.pageNumber)}</span>
+                            <span className="block truncate text-gray-700">{hit.text}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <Field label={t.studio.searchReplacement}>
+                      <input
+                        type="text"
+                        value={bulkReplacement}
+                        onChange={(event) => setBulkReplacement(event.target.value)}
+                        className="w-full rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                      />
+                    </Field>
+                    {bulkTextProgress && (
+                      <p className="flex items-center gap-2 text-xs text-gray-700" aria-live="polite">
+                        <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
+                        {t.studio.searchApplying(bulkTextProgress.current, bulkTextProgress.total)}
+                      </p>
+                    )}
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void applyBulkText('replace')}
+                        disabled={bulkTextBusy || selectedSearchHits.size === 0 || bulkReplacement === ''}
+                        className="rounded-xl bg-violet-600 px-3 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:bg-gray-300"
+                      >
+                        {t.studio.searchReplaceSelected}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void applyBulkText('redact')}
+                        disabled={bulkTextBusy || selectedSearchHits.size === 0}
+                        className="rounded-xl bg-red-700 px-3 py-2 text-sm font-bold text-white hover:bg-red-800 disabled:bg-gray-300"
+                      >
+                        {t.studio.searchRedactSelected}
+                      </button>
+                    </div>
+                    <p className="text-xs leading-relaxed text-amber-900">{t.studio.searchRewriteNote}</p>
+                  </section>
+                ) : searchRan && !searching && searchQuery.trim() !== '' ? (
+                  <p className="text-xs text-gray-600">{t.studio.searchNoResults}</p>
+                ) : null}
+
+                <section aria-labelledby="studio-sanitize-heading" className="space-y-3 border-t pt-4">
+                  <h2 id="studio-sanitize-heading" className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <ShieldCheck className="h-4 w-4 text-emerald-700" /> {t.studio.sanitizeHeading}
+                  </h2>
+                  <p className="text-xs leading-relaxed text-gray-600">{t.studio.sanitizeNote}</p>
+                  {(
+                    [
+                      ['metadata', t.studio.sanitizeMetadata],
+                      ['comments', t.studio.sanitizeComments],
+                      ['attachments', t.studio.sanitizeAttachments],
+                      ['actions', t.studio.sanitizeActions],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 text-xs text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={sanitization[key]}
+                        onChange={(event) =>
+                          setSanitization((current) => ({ ...current, [key]: event.target.checked }))
+                        }
+                        className="h-4 w-4 accent-emerald-700"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      addEdit({
+                        kind: 'sanitize',
+                        spec: Object.values(sanitization).some(Boolean) ? sanitization : null,
+                      })
+                    }
+                    disabled={!Object.values(sanitization).some(Boolean)}
+                    className="w-full rounded-xl bg-emerald-700 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-800 disabled:bg-gray-300"
+                  >
+                    {t.studio.sanitizeApply}
+                  </button>
+                  {state.sanitize && (
+                    <button
+                      type="button"
+                      onClick={() => addEdit({ kind: 'sanitize', spec: null })}
+                      className="w-full rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+                    >
+                      {t.studio.sanitizeRemove}
+                    </button>
+                  )}
+                </section>
+              </>
             ) : (
             <>
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1" role="tablist">

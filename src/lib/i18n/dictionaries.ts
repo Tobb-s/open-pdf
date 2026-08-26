@@ -633,6 +633,31 @@ export interface Dictionary {
     /** Stage four: the document, not just its pages. */
     tabPage: string;
     tabDocument: string;
+    tabSearch: string;
+    searchHeading: string;
+    searchQuery: string;
+    searchPlaceholder: string;
+    searchCase: string;
+    searchWholeWord: string;
+    searchAction: string;
+    searchRunning: string;
+    searchResults: (count: number) => string;
+    searchNoResults: string;
+    searchSelectAll: string;
+    searchPage: (page: number) => string;
+    searchReplacement: string;
+    searchReplaceSelected: string;
+    searchRedactSelected: string;
+    searchApplying: (current: number, total: number) => string;
+    searchRewriteNote: string;
+    sanitizeHeading: string;
+    sanitizeNote: string;
+    sanitizeMetadata: string;
+    sanitizeComments: string;
+    sanitizeAttachments: string;
+    sanitizeActions: string;
+    sanitizeApply: string;
+    sanitizeRemove: string;
     metadata: string;
     metaTitle: string;
     metaAuthor: string;
@@ -1538,6 +1563,33 @@ export const es: Dictionary = {
       `Atención: el documento producido perdió ${list}. Si los necesitás, conservá el original.`,
     tabPage: 'Página',
     tabDocument: 'Documento',
+    tabSearch: 'Buscar',
+    searchHeading: 'Buscar en todo el documento',
+    searchQuery: 'Texto a buscar',
+    searchPlaceholder: 'Palabra o frase…',
+    searchCase: 'Distinguir mayúsculas',
+    searchWholeWord: 'Sólo palabras completas',
+    searchAction: 'Buscar',
+    searchRunning: 'Buscando…',
+    searchResults: (count) => `${count} ${count === 1 ? 'coincidencia' : 'coincidencias'}`,
+    searchNoResults: 'No se encontraron coincidencias.',
+    searchSelectAll: 'Seleccionar todas',
+    searchPage: (page) => `Página ${page}`,
+    searchReplacement: 'Reemplazar por',
+    searchReplaceSelected: 'Reemplazar seleccionadas',
+    searchRedactSelected: 'Censurar seleccionadas',
+    searchApplying: (current, total) => `Procesando página ${current} de ${total}…`,
+    searchRewriteNote:
+      'Las páginas modificadas se rehacen como imagen y recuperan una capa buscable. Pierden enlaces, formularios, capas y anotaciones interactivas de esas páginas; el original queda intacto.',
+    sanitizeHeading: 'Sanitizar contenido oculto',
+    sanitizeNote:
+      'Elimina del archivo producido las categorías elegidas. La vista puede no cambiar porque son datos que normalmente no se ven.',
+    sanitizeMetadata: 'Metadatos del documento',
+    sanitizeComments: 'Comentarios y anotaciones',
+    sanitizeAttachments: 'Archivos adjuntos',
+    sanitizeActions: 'Scripts y acciones automáticas',
+    sanitizeApply: 'Aplicar sanitización',
+    sanitizeRemove: 'Quitar sanitización',
     metadata: 'Datos del documento',
     metaTitle: 'Título',
     metaAuthor: 'Autor',
@@ -2443,6 +2495,33 @@ export const en: Dictionary = {
       `Careful: the produced document lost ${list}. Keep your original if you need them.`,
     tabPage: 'Page',
     tabDocument: 'Document',
+    tabSearch: 'Search',
+    searchHeading: 'Search the whole document',
+    searchQuery: 'Text to find',
+    searchPlaceholder: 'Word or phrase…',
+    searchCase: 'Match case',
+    searchWholeWord: 'Whole words only',
+    searchAction: 'Search',
+    searchRunning: 'Searching…',
+    searchResults: (count) => `${count} ${count === 1 ? 'match' : 'matches'}`,
+    searchNoResults: 'No matches were found.',
+    searchSelectAll: 'Select all',
+    searchPage: (page) => `Page ${page}`,
+    searchReplacement: 'Replace with',
+    searchReplaceSelected: 'Replace selected',
+    searchRedactSelected: 'Redact selected',
+    searchApplying: (current, total) => `Processing page ${current} of ${total}…`,
+    searchRewriteNote:
+      'Changed pages are rebuilt as images and receive a new searchable layer. Links, forms, layers, and interactive annotations on those pages are lost; the original remains untouched.',
+    sanitizeHeading: 'Sanitize hidden content',
+    sanitizeNote:
+      'Removes the selected categories from the produced file. The preview may not change because this data is normally hidden.',
+    sanitizeMetadata: 'Document metadata',
+    sanitizeComments: 'Comments and annotations',
+    sanitizeAttachments: 'File attachments',
+    sanitizeActions: 'Scripts and automatic actions',
+    sanitizeApply: 'Apply sanitization',
+    sanitizeRemove: 'Remove sanitization',
     metadata: 'Document details',
     metaTitle: 'Title',
     metaAuthor: 'Author',
