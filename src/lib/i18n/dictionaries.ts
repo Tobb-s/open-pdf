@@ -650,6 +650,32 @@ export interface Dictionary {
     tabPage: string;
     tabDocument: string;
     tabSearch: string;
+    tabCompare: string;
+    compareHeading: string;
+    compareBack: string;
+    compareChoose: string;
+    comparePrivacy: string;
+    compareReading: (current: number, total: number) => string;
+    compareOriginal: string;
+    compareReference: string;
+    comparePixelMap: string;
+    compareRendering: string;
+    comparePixels: (percent: string) => string;
+    compareSinglePage: string;
+    compareAnother: string;
+    compareDownload: string;
+    compareSummary: string;
+    comparePages: string;
+    compareUnchanged: string;
+    compareModified: string;
+    compareMoved: string;
+    compareAdded: string;
+    compareRemoved: string;
+    comparePagePair: (base: number | null, comparison: number | null) => string;
+    compareWordSummary: (added: number, removed: number) => string;
+    compareVisual: string;
+    compareText: string;
+    compareNoText: string;
     searchHeading: string;
     searchQuery: string;
     searchPlaceholder: string;
@@ -1597,6 +1623,34 @@ export const es: Dictionary = {
     tabPage: 'Página',
     tabDocument: 'Documento',
     tabSearch: 'Buscar',
+    tabCompare: 'Comparar',
+    compareHeading: 'Comparar versiones PDF',
+    compareBack: 'Volver al editor',
+    compareChoose: 'Elegí la segunda versión del PDF',
+    comparePrivacy: 'Ambos documentos se comparan en este navegador. No se suben a ningún servidor.',
+    compareReading: (current, total) => `Leyendo páginas ${current} de ${total}…`,
+    compareOriginal: 'Versión actual',
+    compareReference: 'Segunda versión',
+    comparePixelMap: 'Mapa de cambios',
+    compareRendering: 'Preparando comparación visual…',
+    comparePixels: (percent) => `${percent}% de píxeles distintos`,
+    compareSinglePage: 'Esta página existe en una sola versión; no hay un par visual para superponer.',
+    compareAnother: 'Cambiar archivo',
+    compareDownload: 'Descargar informe',
+    compareSummary: 'Resumen de diferencias',
+    comparePages: 'Páginas comparadas',
+    compareUnchanged: 'Sin cambios',
+    compareModified: 'Modificada',
+    compareMoved: 'Movida',
+    compareAdded: 'Agregada',
+    compareRemoved: 'Eliminada',
+    comparePagePair: (base, comparison) =>
+      `Original ${base ?? '-'} / Versión ${comparison ?? '-'}`,
+    compareWordSummary: (added, removed) =>
+      `${added} ${added === 1 ? 'palabra agregada' : 'palabras agregadas'} · ${removed} ${removed === 1 ? 'eliminada' : 'eliminadas'}`,
+    compareVisual: 'Comparación visual',
+    compareText: 'Cambios de texto',
+    compareNoText: 'No se encontró texto extraíble en estas páginas.',
     searchHeading: 'Buscar en todo el documento',
     searchQuery: 'Texto a buscar',
     searchPlaceholder: 'Palabra o frase…',
@@ -2546,6 +2600,34 @@ export const en: Dictionary = {
     tabPage: 'Page',
     tabDocument: 'Document',
     tabSearch: 'Search',
+    tabCompare: 'Compare',
+    compareHeading: 'Compare PDF versions',
+    compareBack: 'Back to editor',
+    compareChoose: 'Choose the second PDF version',
+    comparePrivacy: 'Both documents are compared in this browser. Nothing is uploaded to a server.',
+    compareReading: (current, total) => `Reading pages ${current} of ${total}…`,
+    compareOriginal: 'Current version',
+    compareReference: 'Second version',
+    comparePixelMap: 'Change map',
+    compareRendering: 'Preparing visual comparison…',
+    comparePixels: (percent) => `${percent}% of pixels differ`,
+    compareSinglePage: 'This page exists in only one version, so there is no visual pair to overlay.',
+    compareAnother: 'Change file',
+    compareDownload: 'Download report',
+    compareSummary: 'Difference summary',
+    comparePages: 'Compared pages',
+    compareUnchanged: 'Unchanged',
+    compareModified: 'Modified',
+    compareMoved: 'Moved',
+    compareAdded: 'Added',
+    compareRemoved: 'Removed',
+    comparePagePair: (base, comparison) =>
+      `Original ${base ?? '-'} / Version ${comparison ?? '-'}`,
+    compareWordSummary: (added, removed) =>
+      `${added} ${added === 1 ? 'word added' : 'words added'} · ${removed} ${removed === 1 ? 'word removed' : 'words removed'}`,
+    compareVisual: 'Visual comparison',
+    compareText: 'Text changes',
+    compareNoText: 'No extractable text was found on these pages.',
     searchHeading: 'Search the whole document',
     searchQuery: 'Text to find',
     searchPlaceholder: 'Word or phrase…',

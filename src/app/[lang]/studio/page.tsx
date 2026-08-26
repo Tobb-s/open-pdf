@@ -7,6 +7,7 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import SignaturePad from '@/components/studio/SignaturePad';
+import CompareWorkspace from '@/components/studio/CompareWorkspace';
 import Stage, {
   type StageAction,
   type StageTool,
@@ -362,7 +363,7 @@ export default function StudioPage() {
   } | null>(null);
 
   /* -------------------------------------------------- the document panel -- */
-  const [panel, setPanel] = useState<'page' | 'document' | 'search'>('page');
+  const [panel, setPanel] = useState<'page' | 'document' | 'search' | 'compare'>('page');
   const [formFields, setFormFields] = useState<FormFieldInfo[]>([]);
   /** What the opened document already said, so the boxes are never blank by mistake. */
   const [originalMetadata, setOriginalMetadata] = useState<Metadata>({});
@@ -2216,6 +2217,13 @@ export default function StudioPage() {
           </p>
         )}
 
+        {panel === 'compare' ? (
+          <CompareWorkspace
+            baseDocument={built?.document ?? null}
+            baseName={name}
+            onClose={() => setPanel('page')}
+          />
+        ) : (
         <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
           <div className="min-w-0 space-y-4">
             <Stage
@@ -2308,6 +2316,7 @@ export default function StudioPage() {
                   ['page', t.studio.tabPage],
                   ['document', t.studio.tabDocument],
                   ['search', t.studio.tabSearch],
+                  ['compare', t.studio.tabCompare],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -3139,6 +3148,7 @@ export default function StudioPage() {
             </div>
           </aside>
         </div>
+        )}
       </main>
     </div>
   );
