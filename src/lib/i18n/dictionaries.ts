@@ -591,6 +591,11 @@ export interface Dictionary {
     replaceTextApply: string;
     replaceTextWorking: string;
     replaceTextNote: string;
+    sourceFontDetected: (name: string) => string;
+    sourceFontAvailable: string;
+    sourceFontUnavailable: string;
+    sourceFontUse: string;
+    sourceFontRights: string;
     paragraphOriginal: string;
     paragraphNew: string;
     paragraphLineSpacing: string;
@@ -1560,6 +1565,11 @@ export const es: Dictionary = {
     replaceTextWorking: 'Reemplazando…',
     replaceTextNote:
       'Para borrar el texto anterior de verdad, esta página se convierte en una imagen. Conserva su aspecto y vuelve a ser buscable, pero pierde enlaces, formularios, capas y anotaciones interactivas de esa página. El original queda intacto.',
+    sourceFontDetected: (name) => `Fuente detectada: ${name}`,
+    sourceFontAvailable: 'Está incrustada en este PDF y Studio puede reutilizarla.',
+    sourceFontUnavailable: 'El PDF declara esta fuente, pero no incluye una copia reutilizable.',
+    sourceFontUse: 'Usar la fuente incrustada',
+    sourceFontRights: 'Usala solo si tenés derecho a reutilizarla.',
     paragraphOriginal: 'Párrafo original',
     paragraphNew: 'Contenido del párrafo',
     paragraphLineSpacing: 'Interlineado',
@@ -2538,6 +2548,11 @@ export const en: Dictionary = {
     replaceTextWorking: 'Replacing…',
     replaceTextNote:
       'To truly remove the old text, this page becomes an image. It keeps its appearance and becomes searchable again, but page links, forms, layers, and interactive annotations are lost. The original stays untouched.',
+    sourceFontDetected: (name) => `Detected font: ${name}`,
+    sourceFontAvailable: 'It is embedded in this PDF and Studio can reuse it.',
+    sourceFontUnavailable: 'The PDF declares this font but does not include a reusable copy.',
+    sourceFontUse: 'Use the embedded font',
+    sourceFontRights: 'Use it only when you have the right to reuse it.',
     paragraphOriginal: 'Original paragraph',
     paragraphNew: 'Paragraph content',
     paragraphLineSpacing: 'Line spacing',

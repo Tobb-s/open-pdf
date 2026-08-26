@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { clientToCanvasPoint, viewportToPdfPoint } from '@/lib/geometry';
 import { renderPageToCanvas } from '@/lib/pdfjs';
 import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
+import { detectPdfFonts, type EmbeddedPdfFontProgram } from '@/lib/studio/fonts';
 import { groupTextParagraphs, type TextParagraph } from '@/lib/studio/paragraphs';
 
 /**
@@ -55,6 +56,7 @@ export interface ParagraphSelection {
 
 interface StageProps {
   document: PDFDocumentProxy | null;
+  embeddedFonts?: readonly EmbeddedPdfFontProgram[];
   /** 0-based page of the materialised document. */
   pageIndex: number;
   tool: StageTool;
@@ -81,6 +83,7 @@ type Drag =
 
 export default function Stage({
   document: pdf,
+  embeddedFonts = [],
   pageIndex,
   tool,
   busy,
@@ -132,13 +135,14 @@ export default function Stage({
             // page disappear. It simply has no selectable replacement targets.
           }
         }
+        const fonts = content ? detectPdfFonts(page, content.items, embeddedFonts) : new Map();
         rotationRef.current = page.rotate;
         page.cleanup();
         if (cancelled) return;
 
         viewportRef.current = rendered.viewport;
         setSize({ width: rendered.width, height: rendered.height, scale: rendered.viewport.scale });
-        setTextRuns(content ? flattenTextRuns(content.items, rendered.viewport) : []);
+        setTextRuns(content ? flattenTextRuns(content.items, rendered.viewport, fonts) : []);
       } catch {
         if (!cancelled) {
           setSize(null);
@@ -153,7 +157,7 @@ export default function Stage({
       cancelled = true;
       controller.abort();
     };
-  }, [pdf, pageIndex, tool]);
+  }, [pdf, pageIndex, tool, embeddedFonts]);
 
   const toCanvas = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;

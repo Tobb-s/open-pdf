@@ -10,6 +10,7 @@ import {
   PDFRadioGroup,
   PDFRef,
   PDFTextField,
+  type PDFFont,
   StandardFonts,
   degrees,
   rgb,
@@ -30,6 +31,7 @@ import { addReviewAnnotation } from '@/lib/studio/reviewAnnotations';
 import { toWinAnsi } from '@/lib/ocr';
 import { buildSignatureAudit, signatureAuditBytes } from '@/lib/studio/signatureAudit';
 import { sanitizeDocument } from '@/lib/studio/sanitize';
+import { embedTextFont, textFontCacheKey } from '@/lib/studio/fonts';
 import {
   IMAGE_PAGE_LONG_SIDE,
   isUntouched,
@@ -216,16 +218,16 @@ async function drawMark(
   page: PDFPage,
   mark: Mark,
   assets: ReadonlyMap<string, Uint8Array>,
-  fonts: Map<string, Awaited<ReturnType<PDFDocument['embedFont']>>>,
+  fonts: Map<string, PDFFont>,
   images: Map<string, Awaited<ReturnType<PDFDocument['embedPng']>>>
 ): Promise<void> {
   switch (mark.kind) {
     case 'text': {
-      const name = standardFontFor(mark.font);
-      let font = fonts.get(name);
+      const key = textFontCacheKey(mark.font);
+      let font = fonts.get(key);
       if (!font) {
-        font = await document.embedFont(name as StandardFonts);
-        fonts.set(name, font);
+        font = await embedTextFont(document, mark.font, assets);
+        fonts.set(key, font);
       }
       // The standard fonts speak WinAnsi. A character outside it makes pdf-lib
       // throw from inside drawText, which would fail every rebuild from here

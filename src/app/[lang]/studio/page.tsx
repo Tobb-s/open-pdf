@@ -74,6 +74,7 @@ import {
   ORIGINAL,
   stateAt,
   type Edit,
+  type FontChoice,
   type Mark,
   type Metadata,
   type MetadataPatch,
@@ -103,6 +104,13 @@ import {
 } from '@/lib/studio/store';
 import { findTextHits, type TextSearchHit } from '@/lib/studio/search';
 import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
+import {
+  embeddedTextFont,
+  extractEmbeddedPdfFonts,
+  testEmbeddedFont,
+  type EmbeddedPdfFontProgram,
+  type DetectedPdfFont,
+} from '@/lib/studio/fonts';
 import {
   alignedLineX,
   fitParagraphSize,
@@ -134,6 +142,7 @@ const RASTER_SCALE = 2;
 const IMAGE_STAMP_BOX = 140;
 const SIGNATURE_MAX_WIDTH = 190;
 const SIGNATURE_MAX_HEIGHT = 56;
+const EMPTY_EMBEDDED_FONTS: readonly EmbeddedPdfFontProgram[] = [];
 
 type ReviewMark = Extract<
   Mark,
@@ -148,7 +157,7 @@ type StudioSearchHit = TextSearchHit & {
   runs: readonly FlatTextRun[];
 };
 
-type ParagraphFont = Extract<Mark, { kind: 'text' }>['font'];
+type ParagraphFont = FontChoice;
 type ParagraphPreview = ParagraphLayout & { overflow: boolean; unsupported: string | null };
 
 const isReviewTool = (tool: StageTool): boolean =>
@@ -158,6 +167,51 @@ const isReviewTool = (tool: StageTool): boolean =>
   tool === 'comment';
 
 const isReviewMark = (mark: Mark): mark is ReviewMark => isReviewTool(mark.kind as StageTool);
+
+const sharedSourceFont = (runs: readonly FlatTextRun[]): DetectedPdfFont | null => {
+  const first = runs[0]?.sourceFont ?? null;
+  if (!first || !runs.every((run) => run.sourceFont?.id === first.id)) return null;
+  return first;
+};
+
+function SourceFontControl({
+  id,
+  source,
+  useSource,
+  onUseSource,
+}: {
+  id: string;
+  source: DetectedPdfFont | null;
+  useSource: boolean;
+  onUseSource: (next: boolean) => void;
+}) {
+  const { t } = useI18n();
+  if (!source) return null;
+
+  return (
+    <div className="border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-xs text-cyan-950">
+      <p className="font-semibold">{t.studio.sourceFontDetected(source.name)}</p>
+      {source.bytes ? (
+        <>
+          <p className="mt-1">{t.studio.sourceFontAvailable}</p>
+          <label htmlFor={id} className="mt-2 flex cursor-pointer items-center gap-2 font-medium">
+            <input
+              id={id}
+              type="checkbox"
+              checked={useSource}
+              onChange={(event) => onUseSource(event.target.checked)}
+              className="h-4 w-4 accent-cyan-700"
+            />
+            {t.studio.sourceFontUse}
+          </label>
+          <p className="mt-1 text-cyan-800">{t.studio.sourceFontRights}</p>
+        </>
+      ) : (
+        <p className="mt-1">{t.studio.sourceFontUnavailable}</p>
+      )}
+    </div>
+  );
+}
 
 /**
  * Looks for the redacted words in the file that is about to be handed over.
@@ -267,6 +321,8 @@ type Built = {
    * painted out.
    */
   placed: string[];
+  /** Original font programs, extracted before the viewer transforms them. */
+  embeddedFonts: readonly EmbeddedPdfFontProgram[];
 };
 
 /**
@@ -320,6 +376,8 @@ export default function StudioPage() {
   const [replacementValue, setReplacementValue] = useState('');
   const [replacementSize, setReplacementSize] = useState(14);
   const [replacementBackground, setReplacementBackground] = useState('#ffffff');
+  const [replacementSourceFont, setReplacementSourceFont] = useState<DetectedPdfFont | null>(null);
+  const [useReplacementSourceFont, setUseReplacementSourceFont] = useState(false);
   const [replacingText, setReplacingText] = useState(false);
   const [paragraphSelection, setParagraphSelection] = useState<
     (ParagraphSelection & { page: string }) | null
@@ -335,6 +393,8 @@ export default function StudioPage() {
   const [paragraphLineSpacing, setParagraphLineSpacing] = useState(1.2);
   const [paragraphColor, setParagraphColor] = useState('#111827');
   const [paragraphBackground, setParagraphBackground] = useState('#ffffff');
+  const [paragraphSourceFont, setParagraphSourceFont] = useState<DetectedPdfFont | null>(null);
+  const [useParagraphSourceFont, setUseParagraphSourceFont] = useState(false);
   const [paragraphPreview, setParagraphPreview] = useState<ParagraphPreview | null>(null);
   const [paragraphBusy, setParagraphBusy] = useState(false);
   const [inkWidth, setInkWidth] = useState(2);
@@ -592,6 +652,7 @@ export default function StudioPage() {
     try {
       const started = performance.now();
       const { bytes, placed, offMainThread: inWorker } = await engine.render(state);
+      const embeddedFonts = await extractEmbeddedPdfFonts(bytes);
       // Re-read every time: the engine can hand the job to the main thread part
       // way through a session, and the banner has to follow it.
       setOffMainThread(inWorker);
@@ -608,7 +669,7 @@ export default function StudioPage() {
       // The bytes are not kept: exporting re-renders from the script, so a copy
       // of every intermediate document would pin a document's worth of memory
       // for nothing.
-      setBuilt({ document: opened.document, destroy: opened.destroy, state, placed });
+      setBuilt({ document: opened.document, destroy: opened.destroy, state, placed, embeddedFonts });
       setPageIndex((index) => Math.min(index, opened.document.numPages - 1));
 
       // Measured from the request to the document being ready to draw. It does
@@ -781,8 +842,12 @@ export default function StudioPage() {
 
     void (async () => {
       try {
-        const scratch = await PDFDocument.create();
-        const font = await scratch.embedFont(standardFontFor(paragraphFont));
+        const font = useParagraphSourceFont && paragraphSourceFont?.bytes
+          ? await testEmbeddedFont(paragraphSourceFont.bytes, '')
+          : await (async () => {
+              const scratch = await PDFDocument.create();
+              return scratch.embedFont(standardFontFor(paragraphFont));
+            })();
         const unsupported = firstUnsupportedCharacter(paragraphValue.replace(/\s/g, ' '), font);
         if (cancelled) return;
         if (unsupported !== null) {
@@ -815,7 +880,9 @@ export default function StudioPage() {
     paragraphLineSpacing,
     paragraphSelection,
     paragraphSize,
+    paragraphSourceFont,
     paragraphValue,
+    useParagraphSourceFont,
   ]);
 
   const addReply = (mark: Extract<Mark, { kind: 'comment' }>) => {
@@ -1428,6 +1495,17 @@ export default function StudioPage() {
     setReplacingText(true);
     setError(null);
     try {
+      const fallback: ParagraphFont = { family: 'helvetica', bold: false, italic: false };
+      let replacementFont: Extract<Mark, { kind: 'text' }>['font'] = fallback;
+      if (useReplacementSourceFont && replacementSourceFont?.bytes) {
+        await testEmbeddedFont(replacementSourceFont.bytes, replacement);
+        const fontAsset = newId();
+        const bytes = replacementSourceFont.bytes.slice();
+        engine.putAsset(fontAsset, bytes);
+        setAssets((current) => ({ ...current, [fontAsset]: bytes }));
+        replacementFont = embeddedTextFont(fontAsset, { ...replacementSourceFont, bytes }, fallback) ?? fallback;
+      }
+
       const target = await document_.getPage(pageIndex + 1);
       const viewport = target.getViewport({ scale: RASTER_SCALE });
       const canvas = document.createElement('canvas');
@@ -1485,11 +1563,13 @@ export default function StudioPage() {
           size: replacementSize,
           color: hexToRgb(color),
           rotate: selection.selected.rotate,
-          font: { family: 'helvetica', bold: false, italic: false },
+          font: replacementFont,
         },
       });
       setTextSelection(null);
       setReplacementValue('');
+      setReplacementSourceFont(null);
+      setUseReplacementSourceFont(false);
     } catch (caught) {
       setError(describeStudioError(caught));
     } finally {
@@ -1531,6 +1611,8 @@ export default function StudioPage() {
     setParagraphSize(size);
     setParagraphAlignment('left');
     setParagraphLineSpacing(spacing);
+    setParagraphSourceFont(sharedSourceFont(selection.selected.runs));
+    setUseParagraphSourceFont(false);
   };
 
   const replaceSelectedParagraph = async () => {
@@ -1554,8 +1636,17 @@ export default function StudioPage() {
     setParagraphBusy(true);
     setError(null);
     try {
-      const scratch = await PDFDocument.create();
-      const font = await scratch.embedFont(standardFontFor(paragraphFont));
+      const source = useParagraphSourceFont ? paragraphSourceFont : null;
+      const sourceBytes = source?.bytes;
+      const font = sourceBytes
+        ? await (async () => {
+            const text = paragraphValue.replace(/\s/g, ' ');
+            return testEmbeddedFont(sourceBytes, text);
+          })()
+        : await (async () => {
+            const scratch = await PDFDocument.create();
+            return scratch.embedFont(standardFontFor(paragraphFont));
+          })();
       const unsupported = firstUnsupportedCharacter(paragraphValue.replace(/\s/g, ' '), font);
       if (unsupported !== null) throw new UnsupportedCharacterError(unsupported);
 
@@ -1603,6 +1694,15 @@ export default function StudioPage() {
       engine.putAsset(asset, raster);
       setAssets((current) => ({ ...current, [asset]: raster }));
 
+      let selectedFont: Extract<Mark, { kind: 'text' }>['font'] = paragraphFont;
+      if (source?.bytes) {
+        const fontAsset = newId();
+        const bytes = source.bytes.slice();
+        engine.putAsset(fontAsset, bytes);
+        setAssets((current) => ({ ...current, [fontAsset]: bytes }));
+        selectedFont = embeddedTextFont(fontAsset, { ...source, bytes }, paragraphFont) ?? paragraphFont;
+      }
+
       const removed = new Set(selection.selected.runs.map((run) => run.id));
       const searchable = selection.runs
         .filter((run) => !removed.has(run.id))
@@ -1624,7 +1724,7 @@ export default function StudioPage() {
               size: paragraphSize,
               color: hexToRgb(paragraphColor),
               rotate: 0,
-              font: paragraphFont,
+              font: selectedFont,
             }]
       );
 
@@ -1648,6 +1748,8 @@ export default function StudioPage() {
       });
       setParagraphSelection(null);
       setParagraphValue('');
+      setParagraphSourceFont(null);
+      setUseParagraphSourceFont(false);
     } catch (caught) {
       setError(describeStudioError(caught));
     } finally {
@@ -2228,6 +2330,7 @@ export default function StudioPage() {
           <div className="min-w-0 space-y-4">
             <Stage
               document={built?.document ?? null}
+              embeddedFonts={built?.embeddedFonts ?? EMPTY_EMBEDDED_FONTS}
               pageIndex={pageIndex}
               tool={tool}
               busy={building || replacingText || paragraphBusy || bulkTextBusy}
@@ -2239,6 +2342,8 @@ export default function StudioPage() {
                 setTextSelection({ ...selection, page });
                 setReplacementValue(selection.selected.text);
                 setReplacementSize(Math.max(4, Math.round(selection.selected.size)));
+                setReplacementSourceFont(selection.selected.sourceFont ?? null);
+                setUseReplacementSourceFont(false);
               }}
               selectedParagraphId={
                 paragraphSelection?.page === pageIdAt(pageIndex) ? paragraphSelection.selected.id : null
@@ -2668,6 +2773,12 @@ export default function StudioPage() {
                         className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
                       />
                     </Field>
+                    <SourceFontControl
+                      id="studio-replacement-source-font"
+                      source={replacementSourceFont}
+                      useSource={useReplacementSourceFont}
+                      onUseSource={setUseReplacementSourceFont}
+                    />
                     <NumberRow
                       label={t.stamp.size}
                       value={replacementSize}
@@ -2718,6 +2829,12 @@ export default function StudioPage() {
                         className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-emerald-500"
                       />
                     </Field>
+                    <SourceFontControl
+                      id="studio-paragraph-source-font"
+                      source={paragraphSourceFont}
+                      useSource={useParagraphSourceFont}
+                      onUseSource={setUseParagraphSourceFont}
+                    />
                     <Field label={t.stamp.typeface}>
                       <div className="flex items-center gap-2">
                         <select

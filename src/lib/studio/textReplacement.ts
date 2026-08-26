@@ -1,4 +1,5 @@
 import type { ViewportLike } from '@/lib/geometry';
+import type { DetectedPdfFont } from '@/lib/studio/fonts';
 
 /** Geometry needed to select and rebuild one pdf.js text item. */
 export interface FlatTextRun {
@@ -9,6 +10,8 @@ export interface FlatTextRun {
   y: number;
   size: number;
   rotate: number;
+  /** Source font identity, with bytes only when its original program is reusable. */
+  sourceFont?: DetectedPdfFont | null;
   /** Axis-aligned bounds in the visual top-left frame, at scale 1. */
   visual: { left: number; top: number; width: number; height: number };
 }
@@ -18,6 +21,7 @@ type TextItemLike = {
   transform?: number[];
   width?: number;
   height?: number;
+  fontName?: string;
 };
 
 const finite = (value: unknown, fallback = 0): number =>
@@ -33,7 +37,8 @@ const finite = (value: unknown, fallback = 0): number =>
  */
 export function flattenTextRuns(
   items: readonly unknown[],
-  viewport: ViewportLike & { scale?: number }
+  viewport: ViewportLike & { scale?: number },
+  fonts: ReadonlyMap<string, DetectedPdfFont> = new Map()
 ): FlatTextRun[] {
   const scale = finite(viewport.scale, 1) || 1;
   const runs: FlatTextRun[] = [];
@@ -83,6 +88,7 @@ export function flattenTextRuns(
       y: (viewport.height - startY) / scale,
       size: height,
       rotate: flatAngle,
+      sourceFont: typeof item.fontName === 'string' ? fonts.get(item.fontName) ?? null : null,
       visual: {
         left,
         top,

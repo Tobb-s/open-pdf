@@ -1,5 +1,11 @@
 import type { Edit } from '@/lib/studio/script';
 
+const embeddedFontAsset = (font: unknown): string | null => {
+  if (!font || typeof font !== 'object') return null;
+  const candidate = font as { kind?: unknown; asset?: unknown };
+  return candidate.kind === 'embedded' && typeof candidate.asset === 'string' ? candidate.asset : null;
+};
+
 /**
  * The session, kept in IndexedDB so closing the tab is not the same as losing
  * the afternoon.
@@ -193,11 +199,19 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
         if (edit.mark.kind === 'image' || edit.mark.kind === 'signature') {
           referenced.add(edit.mark.asset);
         }
+        if (edit.mark.kind === 'text') {
+          const asset = embeddedFontAsset(edit.mark.font);
+          if (asset) referenced.add(asset);
+        }
         break;
 
       case 'replaceMark':
         if (edit.mark.kind === 'image' || edit.mark.kind === 'signature') {
           referenced.add(edit.mark.asset);
+        }
+        if (edit.mark.kind === 'text') {
+          const asset = embeddedFontAsset(edit.mark.font);
+          if (asset) referenced.add(asset);
         }
         break;
 
@@ -212,6 +226,10 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
 
       case 'replaceText':
         referenced.add(edit.raster.asset);
+        {
+          const asset = embeddedFontAsset(edit.replacement.font);
+          if (asset) referenced.add(asset);
+        }
         break;
 
       case 'rewritePages':
@@ -219,6 +237,10 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
           referenced.add(page.raster.asset);
           for (const mark of page.marks) {
             if (mark.kind === 'image' || mark.kind === 'signature') referenced.add(mark.asset);
+            if (mark.kind === 'text') {
+              const asset = embeddedFontAsset(mark.font);
+              if (asset) referenced.add(asset);
+            }
           }
         }
         break;
