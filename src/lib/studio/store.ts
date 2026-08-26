@@ -214,6 +214,15 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
         referenced.add(edit.raster.asset);
         break;
 
+      case 'rewritePages':
+        for (const page of edit.pages) {
+          referenced.add(page.raster.asset);
+          for (const mark of page.marks) {
+            if (mark.kind === 'image' || mark.kind === 'signature') referenced.add(mark.asset);
+          }
+        }
+        break;
+
       case 'rotate':
       case 'delete':
       case 'move':
@@ -224,6 +233,7 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
       case 'watermark':
       case 'numbering':
       case 'flattenForms':
+      case 'sanitize':
         break;
 
       default: {

@@ -55,6 +55,11 @@ interface StageProps {
   onAction: (action: StageAction, pageRotation: number) => void;
   selectedTextId?: string | null;
   onTextSelect?: (selection: TextSelection) => void;
+  searchHighlights?: ReadonlyArray<{
+    id: string;
+    visual: FlatTextRun['visual'];
+    active: boolean;
+  }>;
 }
 
 const MAX_EDGE = 760;
@@ -72,6 +77,7 @@ export default function Stage({
   onAction,
   selectedTextId = null,
   onTextSelect,
+  searchHighlights = [],
 }: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<Awaited<ReturnType<typeof renderPageToCanvas>>['viewport'] | null>(
@@ -281,6 +287,27 @@ export default function Stage({
                 />
               );
             })}
+          </div>
+        )}
+
+        {size && searchHighlights.length > 0 && (
+          <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+            {searchHighlights.map((hit) => (
+              <span
+                key={hit.id}
+                className={`absolute border-2 ${
+                  hit.active
+                    ? 'border-amber-700 bg-amber-300/45'
+                    : 'border-amber-500 bg-amber-200/25'
+                }`}
+                style={{
+                  left: `${(hit.visual.left * size.scale * 100) / size.width}%`,
+                  top: `${(hit.visual.top * size.scale * 100) / size.height}%`,
+                  width: `${Math.max((hit.visual.width * size.scale * 100) / size.width, 0.5)}%`,
+                  height: `${Math.max((hit.visual.height * size.scale * 100) / size.height, 0.8)}%`,
+                }}
+              />
+            ))}
           </div>
         )}
 

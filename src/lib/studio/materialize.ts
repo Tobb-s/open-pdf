@@ -29,6 +29,7 @@ import { pageBoxOf, visualSize } from '@/lib/geometry';
 import { addReviewAnnotation } from '@/lib/studio/reviewAnnotations';
 import { toWinAnsi } from '@/lib/ocr';
 import { buildSignatureAudit, signatureAuditBytes } from '@/lib/studio/signatureAudit';
+import { sanitizeDocument } from '@/lib/studio/sanitize';
 import {
   IMAGE_PAGE_LONG_SIDE,
   isUntouched,
@@ -710,6 +711,8 @@ export async function materialize({
       (page, index) => page.origin.asset !== ORIGINAL || page.origin.index !== index
     );
   if (sequenceChanged) document.catalog.delete(PDFName.of('PageLabels'));
+
+  if (state.sanitize) sanitizeDocument(document, state.sanitize);
 
   removeUnreachableObjects(document, { stopAt: deleted.map((page) => page.ref) });
 
