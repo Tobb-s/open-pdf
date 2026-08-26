@@ -23,6 +23,8 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  ChevronLeft,
+  ChevronRight,
   Crop,
   Download,
   EyeOff,
@@ -42,6 +44,7 @@ import {
   Send,
   Signature as SignatureIcon,
   MessageSquareText,
+  Maximize2,
   Search as SearchIcon,
   ShieldCheck,
   Square,
@@ -52,6 +55,8 @@ import {
   Undo2,
   Upload,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
@@ -361,6 +366,7 @@ export default function StudioPage() {
 
   const [built, setBuilt] = useState<Built | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
+  const [zoom, setZoom] = useState(1);
   const [tool, setTool] = useState<StageTool>('pick');
   const [building, setBuilding] = useState(false);
   const [live, setLive] = useState(true);
@@ -2193,7 +2199,7 @@ export default function StudioPage() {
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
-      <main className="mx-auto max-w-7xl px-4 py-8">
+      <main className="mx-auto max-w-[1600px] px-4 py-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-3">
           <div className="flex min-w-0 items-center gap-3">
             <FileText className="h-5 w-5 shrink-0 text-violet-600" />
@@ -2326,12 +2332,41 @@ export default function StudioPage() {
             onClose={() => setPanel('page')}
           />
         ) : (
-        <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-          <div className="min-w-0 space-y-4">
-            <Stage
+        <div className="grid min-w-0 gap-4 lg:grid-cols-[10rem_minmax(0,1fr)_19rem]">
+          <aside className="order-2 min-w-0 rounded-lg border bg-white p-3 lg:sticky lg:top-4 lg:order-1 lg:self-start">
+            <p className="mb-3 text-center text-xs font-semibold tabular-nums text-gray-600">
+              {viewPages.length === 0 ? t.studio.building : t.studio.pageOf(pageIndex + 1, viewPages.length)}
+            </p>
+            <PageStrip
+              document={built?.document ?? null}
+              signatures={signatures}
+              current={pageIndex}
+              onSelect={setPageIndex}
+              disabled={building}
+              onRotate={(index, turns) => {
+                const page = pageIdAt(index);
+                if (page) addEdit({ kind: 'rotate', page, turns });
+              }}
+              onDelete={(index) => {
+                const page = pageIdAt(index);
+                if (page) addEdit({ kind: 'delete', page });
+              }}
+              onMove={(index, to) => {
+                const page = pageIdAt(index);
+                if (!page) return;
+                const anchor = to < index ? viewPages[to] : viewPages[index + 2];
+                addEdit({ kind: 'move', page, before: anchor?.id ?? null });
+              }}
+            />
+          </aside>
+
+          <section className="order-1 flex min-w-0 flex-col gap-3 lg:order-2">
+            <div className="order-2">
+              <Stage
               document={built?.document ?? null}
               embeddedFonts={built?.embeddedFonts ?? EMPTY_EMBEDDED_FONTS}
               pageIndex={pageIndex}
+              zoom={zoom}
               tool={tool}
               busy={building || replacingText || paragraphBusy || bulkTextBusy}
               onAction={onStageAction}
@@ -2360,62 +2395,77 @@ export default function StudioPage() {
                   visual: hit.visual,
                   active: selectedSearchHits.has(hit.key),
                 }))}
-            />
-
-            <div className="flex items-center justify-center gap-4 text-sm">
-              <button
-                type="button"
-                onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
-                disabled={pageIndex === 0}
-                title={t.studio.previousHint}
-                className="rounded-xl border bg-white px-3 py-1.5 disabled:opacity-30"
-              >
-                {t.studio.previous}
-              </button>
-              <span className="font-medium tabular-nums">
-                {viewPages.length === 0
-                  ? t.studio.building
-                  : t.studio.pageOf(pageIndex + 1, viewPages.length)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setPageIndex((index) => Math.min(viewPages.length - 1, index + 1))}
-                disabled={pageIndex >= viewPages.length - 1}
-                title={t.studio.nextHint}
-                className="rounded-xl border bg-white px-3 py-1.5 disabled:opacity-30"
-              >
-                {t.studio.next}
-              </button>
+              />
             </div>
 
-            <PageStrip
-              document={built?.document ?? null}
-              signatures={signatures}
-              current={pageIndex}
-              onSelect={setPageIndex}
-              disabled={building}
-              onRotate={(index, turns) => {
-                const page = pageIdAt(index);
-                if (page) addEdit({ kind: 'rotate', page, turns });
-              }}
-              onDelete={(index) => {
-                const page = pageIdAt(index);
-                if (page) addEdit({ kind: 'delete', page });
-              }}
-              onMove={(index, to) => {
-                const page = pageIdAt(index);
-                if (!page) return;
-                // "Before this page", read off the rail the reader is looking
-                // at: moving earlier means before the tile to the left, moving
-                // later means before the one two to the right (or the end).
-                const anchor = to < index ? viewPages[to] : viewPages[index + 2];
-                addEdit({ kind: 'move', page, before: anchor?.id ?? null });
-              }}
-            />
-          </div>
+            <div className="order-1 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-2 py-1.5">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
+                  disabled={pageIndex === 0}
+                  title={t.studio.previousHint}
+                  aria-label={t.studio.previousHint}
+                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="min-w-24 text-center text-sm font-medium tabular-nums text-gray-800">
+                  {viewPages.length === 0 ? t.studio.building : t.studio.pageOf(pageIndex + 1, viewPages.length)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPageIndex((index) => Math.min(viewPages.length - 1, index + 1))}
+                  disabled={pageIndex >= viewPages.length - 1}
+                  title={t.studio.nextHint}
+                  aria-label={t.studio.nextHint}
+                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
 
-          <aside className="min-w-0 space-y-5 rounded-3xl border bg-white p-5">
-            <div role="tablist" className="flex gap-2 border-b pb-3">
+              <div role="group" aria-label={t.studio.zoomLevel(Math.round(zoom * 100))} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}
+                  disabled={zoom <= 0.5}
+                  title={t.studio.zoomOut}
+                  aria-label={t.studio.zoomOut}
+                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
+                >
+                  <ZoomOut className="h-4 w-4" />
+                </button>
+                <output className="min-w-14 text-center text-xs font-semibold tabular-nums text-gray-700">
+                  {Math.round(zoom * 100)}%
+                </output>
+                <button
+                  type="button"
+                  onClick={() => setZoom((value) => Math.min(2.5, Number((value + 0.25).toFixed(2))))}
+                  disabled={zoom >= 2.5}
+                  title={t.studio.zoomIn}
+                  aria-label={t.studio.zoomIn}
+                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
+                >
+                  <ZoomIn className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoom(1)}
+                  disabled={zoom === 1}
+                  title={t.studio.zoomFit}
+                  aria-label={t.studio.zoomFit}
+                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
+                >
+                  <Maximize2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+          </section>
+
+          <aside className="order-3 min-w-0 space-y-5 rounded-lg border bg-white p-4 lg:sticky lg:top-4 lg:order-3 lg:max-h-[calc(100dvh-2rem)] lg:self-start lg:overflow-y-auto">
+            <div role="tablist" className="grid grid-cols-2 gap-2 border-b pb-3">
               {(
                 [
                   ['page', t.studio.tabPage],
@@ -2430,7 +2480,7 @@ export default function StudioPage() {
                   role="tab"
                   aria-selected={panel === value}
                   onClick={() => setPanel(value)}
-                  className={`rounded-xl px-3 py-1.5 text-sm font-medium transition-colors ${
+                  className={`min-w-0 rounded-md px-2 py-2 text-sm font-medium transition-colors ${
                     panel === value
                       ? 'bg-violet-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'

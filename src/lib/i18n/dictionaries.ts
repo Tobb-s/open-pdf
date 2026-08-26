@@ -535,6 +535,10 @@ export interface Dictionary {
     redoHint: string;
     previousHint: string;
     nextHint: string;
+    zoomOut: string;
+    zoomIn: string;
+    zoomFit: string;
+    zoomLevel: (value: number) => string;
     editCount: (count: number) => string;
     noEdits: string;
     pageOf: (current: number, total: number) => string;
@@ -1508,6 +1512,10 @@ export const es: Dictionary = {
     redoHint: 'Rehacer · Ctrl+Y o Ctrl+Mayús+Z',
     previousHint: 'Página anterior · ←',
     nextHint: 'Página siguiente · →',
+    zoomOut: 'Alejar',
+    zoomIn: 'Acercar',
+    zoomFit: 'Ajustar al visor',
+    zoomLevel: (value) => `Zoom ${value}%`,
     editCount: (count) => `${count} ${count === 1 ? 'edición' : 'ediciones'}`,
     noEdits: 'Sin cambios',
     pageOf: (current, total) => `Página ${current} de ${total}`,
@@ -2491,6 +2499,10 @@ export const en: Dictionary = {
     redoHint: 'Redo · Ctrl+Y or Ctrl+Shift+Z',
     previousHint: 'Previous page · ←',
     nextHint: 'Next page · →',
+    zoomOut: 'Zoom out',
+    zoomIn: 'Zoom in',
+    zoomFit: 'Fit to viewer',
+    zoomLevel: (value) => `Zoom ${value}%`,
     editCount: (count) => `${count} ${count === 1 ? 'edit' : 'edits'}`,
     noEdits: 'No changes',
     pageOf: (current, total) => `Page ${current} of ${total}`,
