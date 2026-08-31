@@ -15,6 +15,7 @@ import Stage, {
   type TextSelection,
 } from '@/components/studio/Stage';
 import { isEditableTarget, shortcutFor, TOOL_ORDER } from '@/lib/studio/shortcuts';
+import { EDIT_TOOL_IDS, REVIEW_TOOL_IDS } from '@/lib/studio/toolbars';
 import DocumentPanel from '@/components/studio/DocumentPanel';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
 import {
@@ -2288,27 +2289,36 @@ export default function StudioPage() {
     );
   }
 
-  const EDIT_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
-    { id: 'pick', label: t.studio.tools.pick, icon: Hand },
-    { id: 'text', label: t.studio.tools.text, icon: Type },
-    { id: 'rect', label: t.studio.tools.rect, icon: Square },
-    { id: 'ink', label: t.studio.tools.ink, icon: Pen },
-    { id: 'image', label: t.studio.tools.image, icon: ImageUp },
-    { id: 'crop', label: t.studio.tools.crop, icon: Crop },
-    { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
-    { id: 'erase', label: t.studio.tools.erase, icon: Eraser },
-    { id: 'line', label: t.studio.tools.line, icon: Minus },
-    { id: 'ellipse', label: t.studio.tools.ellipse, icon: Circle },
-    { id: 'replaceText', label: t.studio.tools.replaceText, icon: Replace },
-    { id: 'paragraph', label: t.studio.tools.paragraph, icon: Pilcrow },
-    { id: 'signature', label: t.studio.tools.signature, icon: SignatureIcon },
-  ];
-  const REVIEW_TOOLS: Array<{ id: StageTool; label: string; icon: typeof Hand }> = [
-    { id: 'highlight', label: t.studio.tools.highlight, icon: Highlighter },
-    { id: 'underline', label: t.studio.tools.underline, icon: Underline },
-    { id: 'strikeout', label: t.studio.tools.strikeout, icon: Strikethrough },
-    { id: 'comment', label: t.studio.tools.comment, icon: MessageSquareText },
-  ];
+  /**
+   * The two toolbars, built from the roster in src/lib/studio/toolbars.ts.
+   *
+   * The order lives there so the keyboard mapping can be checked against it:
+   * the digits and the buttons had already drifted apart once, and nothing
+   * could notice while the order was written out here, in a component no test
+   * reaches.
+   */
+  const TOOL_FACE: Record<StageTool, { label: string; icon: typeof Hand }> = {
+    pick: { label: t.studio.tools.pick, icon: Hand },
+    text: { label: t.studio.tools.text, icon: Type },
+    rect: { label: t.studio.tools.rect, icon: Square },
+    ink: { label: t.studio.tools.ink, icon: Pen },
+    image: { label: t.studio.tools.image, icon: ImageUp },
+    crop: { label: t.studio.tools.crop, icon: Crop },
+    redact: { label: t.studio.tools.redact, icon: EyeOff },
+    erase: { label: t.studio.tools.erase, icon: Eraser },
+    line: { label: t.studio.tools.line, icon: Minus },
+    ellipse: { label: t.studio.tools.ellipse, icon: Circle },
+    replaceText: { label: t.studio.tools.replaceText, icon: Replace },
+    paragraph: { label: t.studio.tools.paragraph, icon: Pilcrow },
+    signature: { label: t.studio.tools.signature, icon: SignatureIcon },
+    highlight: { label: t.studio.tools.highlight, icon: Highlighter },
+    underline: { label: t.studio.tools.underline, icon: Underline },
+    strikeout: { label: t.studio.tools.strikeout, icon: Strikethrough },
+    comment: { label: t.studio.tools.comment, icon: MessageSquareText },
+  };
+  const face = (id: StageTool) => ({ id, ...TOOL_FACE[id] });
+  const EDIT_TOOLS = EDIT_TOOL_IDS.map(face);
+  const REVIEW_TOOLS = REVIEW_TOOL_IDS.map(face);
   const toolsShown = toolMode === 'review' ? REVIEW_TOOLS : EDIT_TOOLS;
 
   return (

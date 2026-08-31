@@ -8,19 +8,32 @@ import type { StageTool } from '@/components/studio/Stage';
  * thing per answer and the mapping itself can be tested without a page.
  *
  * Kept deliberately small and language-neutral: the modifier pair everyone's
- * hands already know, the arrows for pages, Escape back to the hand, and the
- * digits for the tools in the order the toolbar shows them. Letters were not
- * used — «T» for text reads as English to a Spanish reader and collides with
- * whatever they are typing the moment a guard is missed.
+ * hands already know, the arrows for pages, Escape back to the hand, and nine
+ * digits for nine tools. Letters were not used — «T» for text reads as English
+ * to a Spanish reader and collides with whatever they are typing the moment a
+ * guard is missed.
  */
 
-/** The toolbar's order, which is also what the digit keys mean. */
+/**
+ * The nine tools a digit reaches, chosen rather than counted.
+ *
+ * There are seventeen tools across two toolbars and nine digits, so this cannot
+ * be «the nth button»: it is a curated list, and saying otherwise was how it
+ * came to disagree with the screen. It once claimed to mirror the toolbar, and
+ * then three tools were inserted in the middle of that toolbar — after which
+ * the eighth button was the eraser while «8» still selected the highlighter.
+ *
+ * The digit carries the tool with it across the two toolbars: the page switches
+ * mode to whichever one owns it. `image` is deliberately absent — it does
+ * nothing until an image has been chosen from the panel, so a key for it would
+ * be a key that usually does nothing.
+ */
 export const TOOL_ORDER: readonly StageTool[] = [
   'pick',
   'text',
   'rect',
   'ink',
-  'image',
+  'erase',
   'crop',
   'redact',
   'highlight',

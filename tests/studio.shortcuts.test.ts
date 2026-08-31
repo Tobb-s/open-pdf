@@ -1,3 +1,4 @@
+import { ALL_TOOL_IDS, EDIT_TOOL_IDS, REVIEW_TOOL_IDS } from '@/lib/studio/toolbars';
 import { describe, expect, it } from 'vitest';
 import {
   isEditableTarget,
@@ -98,5 +99,41 @@ describe('isEditableTarget', () => {
     expect(isEditableTarget({ tagName: 'CANVAS' } as unknown as EventTarget)).toBe(false);
     expect(isEditableTarget({ tagName: 'BUTTON' } as unknown as EventTarget)).toBe(false);
     expect(isEditableTarget(null)).toBe(false);
+  });
+});
+
+/**
+ * The digits and the buttons, kept in step.
+ *
+ * They drifted apart once and nothing noticed: three tools were inserted in the
+ * middle of the toolbar, after which the eighth button was the eraser while «8»
+ * still selected the highlighter. The order now lives in a module a test can
+ * reach, and these are the two things that must stay true of it.
+ */
+describe('the keyboard against the toolbars', () => {
+  it('never gives a digit to a tool no toolbar offers', () => {
+    for (const tool of TOOL_ORDER) {
+      expect(ALL_TOOL_IDS).toContain(tool);
+    }
+  });
+
+  it('gives no tool two digits', () => {
+    expect(new Set(TOOL_ORDER).size).toBe(TOOL_ORDER.length);
+  });
+
+  it('asks for no more than the nine digits there are', () => {
+    expect(TOOL_ORDER.length).toBeLessThanOrEqual(9);
+  });
+
+  it('leaves the image tool out, because its key would usually do nothing', () => {
+    // It needs an image chosen from the panel first; the page skips the digit
+    // when there is none. A key that usually does nothing teaches the reader
+    // that the keys do not work.
+    expect(TOOL_ORDER).not.toContain('image');
+  });
+
+  it('lists every tool exactly once across the two toolbars', () => {
+    expect(new Set(ALL_TOOL_IDS).size).toBe(ALL_TOOL_IDS.length);
+    for (const tool of EDIT_TOOL_IDS) expect(REVIEW_TOOL_IDS).not.toContain(tool);
   });
 });
