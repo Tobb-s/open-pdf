@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import ProgressPanel from '@/components/ProgressPanel';
@@ -196,7 +197,7 @@ export default function PdfToWordPage() {
             <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
               <FileText className="h-10 w-10" />
             </div>
-            <h2 className="mb-2 text-2xl font-bold">{t.pdfToWord.doneTitle}</h2>
+            <ResultHeading className="mb-2 text-2xl font-bold">{t.pdfToWord.doneTitle}</ResultHeading>
             <p className="mb-4 text-gray-600">
               {t.pdfToWord.doneBody(result.paragraphs, result.pagesWithText)}
             </p>

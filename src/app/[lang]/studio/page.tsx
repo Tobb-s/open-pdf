@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
@@ -2219,7 +2220,7 @@ export default function StudioPage() {
             <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
               <FileText className="h-10 w-10" />
             </div>
-            <h2 className="mb-2 text-2xl font-bold">{t.studio.doneTitle(result.pages)}</h2>
+            <ResultHeading className="mb-2 text-2xl font-bold">{t.studio.doneTitle(result.pages)}</ResultHeading>
             <p className="mb-4 text-gray-600">{t.studio.doneBody}</p>
 
             {result.fields.length > 0 && (

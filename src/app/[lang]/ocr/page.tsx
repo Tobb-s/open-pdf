@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { savePdf } from '@/lib/pdfio';
 import { createWorker } from 'tesseract.js';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import ProgressPanel from '@/components/ProgressPanel';
@@ -363,9 +364,9 @@ export default function OcrPage() {
                 <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
                   <CheckCircle2 className="h-8 w-8" />
                 </div>
-                <h2 className="mb-2 text-center text-2xl font-semibold text-gray-900">
+                <ResultHeading className="mb-2 text-center text-2xl font-semibold text-gray-900">
                   {t.ocr.doneTitle(result.wordsFound)}
-                </h2>
+                </ResultHeading>
                 <p className="mb-2 text-center text-gray-500">
                   {t.ocr.doneBody(result.pages)}
                 </p>

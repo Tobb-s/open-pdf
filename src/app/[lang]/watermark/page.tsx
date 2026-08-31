@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import type { PDFDocument } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import StampPreview from '@/components/StampPreview';
@@ -246,7 +247,7 @@ export default function WatermarkPage() {
             <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
               <FileText className="h-10 w-10" />
             </div>
-            <h2 className="mb-2 text-2xl font-bold">{t.watermark.doneTitle(result.pages)}</h2>
+            <ResultHeading className="mb-2 text-2xl font-bold">{t.watermark.doneTitle(result.pages)}</ResultHeading>
             <p className="mb-8 text-gray-600">{t.watermark.doneBody}</p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <button

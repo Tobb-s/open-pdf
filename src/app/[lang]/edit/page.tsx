@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { StandardFonts, degrees, rgb } from 'pdf-lib';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import { Download, FileText, Loader2, MousePointerClick, Trash2, Upload, X } from 'lucide-react';
@@ -416,7 +417,7 @@ export default function EditPage() {
               <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
                 <FileText className="h-10 w-10" />
               </div>
-              <h2 className="mb-2 text-2xl font-bold">{t.edit.doneTitle}</h2>
+              <ResultHeading className="mb-2 text-2xl font-bold">{t.edit.doneTitle}</ResultHeading>
               <p className="mb-8 text-gray-600">
                 {t.edit.doneBody(
                   annotations.filter((annotation) => annotation.text.trim() !== '').length

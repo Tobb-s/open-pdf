@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { loadPdf } from '@/lib/pdfio';
 import JSZip from 'jszip';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { OFFICE_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import {
@@ -467,11 +468,11 @@ export default function OfficeToPdfPage() {
                 )}
               </div>
 
-              <h2 className="mb-2 text-2xl font-bold text-gray-900">
+              <ResultHeading className="mb-2 text-2xl font-bold text-gray-900">
                 {result.total === 1
                   ? t.officeToPdf.doneTitle
                   : t.officeToPdf.batchDoneTitle(result.converted, result.total)}
-              </h2>
+              </ResultHeading>
               <p className="mb-6 text-gray-500">
                 {result.pages !== undefined
                   ? t.officeToPdf.batchDoneCombined(result.pages, formatBytes(result.blob.size))

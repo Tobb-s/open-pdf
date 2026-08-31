@@ -11,6 +11,7 @@ import {
 } from 'pdf-lib';
 import { loadPdf, savePdf } from '@/lib/pdfio';
 import Navbar from '@/components/Navbar';
+import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import { AlertTriangle, Download, FileText, Loader2, Upload, X } from 'lucide-react';
@@ -415,11 +416,11 @@ export default function FillFormPage() {
               <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100 text-green-600">
                 <FileText className="h-10 w-10" />
               </div>
-              <h2 className="mb-2 text-2xl font-bold">
+              <ResultHeading className="mb-2 text-2xl font-bold">
                 {result.filled === 0
                   ? t.fillForm.nothingChanged
                   : t.fillForm.doneTitle(result.filled)}
-              </h2>
+              </ResultHeading>
 
               {result.wrong.length > 0 && (
                 /* Read back from the produced file, not from the loop that
