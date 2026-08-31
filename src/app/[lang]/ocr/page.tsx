@@ -9,13 +9,14 @@ import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import ProgressPanel from '@/components/ProgressPanel';
-import { CheckCircle2, Download, FileText, Languages, ScanText, Type, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Download, FileText, Info, Languages, ScanText, Type, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize, assertPageCount, MAX_OCR_PAGES, throwIfCancelled } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { reportStructures, type StructureCategory } from '@/lib/verify/structural';
 import { OCR_SCALE, TESSERACT_PATHS } from '@/lib/ocrRuntime';
 import {
   confidenceSummary,
@@ -41,13 +42,22 @@ interface OcrResult {
   lowConfidence: number;
   /** Words whose search-layer copy lost characters the PDF font cannot carry. */
   stripped: number;
+  /**
+   * What the document carried that the searchable copy could not bring.
+   *
+   * OCR photographs every page into a new document. A new document assembled
+   * from images has no form, no bookmarks, no attachments and no title — and
+   * this tool is often pointed at a contract, where those are the parts that
+   * matter.
+   */
+  lost: StructureCategory[];
 }
 
 /** Pages sampled for an existing text layer when a file is chosen. */
 const TEXT_SAMPLE_PAGES = 3;
 
 export default function OcrPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [language, setLanguage] = useState<OcrLanguage>('spa');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -215,6 +225,26 @@ export default function OcrPage() {
       }
 
       const confidence = confidenceSummary(confidences);
+      // Compared against the file that went in, not guessed at: whatever the
+      // verifier can vouch for and no longer finds is what the reader gave up.
+      // Re-read from the File rather than kept in a variable — pdf.js detaches
+      // the buffer it is handed, and holding a second copy alive through the
+      // whole run would double the peak on exactly the documents that can least
+      // afford it.
+      //
+      // The report is the last thing that happens and it must not be able to
+      // take the result down with it: pdf.js reads documents pdf-lib refuses,
+      // so this can fail on a file that was read perfectly well. If it does,
+      // the reader gets their searchable copy and no note — silence being the
+      // one wrong answer that is at least not a false one.
+      let lost: StructureCategory[] = [];
+      try {
+        const original = new Uint8Array(await file.arrayBuffer());
+        lost = (await reportStructures(original, bytes)).losses.map((loss) => loss.category);
+      } catch {
+        lost = [];
+      }
+
       setResult({
         pdf: new Blob([bytes], { type: 'application/pdf' }),
         text: fullText.trim(),
@@ -223,6 +253,7 @@ export default function OcrPage() {
         meanConfidence: confidence.mean,
         lowConfidence: confidence.low,
         stripped,
+        lost,
       });
       setProgressPercent(100);
     } catch (caught) {
@@ -386,6 +417,19 @@ export default function OcrPage() {
                 {result.stripped > 0 && (
                   <div className="mx-auto mb-4 max-w-xl rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left text-sm text-gray-700">
                     {t.ocr.strippedNote(result.stripped)}
+                  </div>
+                )}
+
+                    {result.lost.length > 0 && (
+                  <div className="mx-auto mb-8 flex max-w-lg items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
+                    <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                    <p className="text-sm text-amber-900">
+                      {t.ocr.lostNote(
+                        new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
+                          result.lost.map((category) => t.structures[category])
+                        )
+                      )}
+                    </p>
                   </div>
                 )}
                 <div className="mb-6" />

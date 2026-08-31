@@ -115,6 +115,7 @@ export interface Dictionary {
     chooseLevel: string;
     presets: Record<'extreme' | 'recommended' | 'low', { title: string; description: string }>;
     recommendedBadge: string;
+    lostNote: (list: string) => string;
     textWarningTitle: string;
     textWarningBody: string;
     action: string;
@@ -151,6 +152,7 @@ export interface Dictionary {
     noTextBody: string;
     doneTitle: (words: number) => string;
     doneBody: (pages: number) => string;
+    lostNote: (list: string) => string;
     searchablePdf: string;
     /** Said when the chosen file already carries real text. */
     hasTextTitle: string;
@@ -1028,6 +1030,8 @@ export const es: Dictionary = {
       },
     },
     recommendedBadge: 'Recomendado',
+    lostNote: (list) =>
+      `Comprimir acá es fotografiar cada página en un documento nuevo, así que no viajaron ${list}. No hay forma de evitarlo con este método: un documento armado con imágenes no tiene nada de eso. Si los necesitás, guardá también el original.`,
     textWarningTitle: 'Este documento tiene texto real.',
     textWarningBody:
       'La compresión convierte cada página en una imagen, así que el texto deja de poder seleccionarse y buscarse — y las páginas de texto suelen quedar más grandes como imágenes. Vas a ver el tamaño final antes de descargar nada.',
@@ -1077,6 +1081,8 @@ export const es: Dictionary = {
     doneTitle: (words) => `Se reconocieron ${words.toLocaleString('es')} palabras`,
     doneBody: (pages) =>
       `En ${pages} ${pages === 1 ? 'página' : 'páginas'}. El PDF de abajo lleva una capa de texto invisible, así que podés buscarlo y seleccionarlo.`,
+    lostNote: (list) =>
+      `La copia buscable es un documento nuevo hecho con fotos de cada página, así que no viajaron ${list}. Si el original los tenía y te importan, conservalo: esta copia sirve para buscar, no para reemplazarlo.`,
     searchablePdf: 'PDF buscable',
     hasTextTitle: 'Este PDF ya tiene texto seleccionable.',
     hasTextBody:
@@ -2038,6 +2044,8 @@ export const en: Dictionary = {
       },
     },
     recommendedBadge: 'Recommended',
+    lostNote: (list) =>
+      `Compressing here means photographing every page into a new document, so ${list} did not travel. There is no way around that with this method: a document assembled from images has none of it. If you need them, keep the original too.`,
     textWarningTitle: 'This document contains real text.',
     textWarningBody:
       'Compression turns every page into an image, so the text will stop being selectable and searchable — and text pages often get larger as pictures. You will see the final size before you download anything.',
@@ -2087,6 +2095,8 @@ export const en: Dictionary = {
     doneTitle: (words) => `Recognised ${words.toLocaleString('en')} words`,
     doneBody: (pages) =>
       `Across ${pages} ${pages === 1 ? 'page' : 'pages'}. The PDF below carries an invisible text layer, so you can search and select it.`,
+    lostNote: (list) =>
+      `The searchable copy is a new document made from photographs of each page, so ${list} did not travel. If the original had them and they matter, keep it: this copy is for searching, not for replacing it.`,
     searchablePdf: 'Searchable PDF',
     hasTextTitle: 'This PDF already has selectable text.',
     hasTextBody:

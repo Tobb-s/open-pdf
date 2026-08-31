@@ -29,6 +29,7 @@ import {
   throwIfCancelled,
 } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { reportStructures, type StructureCategory } from '@/lib/verify/structural';
 
 type CompressionLevel = 'extreme' | 'recommended' | 'low';
 
@@ -75,10 +76,19 @@ interface CompressionResult {
   pages: number;
   /** True when the rasterised copy came out no smaller than the original. */
   grew: boolean;
+  /**
+   * What the document carried that this could not bring across.
+   *
+   * Compressing here means photographing every page into a new document, and a
+   * new document assembled from images has no form, no bookmarks, no
+   * attachments and no title. That was true from the first day and was never
+   * said; the reader got a smaller file and found out later.
+   */
+  lost: StructureCategory[];
 }
 
 export default function CompressPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [level, setLevel] = useState<CompressionLevel>('recommended');
   const [hasRealText, setHasRealText] = useState(false);
@@ -172,11 +182,33 @@ export default function CompressPage() {
       setProgressPercent(96);
 
       const bytes = (await savePdf(output)).slice();
+
+      // Compared against the file that went in, not guessed at: whatever the
+      // verifier can vouch for and no longer finds is what the reader gave up.
+      // Re-read from the File rather than kept in a variable — pdf.js detaches
+      // the buffer it is handed, and holding a second copy alive through the
+      // whole run would double the peak on exactly the documents that can least
+      // afford it.
+      //
+      // The report is the last thing that happens and it must not be able to
+      // take the result down with it: pdf.js reads documents pdf-lib refuses,
+      // so this can fail on a file that compressed perfectly well. If it does,
+      // the reader gets their smaller file and no note — silence being the one
+      // wrong answer that is at least not a false one.
+      let lost: StructureCategory[] = [];
+      try {
+        const original = new Uint8Array(await file.arrayBuffer());
+        lost = (await reportStructures(original, bytes)).losses.map((loss) => loss.category);
+      } catch {
+        lost = [];
+      }
+
       setResult({
         blob: new Blob([bytes], { type: 'application/pdf' }),
         size: bytes.length,
         pages: pageCount,
         grew: bytes.length >= file.size,
+        lost,
       });
       setProgressPercent(100);
     } catch (caught) {
@@ -342,6 +374,19 @@ export default function CompressPage() {
             <p className="mx-auto mb-8 max-w-lg text-gray-500">
               {result.grew ? t.compress.grewBody : t.compress.doneBody(result.pages)}
             </p>
+
+            {result.lost.length > 0 && (
+              <div className="mx-auto mb-8 flex max-w-lg items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                <p className="text-sm text-amber-900">
+                  {t.compress.lostNote(
+                    new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
+                      result.lost.map((category) => t.structures[category])
+                    )
+                  )}
+                </p>
+              </div>
+            )}
 
             <div className="mx-auto mb-10 grid max-w-xl grid-cols-1 gap-4 rounded-2xl border border-gray-100 bg-slate-50 p-6 sm:grid-cols-3">
               <div className="flex flex-col">
