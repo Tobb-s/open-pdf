@@ -23,3 +23,44 @@ body {
   background: #e8f0fe;
   color: #1a73e8;
 }
+
+/*
+ * Where the keyboard is.
+ *
+ * Twenty-five places in this app set `outline-none` to get the border they
+ * wanted on focus, and not one of them put anything back for the case the
+ * outline was there for: someone navigating by keyboard could not see where
+ * they were, anywhere, on any page.
+ *
+ * Written here rather than fixed in twenty-five components because it has to
+ * hold for the twenty-sixth as well. It is deliberately UNLAYERED: Tailwind's
+ * utilities live in the `utilities` layer, and an unlayered rule beats every
+ * layered one whatever its specificity, so `outline-none` cannot take this
+ * away again.
+ *
+ * `:focus-visible` rather than `:focus`, so a mouse click does not draw a ring
+ * around the button it just pressed — the browser decides, and it decides by
+ * how the element was reached.
+ */
+:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/*
+ * The one exception, and it is not an exception to being visible.
+ *
+ * A canvas reached by keyboard has no shape of its own to trace, so the ring
+ * follows its box; the offset is dropped so it does not sit outside the page
+ * the reader is looking at.
+ */
+canvas:focus-visible {
+  outline-offset: 0;
+}
+
+@media (prefers-contrast: more) {
+  :focus-visible {
+    outline-width: 3px;
+  }
+}
