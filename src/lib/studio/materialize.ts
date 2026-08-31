@@ -400,6 +400,60 @@ async function drawMark(
       return;
     }
 
+    case 'line': {
+      page.drawLine({
+        start: { x: mark.x1, y: mark.y1 },
+        end: { x: mark.x2, y: mark.y2 },
+        color: colorOf(mark.color),
+        thickness: mark.width,
+        lineCap: LineCapStyle.Round,
+      });
+
+      if (mark.arrow) {
+        // The head is drawn as two more strokes rather than as a filled path:
+        // pdf-lib's path drawing works in its own top-left space, and a head
+        // that lands somewhere else is worse than one made of the same lines
+        // the shaft is made of.
+        const dx = mark.x2 - mark.x1;
+        const dy = mark.y2 - mark.y1;
+        const length = Math.hypot(dx, dy);
+        if (length > 0) {
+          // Proportional to the stroke, so a thick arrow is not given a
+          // pinhead, but never longer than the line it belongs to.
+          const head = Math.min(mark.width * 4 + 4, length / 2);
+          const angle = Math.atan2(dy, dx);
+          for (const spread of [Math.PI * 0.82, -Math.PI * 0.82]) {
+            page.drawLine({
+              start: { x: mark.x2, y: mark.y2 },
+              end: {
+                x: mark.x2 + head * Math.cos(angle + spread),
+                y: mark.y2 + head * Math.sin(angle + spread),
+              },
+              color: colorOf(mark.color),
+              thickness: mark.width,
+              lineCap: LineCapStyle.Round,
+            });
+          }
+        }
+      }
+      return;
+    }
+
+    case 'ellipse': {
+      page.drawEllipse({
+        x: mark.x,
+        y: mark.y,
+        xScale: mark.rx,
+        yScale: mark.ry,
+        color: mark.color ? colorOf(mark.color) : undefined,
+        borderColor: mark.borderColor ? colorOf(mark.borderColor) : undefined,
+        borderWidth: mark.borderWidth,
+        opacity: mark.color ? mark.opacity : undefined,
+        borderOpacity: mark.borderColor ? mark.opacity : undefined,
+      });
+      return;
+    }
+
     case 'highlight':
     case 'underline':
     case 'strikeout':

@@ -556,6 +556,9 @@ export interface Dictionary {
       ocr: string;
       crop: string;
       redact: string;
+      erase: string;
+      line: string;
+      ellipse: string;
       highlight: string;
       underline: string;
       strikeout: string;
@@ -572,6 +575,9 @@ export interface Dictionary {
       ink: string;
       crop: string;
       redact: string;
+      erase: string;
+      line: string;
+      ellipse: string;
       highlight: string;
       underline: string;
       strikeout: string;
@@ -581,6 +587,8 @@ export interface Dictionary {
     fontRegular: string;
     fontsHere: string;
     fontsCannotEmbed: string;
+    arrowOn: string;
+    arrowOff: string;
     rotateLeft: string;
     rotateRight: string;
     deletePage: string;
@@ -1537,6 +1545,9 @@ export const es: Dictionary = {
       ocr: 'Capa de texto',
       crop: 'Recortar',
       redact: 'Tachar',
+      erase: 'Goma',
+      line: 'Línea',
+      ellipse: 'Elipse',
       highlight: 'Resaltar',
       underline: 'Subrayar',
       strikeout: 'Tachar texto',
@@ -1553,6 +1564,9 @@ export const es: Dictionary = {
       ink: 'Arrastrá para dibujar a mano alzada.',
       crop: 'Arrastrá el área que querés conservar.',
       redact: 'Arrastrá encima de lo que querés que desaparezca.',
+      erase: 'Arrastrá encima de lo que querés borrar. Borra de verdad: la página se rehace como imagen y pierde su texto seleccionable, igual que Tachar, sólo que sin dejar la marca negra.',
+      line: 'Arrastrá de un punto al otro.',
+      ellipse: 'Arrastrá para dibujar una elipse.',
       highlight: 'Arrastrá sobre el texto o el área que querés resaltar.',
       underline: 'Arrastrá debajo del texto que querés subrayar.',
       strikeout: 'Arrastrá sobre el texto que querés marcar como eliminado.',
@@ -1562,6 +1576,8 @@ export const es: Dictionary = {
     fontsHere: 'Esta página usa',
     fontsCannotEmbed:
       'Tocá una para escribir con su misma forma: serifas, negrita, cursiva. Es distinto de reusar la fuente misma —eso lo ofrece el control de «fuente del documento»—, y es lo que queda cuando esa fuente no se puede reusar.',
+    arrowOn: 'Con punta de flecha',
+    arrowOff: 'Sin punta de flecha',
     rotateLeft: 'Girar a la izquierda',
     rotateRight: 'Girar a la derecha',
     deletePage: 'Eliminar página',
@@ -2528,6 +2544,9 @@ export const en: Dictionary = {
       ocr: 'Text layer',
       crop: 'Crop',
       redact: 'Redact',
+      erase: 'Eraser',
+      line: 'Line',
+      ellipse: 'Ellipse',
       highlight: 'Highlight',
       underline: 'Underline',
       strikeout: 'Strike out',
@@ -2544,6 +2563,9 @@ export const en: Dictionary = {
       ink: 'Drag to draw freehand.',
       crop: 'Drag the area you want to keep.',
       redact: 'Drag over whatever you want gone.',
+      erase: 'Drag over what you want erased. It really goes: the page is rebuilt as a picture and loses its selectable text, exactly as redacting does — only without the black mark.',
+      line: 'Drag from one point to the other.',
+      ellipse: 'Drag to draw an ellipse.',
       highlight: 'Drag over the text or area you want to highlight.',
       underline: 'Drag under the text you want to underline.',
       strikeout: 'Drag over the text you want to mark as removed.',
@@ -2553,6 +2575,8 @@ export const en: Dictionary = {
     fontsHere: 'This page uses',
     fontsCannotEmbed:
       'Tap one to write in the same shape: serifs, weight, slant. That is not the same as reusing the font itself — the source-font control offers that — and it is what remains when the font cannot be reused.',
+    arrowOn: 'With arrowhead',
+    arrowOff: 'Without arrowhead',
     rotateLeft: 'Turn left',
     rotateRight: 'Turn right',
     deletePage: 'Delete page',

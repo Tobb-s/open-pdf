@@ -35,11 +35,16 @@ export type StageTool =
   | 'highlight'
   | 'underline'
   | 'strikeout'
-  | 'comment';
+  | 'comment'
+  | 'erase'
+  | 'line'
+  | 'ellipse';
 
 export type StageAction =
   | { kind: 'point'; x: number; y: number }
   | { kind: 'rect'; x: number; y: number; width: number; height: number }
+  /** Two points, in order. A rectangle would lose which way an arrow points. */
+  | { kind: 'segment'; x1: number; y1: number; x2: number; y2: number }
   | { kind: 'path'; points: Array<[number, number]> };
 
 export interface TextSelection {
@@ -246,6 +251,18 @@ export default function Stage({
     const a = toPdf(stroke.from, true);
     const b = toPdf(stroke.to, true);
     if (!a || !b) return;
+
+    if (tool === 'line') {
+      // Measured along the line rather than by its box, so a horizontal drag
+      // — height zero — is still a line and not a misfire.
+      if (Math.hypot(b.x - a.x, b.y - a.y) < 3) return;
+      onAction(
+        { kind: 'segment', x1: a.x, y1: a.y, x2: b.x, y2: b.y },
+        strokeRotationRef.current
+      );
+      return;
+    }
+
     const width = Math.abs(b.x - a.x);
     const height = Math.abs(b.y - a.y);
     // A stray click is not a rectangle; below a few points it is almost always
@@ -375,7 +392,27 @@ export default function Stage({
             preserveAspectRatio="none"
           >
             {drag.kind === 'rect' ? (
-              tool === 'underline' || tool === 'strikeout' ? (
+              tool === 'line' ? (
+                <line
+                  x1={drag.from.x}
+                  y1={drag.from.y}
+                  x2={drag.to.x}
+                  y2={drag.to.y}
+                  stroke="rgb(37,99,235)"
+                  strokeWidth={3}
+                  strokeLinecap="round"
+                />
+              ) : tool === 'ellipse' ? (
+                <ellipse
+                  cx={(drag.from.x + drag.to.x) / 2}
+                  cy={(drag.from.y + drag.to.y) / 2}
+                  rx={Math.abs(drag.to.x - drag.from.x) / 2}
+                  ry={Math.abs(drag.to.y - drag.from.y) / 2}
+                  fill="rgba(59,130,246,0.15)"
+                  stroke="rgb(37,99,235)"
+                  strokeWidth={2}
+                />
+              ) : tool === 'underline' || tool === 'strikeout' ? (
                 <line
                   x1={Math.min(drag.from.x, drag.to.x)}
                   x2={Math.max(drag.from.x, drag.to.x)}

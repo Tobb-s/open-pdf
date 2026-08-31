@@ -66,11 +66,26 @@ export const ORIGINAL = 'original';
  * An empty `boxes` is the same operation with nothing painted out: a page
  * turned into an image so it can be drawn on without touching the original.
  */
+/**
+ * A region painted over before the page became a picture.
+ *
+ * `fill` is what separates redacting from erasing, and it is only the colour:
+ * both rebuild the page as a bitmap that never held the content, so both really
+ * remove it and both are checked the same way at export. Black says «something
+ * was here»; white says nothing, which is what an eraser is for.
+ *
+ * Optional so a session written before erasing existed still replays: a box
+ * with no colour is a redaction, which is all there was.
+ */
+export interface PaintedBox extends Rect {
+  fill?: 'black' | 'white';
+}
+
 export interface PageRaster {
   /** The asset holding the rendered, already-painted-out bitmap. */
   asset: string;
   /** The painted regions, in the page's PDF user space. */
-  boxes: readonly Rect[];
+  boxes: readonly PaintedBox[];
   /** Exact visible terms intentionally removed, retained for the export proof. */
   redactedWords?: readonly string[];
 }
@@ -190,6 +205,39 @@ export type Mark =
       color: Rgb;
       opacity: number;
     })
+  | {
+      /**
+       * A straight line, optionally with an arrowhead at its end.
+       *
+       * Kept as two points rather than as a normalised box because direction is
+       * the whole content of an arrow: a rectangle would lose which end it
+       * points at.
+       */
+      kind: 'line';
+      id: string;
+      page: PageId;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+      color: Rgb;
+      width: number;
+      arrow: boolean;
+    }
+  | {
+      /** An ellipse given by its centre and its two radii. */
+      kind: 'ellipse';
+      id: string;
+      page: PageId;
+      x: number;
+      y: number;
+      rx: number;
+      ry: number;
+      color: Rgb | null;
+      borderColor: Rgb | null;
+      borderWidth: number;
+      opacity: number;
+    }
   | (ReviewThread & {
       kind: 'comment';
       id: string;

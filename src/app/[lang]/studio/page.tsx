@@ -31,7 +31,9 @@ import {
   Bold,
   ChevronLeft,
   ChevronRight,
+  Circle,
   Crop,
+  Eraser,
   Download,
   EyeOff,
   FilePlus2,
@@ -43,6 +45,7 @@ import {
   Italic,
   Keyboard,
   Loader2,
+  Minus,
   Pen,
   Pilcrow,
   Redo2,
@@ -90,7 +93,7 @@ import {
   type Mark,
   type Metadata,
   type MetadataPatch,
-  type Rect,
+  type PaintedBox,
   type NumberingSpec,
   type ScriptState,
   type SanitizationSpec,
@@ -405,6 +408,8 @@ export default function StudioPage() {
    * descriptors, which is also what a recovered font program falls back to when
    * it cannot be embedded.
    */
+  /** Whether the line tool puts a head on the end it was dragged to. */
+  const [lineArrow, setLineArrow] = useState(true);
   const [textFont, setTextFont] = useState<FontChoice>({
     family: 'helvetica',
     bold: false,
@@ -1088,6 +1093,65 @@ export default function StudioPage() {
       return;
     }
 
+    if (tool === 'erase' && action.kind === 'rect') {
+      // An eraser is a redaction painted white. The page is rebuilt as a
+      // picture that never held what was under the box, so it is really gone —
+      // and it costs the same as redacting: that page stops having selectable
+      // text. Anything cheaper would only cover it.
+      const existing = viewPages[pageIndex]?.raster?.boxes ?? [];
+      void rasterisePage([
+        ...existing,
+        {
+          x: action.x,
+          y: action.y,
+          width: action.width,
+          height: action.height,
+          fill: 'white',
+        },
+      ]);
+      return;
+    }
+
+    if (tool === 'line' && action.kind === 'segment') {
+      addEdit({
+        kind: 'draw',
+        mark: {
+          kind: 'line',
+          id: newId(),
+          page,
+          x1: action.x1,
+          y1: action.y1,
+          x2: action.x2,
+          y2: action.y2,
+          color: rgbColor,
+          width: inkWidth,
+          arrow: lineArrow,
+        },
+      });
+      return;
+    }
+
+    if (tool === 'ellipse' && action.kind === 'rect') {
+      addEdit({
+        kind: 'draw',
+        mark: {
+          kind: 'ellipse',
+          id: newId(),
+          page,
+          // The drag gives a box; an ellipse is its centre and half its sides.
+          x: action.x + action.width / 2,
+          y: action.y + action.height / 2,
+          rx: action.width / 2,
+          ry: action.height / 2,
+          color: null,
+          borderColor: rgbColor,
+          borderWidth: inkWidth,
+          opacity: 1,
+        },
+      });
+      return;
+    }
+
     if (tool === 'rect' && action.kind === 'rect') {
       addEdit({
         kind: 'draw',
@@ -1443,7 +1507,7 @@ export default function StudioPage() {
    * picture, so redacting twice does not photograph a photograph.
    */
   const rasterisePage = useCallback(
-    async (boxes: readonly Rect[]) => {
+    async (boxes: readonly PaintedBox[]) => {
       const engine = engineRef.current;
       const pageId = pageIdAt(pageIndex);
       if (!engine || !pageId || !original) return;
@@ -1478,9 +1542,13 @@ export default function StudioPage() {
           context.fillRect(0, 0, canvas.width, canvas.height);
           await target.render({ canvas, canvasContext: context, viewport }).promise;
 
-          // The regions, in the same pixels the page was just drawn in.
-          context.fillStyle = '#000000';
+          // The regions, in the same pixels the page was just drawn in. Each in
+          // its own colour: black says something was here, white says nothing.
+          // Both are equally gone from the bytes — the page is rebuilt as a
+          // bitmap that never held the content — so both are checked the same
+          // way at export.
           for (const box of boxes) {
+            context.fillStyle = box.fill === 'white' ? '#ffffff' : '#000000';
             const a = pdfToViewportPoint(viewport, { x: box.x, y: box.y });
             const b = pdfToViewportPoint(viewport, {
               x: box.x + box.width,
@@ -2228,6 +2296,9 @@ export default function StudioPage() {
     { id: 'image', label: t.studio.tools.image, icon: ImageUp },
     { id: 'crop', label: t.studio.tools.crop, icon: Crop },
     { id: 'redact', label: t.studio.tools.redact, icon: EyeOff },
+    { id: 'erase', label: t.studio.tools.erase, icon: Eraser },
+    { id: 'line', label: t.studio.tools.line, icon: Minus },
+    { id: 'ellipse', label: t.studio.tools.ellipse, icon: Circle },
     { id: 'replaceText', label: t.studio.tools.replaceText, icon: Replace },
     { id: 'paragraph', label: t.studio.tools.paragraph, icon: Pilcrow },
     { id: 'signature', label: t.studio.tools.signature, icon: SignatureIcon },
@@ -3227,7 +3298,23 @@ export default function StudioPage() {
               </>
             )}
 
-            {(tool === 'rect' || tool === 'ink') && (
+            {tool === 'line' && (
+              <button
+                type="button"
+                aria-pressed={lineArrow}
+                onClick={() => setLineArrow((current) => !current)}
+                className={cn(
+                  'w-full rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+                  lineArrow
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                )}
+              >
+                {lineArrow ? t.studio.arrowOn : t.studio.arrowOff}
+              </button>
+            )}
+
+            {(tool === 'rect' || tool === 'ink' || tool === 'line' || tool === 'ellipse') && (
               <NumberRow
                 label={t.studio.strokeWidth}
                 value={inkWidth}
@@ -3255,7 +3342,16 @@ export default function StudioPage() {
               </Field>
             )}
 
-            {toolMode === 'edit' && tool !== 'pick' && tool !== 'crop' && tool !== 'image' && tool !== 'signature' && (
+            {/* Not for the eraser: it always paints white, and offering a colour
+                would suggest it draws something. Nor for redact, which is
+                always black for the same reason. */}
+            {toolMode === 'edit' &&
+              tool !== 'pick' &&
+              tool !== 'crop' &&
+              tool !== 'image' &&
+              tool !== 'signature' &&
+              tool !== 'erase' &&
+              tool !== 'redact' && (
               <ColorRow label={t.stamp.color} value={color} onChange={setColor} />
             )}
 
