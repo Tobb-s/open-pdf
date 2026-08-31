@@ -63,6 +63,9 @@ describe('a PDF locked with an owner password only', () => {
       fields: [],
       metadata: {},
       signed: false,
+      // Nothing was read, so nothing is claimed about the fonts either.
+      fontsByPage: [],
+      fontStyles: new Map(),
     });
     await expect(importedStructures(new Uint8Array([1, 2, 3, 4]))).resolves.toEqual([]);
   }, 60000);

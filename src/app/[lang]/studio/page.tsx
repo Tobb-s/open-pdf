@@ -17,6 +17,12 @@ import Stage, {
 import { isEditableTarget, shortcutFor, TOOL_ORDER } from '@/lib/studio/shortcuts';
 import DocumentPanel from '@/components/studio/DocumentPanel';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
+import {
+  choiceFor,
+  describeStyle,
+  fallbackFor,
+  type DetectedFont,
+} from '@/lib/studio/fontStyle';
 import { ColorRow, Field, NumberRow, SliderRow } from '@/components/StampControls';
 import {
   AlignCenter,
@@ -61,6 +67,7 @@ import {
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
+import { cn } from '@/lib/utils';
 import { fitWithin, pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
 import { assertFileSize, MAX_EDITABLE_BYTES, yieldToBrowser } from '@/lib/limits';
 import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
@@ -390,6 +397,21 @@ export default function StudioPage() {
   >(null);
   const [paragraphValue, setParagraphValue] = useState('');
   const [paragraphSize, setParagraphSize] = useState(12);
+  /**
+   * The shape new text is drawn in, and where the shapes come from.
+   *
+   * The simple text tool used to hand every mark plain Helvetica, whatever the
+   * page was set in. `fontStyles` is the document's own faces read from their
+   * descriptors, which is also what a recovered font program falls back to when
+   * it cannot be embedded.
+   */
+  const [textFont, setTextFont] = useState<FontChoice>({
+    family: 'helvetica',
+    bold: false,
+    italic: false,
+  });
+  const [fontsByPage, setFontsByPage] = useState<DetectedFont[][]>([]);
+  const [fontStyles, setFontStyles] = useState<Map<string, DetectedFont>>(new Map());
   const [paragraphFont, setParagraphFont] = useState<ParagraphFont>({
     family: 'helvetica',
     bold: false,
@@ -519,6 +541,19 @@ export default function StudioPage() {
   /** The ids in display order, for anything that speaks page numbers to the reader. */
   const viewPageIds = useMemo(() => viewPages.map((page) => page.id), [viewPages]);
 
+  /**
+   * The fonts of the page on screen, when it is one the document arrived with.
+   *
+   * A page that was inserted, or one rasterised into a picture, has nothing to
+   * report — and reporting nothing is different from reporting «no fonts»,
+   * which is why the section only appears when there is an answer.
+   */
+  const pageFonts = useMemo(() => {
+    const page = viewPages[pageIndex];
+    if (!page || page.origin.asset !== ORIGINAL || page.raster) return [];
+    return fontsByPage[page.origin.index] ?? [];
+  }, [viewPages, pageIndex, fontsByPage]);
+
 
   /** Pages the script asked for that the build could not produce. */
   const dropped = useMemo(() => {
@@ -573,6 +608,8 @@ export default function StudioPage() {
       // The form as the document defines it. The reader's changes live in the
       // script; this is only what the fields started as.
       const opening = await readDocumentFacts(bytes);
+      setFontsByPage(opening.fontsByPage);
+      setFontStyles(opening.fontStyles);
       setFormFields(opening.fields);
       setOriginalMetadata(opening.metadata);
       setSigned(opening.signed);
@@ -1045,7 +1082,7 @@ export default function StudioPage() {
         // Upright against the page as it is displayed right now. From here on
         // the text is page content, so turning the page turns the text too.
         rotate: uprightTextRotation(pageRotation),
-        font: { family: 'helvetica', bold: false, italic: false },
+        font: textFont,
       };
       addEdit({ kind: 'draw', mark });
       return;
@@ -1501,7 +1538,11 @@ export default function StudioPage() {
     setReplacingText(true);
     setError(null);
     try {
-      const fallback: ParagraphFont = { family: 'helvetica', bold: false, italic: false };
+      // The standard face that stands in when the embedded program cannot be
+      // used, in the shape the original was drawn at. It was plain Helvetica
+      // before, so replacing a line of bold serif produced a line of light sans
+      // and the page stopped matching itself.
+      const fallback: ParagraphFont = fallbackFor(fontStyles, replacementSourceFont?.name);
       let replacementFont: Extract<Mark, { kind: 'text' }>['font'] = fallback;
       if (useReplacementSourceFont && replacementSourceFont?.bytes) {
         await testEmbeddedFont(replacementSourceFont.bytes, replacement);
@@ -1706,7 +1747,10 @@ export default function StudioPage() {
         const bytes = source.bytes.slice();
         engine.putAsset(fontAsset, bytes);
         setAssets((current) => ({ ...current, [fontAsset]: bytes }));
-        selectedFont = embeddedTextFont(fontAsset, { ...source, bytes }, paragraphFont) ?? paragraphFont;
+        // The reader's own choice still wins; the document's shape only fills in
+        // what they did not set.
+        selectedFont =
+          embeddedTextFont(fontAsset, { ...source, bytes }, paragraphFont) ?? paragraphFont;
       }
 
       const removed = new Set(selection.selected.runs.map((run) => run.id));
@@ -2803,6 +2847,77 @@ export default function StudioPage() {
                   />
                 </Field>
                 <NumberRow label={t.stamp.size} value={textSize} min={4} max={200} onChange={setTextSize} />
+
+                <Field label={t.stamp.typeface}>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={textFont.family}
+                      aria-label={t.stamp.typeface}
+                      onChange={(event) =>
+                        setTextFont((current) => ({
+                          ...current,
+                          family: event.target.value as FontChoice['family'],
+                        }))
+                      }
+                      className="min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
+                    >
+                      <option value="helvetica">{t.stamp.fontHelvetica}</option>
+                      <option value="times">{t.stamp.fontTimes}</option>
+                      <option value="courier">{t.stamp.fontCourier}</option>
+                    </select>
+                    {([
+                      ['bold', t.stamp.bold, Bold],
+                      ['italic', t.stamp.italic, Italic],
+                    ] as const).map(([key, label, Icon]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={textFont[key]}
+                        aria-label={label}
+                        title={label}
+                        onClick={() => setTextFont((current) => ({ ...current, [key]: !current[key] }))}
+                        className={cn(
+                          'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors',
+                          textFont[key]
+                            ? 'bg-violet-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        )}
+                      >
+                        <Icon className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                {pageFonts.length > 0 && (
+                  /* What the page itself is set in, and a way to match it. The
+                     document's own PROGRAM is offered elsewhere, by the source-
+                     font control; this is the shape, which is what survives when
+                     the program cannot be reused. */
+                  <Field label={t.studio.fontsHere} hint={t.studio.fontsCannotEmbed}>
+                    <div className="space-y-1">
+                      {pageFonts.map((font) => (
+                        <button
+                          key={`${font.name}-${font.bold}-${font.italic}`}
+                          type="button"
+                          onClick={() => setTextFont(choiceFor(font))}
+                          className="flex w-full items-center justify-between gap-2 rounded-xl bg-gray-50 px-3 py-2 text-left text-xs hover:bg-gray-100"
+                        >
+                          <span className="min-w-0 truncate font-medium text-gray-700">
+                            {font.name}
+                          </span>
+                          <span className="shrink-0 text-gray-500">
+                            {describeStyle(font, {
+                              bold: t.stamp.bold,
+                              italic: t.stamp.italic,
+                              regular: t.studio.fontRegular,
+                            })}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </Field>
+                )}
               </>
             )}
 

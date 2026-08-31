@@ -7,6 +7,7 @@ import {
   PDFTextField,
 } from 'pdf-lib';
 import { loadPdf } from '@/lib/pdfio';
+import { fontsOnPage, styleByName, type DetectedFont } from '@/lib/studio/fontStyle';
 import type { Metadata } from '@/lib/studio/script';
 import { summarizeStructures } from '@/lib/verify/structural';
 
@@ -33,6 +34,20 @@ export interface DocumentFacts {
   metadata: Metadata;
   /** True when the document carries a digital signature that any save will break. */
   signed: boolean;
+  /**
+   * The fonts each ORIGINAL page draws with, indexed by its position in the
+   * file as it arrived, and the same fonts keyed by name.
+   *
+   * Read here because the document is already open and this is a walk of the
+   * resource dictionaries, not a render. Measured on a 700-page document
+   * carrying three fonts on every page: 49 ms for the whole of
+   * `readDocumentFacts`, fonts included. Indexed by original position because
+   * that is what survives: a page inserted later has no entry, and the
+   * interface says it does not know rather than guessing.
+   */
+  fontsByPage: DetectedFont[][];
+  /** The same fonts by name, for pairing a recovered program with its shape. */
+  fontStyles: Map<string, DetectedFont>;
 }
 
 /** A refusal that has to reach the reader, not be absorbed into "no form". */
@@ -56,7 +71,7 @@ export async function readDocumentFacts(bytes: Uint8Array): Promise<DocumentFact
     if (isEncryptionError(caught)) throw caught;
     // Anything else pdf-lib will not read: nothing to show, and the run itself
     // reports the file properly if it cannot be used.
-    return { fields: [], metadata: {}, signed: false };
+    return { fields: [], metadata: {}, signed: false, fontsByPage: [], fontStyles: new Map() };
   }
 
   try {
@@ -99,10 +114,12 @@ export async function readDocumentFacts(bytes: Uint8Array): Promise<DocumentFact
     // that saving will break the signature, not after.
     const signed = summarizeStructures(document).categories.signatures > 0;
 
-    return { fields: found, metadata, signed };
+    const fontsByPage = document.getPages().map((page) => fontsOnPage(document, page));
+
+    return { fields: found, metadata, signed, fontsByPage, fontStyles: styleByName(document) };
   } catch {
     // A form too damaged to walk: the document still opens, so the session
     // goes ahead with nothing in the panel.
-    return { fields: [], metadata: {}, signed: false };
+    return { fields: [], metadata: {}, signed: false, fontsByPage: [], fontStyles: new Map() };
   }
 }

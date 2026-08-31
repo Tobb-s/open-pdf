@@ -577,6 +577,10 @@ export interface Dictionary {
       strikeout: string;
       comment: string;
     };
+    /** The shapes already on the page, and what can be taken from them. */
+    fontRegular: string;
+    fontsHere: string;
+    fontsCannotEmbed: string;
     rotateLeft: string;
     rotateRight: string;
     deletePage: string;
@@ -1554,6 +1558,10 @@ export const es: Dictionary = {
       strikeout: 'Arrastrá sobre el texto que querés marcar como eliminado.',
       comment: 'Escribí la nota y hacé clic donde quieras dejarla.',
     },
+    fontRegular: 'normal',
+    fontsHere: 'Esta página usa',
+    fontsCannotEmbed:
+      'Tocá una para escribir con su misma forma: serifas, negrita, cursiva. Es distinto de reusar la fuente misma —eso lo ofrece el control de «fuente del documento»—, y es lo que queda cuando esa fuente no se puede reusar.',
     rotateLeft: 'Girar a la izquierda',
     rotateRight: 'Girar a la derecha',
     deletePage: 'Eliminar página',
@@ -2541,6 +2549,10 @@ export const en: Dictionary = {
       strikeout: 'Drag over the text you want to mark as removed.',
       comment: 'Write the comment, then click where you want to leave it.',
     },
+    fontRegular: 'regular',
+    fontsHere: 'This page uses',
+    fontsCannotEmbed:
+      'Tap one to write in the same shape: serifs, weight, slant. That is not the same as reusing the font itself — the source-font control offers that — and it is what remains when the font cannot be reused.',
     rotateLeft: 'Turn left',
     rotateRight: 'Turn right',
     deletePage: 'Delete page',
