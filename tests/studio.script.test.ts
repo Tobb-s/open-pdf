@@ -147,6 +147,7 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
     turns: 0,
     crop: null as null | { x: number; y: number; width: number; height: number },
     raster: null,
+    rewrites: [] as ScriptState['pages'][number]['rewrites'],
   }));
   let marks: Mark[] = [];
 
@@ -181,6 +182,7 @@ function referenceState(pageCount: number, edits: readonly Edit[], cursor: numbe
         turns: 0,
         crop: null,
         raster: null,
+        rewrites: [],
       }));
       if (added.length > 0) {
         const anchor = edit.before === null ? pages.length : indexOf(edit.before);

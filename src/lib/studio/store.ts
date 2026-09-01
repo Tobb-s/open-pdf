@@ -256,6 +256,9 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
       case 'numbering':
       case 'flattenForms':
       case 'sanitize':
+      // A rewrite carries two strings and an intent. The glyphs it draws come
+      // from the font already in the document, so there is nothing to keep.
+      case 'rewriteText':
         break;
 
       default: {

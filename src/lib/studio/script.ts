@@ -90,6 +90,29 @@ export interface PageRaster {
   redactedWords?: readonly string[];
 }
 
+/**
+ * A word swapped for another by rewriting the operators that draw it.
+ *
+ * Kept as the intent rather than as the resulting bytes, like every other edit
+ * here: the script is replayed from the original file, so an offset recorded
+ * now would point at the wrong place the moment an earlier edit changed the
+ * page. `occurrence` counts matches on the page in the state the reader was
+ * looking at, which is the state this edit will be applied to — everything
+ * before it in the script has already run by then.
+ */
+export interface TextRewrite {
+  needle: string;
+  replacement: string;
+  /**
+   * What to do with the width difference. `squeeze` scales the new word into
+   * the old word's space so nothing else moves; `keep-layout` draws it
+   * undistorted and holds the line; `keep-flow` lets the line follow.
+   */
+  fit: 'squeeze' | 'keep-layout' | 'keep-flow';
+  /** Which match on the page, or every one of them. */
+  occurrence: number | 'all';
+}
+
 export interface PageState {
   id: PageId;
   origin: PageOrigin;
@@ -99,6 +122,8 @@ export interface PageState {
   crop: Rect | null;
   /** Set once the page has been rasterised, whether to redact or to flatten it. */
   raster: PageRaster | null;
+  /** Words replaced in the page's own content stream, in the order asked for. */
+  rewrites: readonly TextRewrite[];
 }
 
 export type Mark =
@@ -362,6 +387,7 @@ export type Edit =
   | { kind: 'insert'; before: PageId | null; asset: string; indices: readonly number[] }
   | { kind: 'draw'; mark: Mark }
   | { kind: 'replaceMark'; mark: Mark }
+  | { kind: 'rewriteText'; page: PageId; rewrite: TextRewrite }
   | { kind: 'erase'; markId: string }
   | { kind: 'insertImages'; before: PageId | null; assets: readonly string[] }
   | { kind: 'setField'; field: string; value: string }
@@ -420,6 +446,7 @@ export function initialState(pageCount: number): ScriptState {
       turns: 0,
       crop: null,
       raster: null,
+      rewrites: [],
     })),
     marks: [],
     flattenForms: false,
@@ -508,6 +535,7 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
         turns: 0,
         crop: null,
         raster: null,
+        rewrites: [],
       }));
       if (added.length === 0) return state;
 
@@ -549,6 +577,7 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
         turns: 0,
         crop: null,
         raster: null,
+        rewrites: [],
       }));
       if (added.length === 0) return state;
 
@@ -578,6 +607,12 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
 
     case 'raster':
       return withPage(state, edit.page, (page) => ({ ...page, raster: edit.raster }));
+
+    case 'rewriteText':
+      return withPage(state, edit.page, (page) => ({
+        ...page,
+        rewrites: [...page.rewrites, edit.rewrite],
+      }));
 
     case 'replaceText': {
       if (!state.pages.some((page) => page.id === edit.page)) return state;
@@ -660,7 +695,10 @@ export function isUntouched(state: ScriptState, pageCount: number): boolean {
       page.origin.index === index &&
       page.turns === 0 &&
       page.crop === null &&
-      page.raster === null
+      page.raster === null &&
+      // Without this a document whose only edit is a replaced word would be
+      // handed back as «nothing was asked for», byte for byte the original.
+      page.rewrites.length === 0
   );
 }
 

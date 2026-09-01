@@ -31,6 +31,11 @@ import { addReviewAnnotation } from '@/lib/studio/reviewAnnotations';
 import { toWinAnsi } from '@/lib/ocr';
 import { buildSignatureAudit, signatureAuditBytes } from '@/lib/studio/signatureAudit';
 import { sanitizeDocument } from '@/lib/studio/sanitize';
+import { parseOperations } from '@/lib/pdf/contentStream';
+import { readPageFonts } from '@/lib/pdf/fontMap';
+import { scanText } from '@/lib/pdf/textScan';
+import { applyPlans, findOccurrences, planReplacement, type PlannedEdit } from '@/lib/pdf/replaceText';
+import { readPageStream, writePageStream } from '@/lib/pdf/pageText';
 import { embedTextFont, textFontCacheKey } from '@/lib/studio/fonts';
 import {
   IMAGE_PAGE_LONG_SIDE,
@@ -478,10 +483,34 @@ async function drawMark(
  * and reports the document clean without having examined the region that was
  * painted out. A check that cannot fail is worse than no check.
  */
+/** What became of one word a reader asked to have replaced. */
+export interface RewriteOutcome {
+  page: PageId;
+  needle: string;
+  replacement: string;
+  /** How many matches were on the page. */
+  found: number;
+  /** How many were rewritten. */
+  replaced: number;
+  /** Why the rest were not, in words the interface can pass on. */
+  refused: string[];
+  /** Characters the page's own font could not draw, if that was the obstacle. */
+  missing: string[];
+}
+
 export interface MaterializeResult {
   bytes: Uint8Array;
   /** The ids really in the produced document, in the order it holds them. */
   pages: PageId[];
+  /**
+   * One entry per word replacement asked for.
+   *
+   * Reported rather than assumed, because a replacement can be asked for and
+   * not happen: a font with no «á», a word split across two operators. An
+   * export that quietly left a name in place is the failure this whole feature
+   * exists to avoid, so the caller is given what actually happened.
+   */
+  rewrites: RewriteOutcome[];
 }
 
 export async function materialize({
@@ -495,7 +524,7 @@ export async function materialize({
   if (isUntouched(state, originalCount) && state.pages.length === originalCount) {
     const untouched = await loadPdf(original, { updateMetadata: false });
     if (untouched.getPageCount() === originalCount) {
-      return { bytes: original.slice(), pages: state.pages.map((page) => page.id) };
+      return { bytes: original.slice(), pages: state.pages.map((page) => page.id), rewrites: [] };
     }
   }
 
@@ -544,6 +573,77 @@ export async function materialize({
     }
     if (page.crop) {
       handle.setCropBox(page.crop.x, page.crop.y, page.crop.width, page.crop.height);
+    }
+  }
+
+  /**
+   * Replacing a word by rewriting the operators that draw it.
+   *
+   * Before the raster step, and deliberately: a page whose word could be
+   * swapped in its own content stream never needs to become a picture, and one
+   * that gets rasterised afterwards for some other reason still carries the
+   * corrected text underneath.
+   *
+   * Each rewrite re-reads the page it is about to change. That is what makes
+   * two rewrites on one page compose — the second sees what the first did, the
+   * way a reader looking at the screen does.
+   */
+  const rewrites: RewriteOutcome[] = [];
+  for (const page of state.pages) {
+    if (page.rewrites.length === 0) continue;
+    const handle = byId.get(page.id);
+    if (!handle) continue;
+
+    for (const rewrite of page.rewrites) {
+      const outcome: RewriteOutcome = {
+        page: page.id,
+        needle: rewrite.needle,
+        replacement: rewrite.replacement,
+        found: 0,
+        replaced: 0,
+        refused: [],
+        missing: [],
+      };
+
+      const streams = readPageStream(handle);
+      const operations = parseOperations(streams.bytes);
+      const scan = scanText(operations, readPageFonts(handle.node.Resources()));
+      const all = findOccurrences(scan, rewrite.needle);
+      const wanted =
+        rewrite.occurrence === 'all'
+          ? all
+          : all.slice(rewrite.occurrence, rewrite.occurrence + 1);
+      outcome.found = wanted.length;
+
+      const planned: PlannedEdit[] = [];
+      const usedOperations = new Set<number>();
+      for (const occurrence of wanted) {
+        const plan = planReplacement(scan, operations, occurrence, rewrite.replacement, {
+          fit: rewrite.fit,
+        });
+        if (!plan.ok) {
+          outcome.refused.push(plan.reason);
+          for (const character of plan.missing) {
+            if (!outcome.missing.includes(character)) outcome.missing.push(character);
+          }
+          continue;
+        }
+        // Two matches inside one show operator would each rewrite the whole
+        // operator and the second would undo the first.
+        const operation = scan.runs[occurrence.run].operation;
+        if (usedOperations.has(operation)) {
+          outcome.refused.push('split');
+          continue;
+        }
+        usedOperations.add(operation);
+        planned.push(plan);
+      }
+
+      if (planned.length > 0) {
+        writePageStream(handle, streams, applyPlans(streams.bytes, planned));
+        outcome.replaced = planned.length;
+      }
+      rewrites.push(outcome);
     }
   }
 
@@ -796,5 +896,6 @@ export async function materialize({
   return {
     bytes: await savePdf(document, { updateFieldAppearances: false }),
     pages: inDocument,
+    rewrites,
   };
 }
