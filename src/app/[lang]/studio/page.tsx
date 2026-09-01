@@ -86,6 +86,8 @@ import {
   UnsupportedCharacterError,
 } from '@/lib/stamp';
 import { createStudioEngine, type StudioEngine } from '@/lib/studio/engine';
+import type { RewriteOutcome } from '@/lib/studio/materialize';
+import { selectionToPages } from '@/lib/studio/rewriteSelection';
 import {
   append,
   ORIGINAL,
@@ -340,6 +342,14 @@ type Built = {
   placed: string[];
   /** Original font programs, extracted before the viewer transforms them. */
   embeddedFonts: readonly EmbeddedPdfFontProgram[];
+  /**
+   * What became of each word replacement in the document now on screen.
+   *
+   * Read from the build rather than remembered from the click, so it follows
+   * undo: stepping back past a replacement stops reporting it, and stepping
+   * forward reports it again.
+   */
+  rewrites: readonly RewriteOutcome[];
 };
 
 /**
@@ -701,7 +711,7 @@ export default function StudioPage() {
     setBuilding(true);
     try {
       const started = performance.now();
-      const { bytes, placed, offMainThread: inWorker } = await engine.render(state);
+      const { bytes, placed, rewrites, offMainThread: inWorker } = await engine.render(state);
       const embeddedFonts = await extractEmbeddedPdfFonts(bytes);
       // Re-read every time: the engine can hand the job to the main thread part
       // way through a session, and the banner has to follow it.
@@ -719,7 +729,14 @@ export default function StudioPage() {
       // The bytes are not kept: exporting re-renders from the script, so a copy
       // of every intermediate document would pin a document's worth of memory
       // for nothing.
-      setBuilt({ document: opened.document, destroy: opened.destroy, state, placed, embeddedFonts });
+      setBuilt({
+        document: opened.document,
+        destroy: opened.destroy,
+        state,
+        placed,
+        embeddedFonts,
+        rewrites,
+      });
       setPageIndex((index) => Math.min(index, opened.document.numPages - 1));
 
       // Measured from the request to the document being ready to draw. It does
@@ -1923,6 +1940,74 @@ export default function StudioPage() {
     }
   };
 
+  /**
+   * Replacing the found words by rewriting the operators that draw them.
+   *
+   * The other button photographs each page and paints the new words on top,
+   * which costs the page its links, its form and its vector art. This one edits
+   * the content stream: same font, same place, page still a page. It cannot
+   * always be done — a subsetted font has only the characters the document
+   * already used — so what it could not do comes back in the build's report
+   * rather than being assumed away.
+   *
+   * It works a whole page at a time, which is why a partial selection is
+   * refused instead of guessed at. Matching one of the panel's hits to one of
+   * the engine's occurrences means trusting two different readers of the same
+   * page to agree on the order, and replacing the wrong word is a failure a
+   * reader would never catch.
+   */
+  const rewriteFoundText = () => {
+    const needle = searchQuery.trim();
+    if (needle === '' || bulkReplacement === '') return;
+
+    const selection = selectionToPages(searchHits, selectedSearchHits);
+    if (selection.kind === 'none') return;
+    if (selection.kind === 'partial') {
+      setError({ kind: 'unknown', title: t.studio.searchRewritePartial, detail: '' });
+      return;
+    }
+
+    setError(null);
+    for (const page of selection.pages) {
+      addEdit({
+        kind: 'rewriteText',
+        page,
+        rewrite: {
+          needle,
+          replacement: bulkReplacement,
+          fit: 'squeeze',
+          occurrence: 'all',
+          caseSensitive: searchCaseSensitive,
+          wholeWord: searchWholeWord,
+        },
+      });
+    }
+    setBulkReplacement('');
+  };
+
+  /**
+   * The one summary of every replacement in the document on screen.
+   *
+   * Derived from the build, so it is about the file as it stands rather than
+   * about the last click: undo takes a replacement out of the script and out of
+   * this line at the same time.
+   */
+  const rewriteReport = useMemo(() => {
+    const outcomes = built?.rewrites ?? [];
+    if (outcomes.length === 0) return null;
+    const missing: string[] = [];
+    let replaced = 0;
+    let refused = 0;
+    for (const outcome of outcomes) {
+      replaced += outcome.replaced;
+      refused += outcome.found - outcome.replaced;
+      for (const character of outcome.missing) {
+        if (!missing.includes(character)) missing.push(character);
+      }
+    }
+    return { replaced, refused, missing };
+  }, [built]);
+
   const applyBulkText = async (mode: 'replace' | 'redact') => {
     const document_ = built?.document;
     const engine = engineRef.current;
@@ -2702,6 +2787,38 @@ export default function StudioPage() {
                   </button>
                 </section>
 
+                {/*
+                  The outcome of the last replacement, outside the results list
+                  on purpose. It lived inside it first, and a run on a real
+                  document showed why that is wrong: replacing rebuilds the
+                  document, the hits are cleared because they are now about a
+                  file that no longer exists, and the report went with them —
+                  so the one moment the reader needed to be told what happened
+                  was the one moment nothing was on screen.
+                */}
+                {rewriteReport && (
+                  <div
+                    className="rounded-2xl border border-gray-200 bg-slate-50 p-3 text-xs leading-relaxed text-gray-800"
+                    aria-live="polite"
+                  >
+                    <p className="font-semibold text-gray-900">
+                      {t.studio.searchRewriteDone(rewriteReport.replaced)}
+                    </p>
+                    {rewriteReport.refused > 0 && (
+                      <p className="mt-1 text-amber-900">
+                        {t.studio.searchRewriteRefused(rewriteReport.refused)}
+                        {rewriteReport.missing.length > 0 &&
+                          ` ${t.studio.searchRewriteMissing(
+                            new Intl.ListFormat(locale, {
+                              style: 'long',
+                              type: 'conjunction',
+                            }).format(rewriteReport.missing.map((character) => `«${character}»`))
+                          )}`}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {searchHits.length > 0 ? (
                   <section className="space-y-3 border-t pt-4" aria-live="polite">
                     <div className="flex items-center justify-between gap-2">
@@ -2767,9 +2884,20 @@ export default function StudioPage() {
                     <div className="grid gap-2">
                       <button
                         type="button"
-                        onClick={() => void applyBulkText('replace')}
+                        onClick={rewriteFoundText}
                         disabled={bulkTextBusy || selectedSearchHits.size === 0 || bulkReplacement === ''}
                         className="rounded-xl bg-violet-600 px-3 py-2 text-sm font-bold text-white hover:bg-violet-700 disabled:bg-gray-300"
+                      >
+                        {t.studio.searchRewriteInPlace}
+                      </button>
+                      <p className="text-xs leading-relaxed text-gray-600">
+                        {t.studio.searchRewriteInPlaceNote}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void applyBulkText('replace')}
+                        disabled={bulkTextBusy || selectedSearchHits.size === 0 || bulkReplacement === ''}
+                        className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:text-gray-400"
                       >
                         {t.studio.searchReplaceSelected}
                       </button>

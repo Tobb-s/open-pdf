@@ -1,5 +1,5 @@
 import { loadPdf } from '@/lib/pdfio';
-import { materialize } from '@/lib/studio/materialize';
+import { materialize, type RewriteOutcome } from '@/lib/studio/materialize';
 import type { ScriptState } from '@/lib/studio/script';
 import { verifyFields, type FieldCheck } from '@/lib/studio/verify';
 import { summarizeStructures, type StructuralSummary } from '@/lib/verify/structural';
@@ -16,6 +16,16 @@ import type { StudioRequest, StudioResponse } from '@/lib/studio/studio.worker';
 
 export interface RenderResult {
   bytes: Uint8Array;
+  /**
+   * What became of each word replacement the script asked for.
+   *
+   * Carried back with the render rather than worked out by the interface,
+   * because the interface does not keep the bytes — and because the answer has
+   * to follow undo. Replaying a shorter prefix of the script produces a
+   * different set of outcomes, and this is the only reading of them that is
+   * always about the document on the screen.
+   */
+  rewrites: RewriteOutcome[];
   /**
    * The page ids really in those bytes, in the order the document holds them.
    *
@@ -69,12 +79,12 @@ class MainThreadEngine implements StudioEngine {
   async render(state: ScriptState): Promise<RenderResult> {
     if (!this.original) throw new Error('No document is open.');
     const started = performance.now();
-    const { bytes, pages: placed } = await materialize({
+    const { bytes, pages: placed, rewrites } = await materialize({
       original: this.original,
       assets: this.assets,
       state,
     });
-    return { bytes, placed, millis: performance.now() - started, offMainThread: false };
+    return { bytes, placed, rewrites, millis: performance.now() - started, offMainThread: false };
   }
 
   async exportDocument(state: ScriptState): Promise<ExportResult> {
@@ -152,6 +162,7 @@ export class WorkerEngine implements StudioEngine {
         (waiting.resolve as (value: RenderResult) => void)({
           bytes: message.bytes,
           placed: message.placed,
+          rewrites: message.rewrites,
           millis: message.millis,
           offMainThread: true,
         });

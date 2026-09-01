@@ -1,5 +1,5 @@
 import { loadPdf } from '@/lib/pdfio';
-import { materialize } from '@/lib/studio/materialize';
+import { materialize, type RewriteOutcome } from '@/lib/studio/materialize';
 import type { ScriptState } from '@/lib/studio/script';
 import { verifyFields, type FieldCheck } from '@/lib/studio/verify';
 import { summarizeStructures, type StructuralSummary } from '@/lib/verify/structural';
@@ -32,6 +32,8 @@ export type StudioResponse =
       /** The page ids really in those bytes, in the order the document holds them. */
       placed: string[];
       millis: number;
+      /** What became of each word replacement, so the page can say. */
+      rewrites: RewriteOutcome[];
     }
   | {
       cmd: 'exported';
@@ -120,7 +122,7 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
     // time a busy main thread spent getting round to the reply.
     const started = performance.now();
     try {
-      const { bytes, pages: placed } = await materialize({
+      const { bytes, pages: placed, rewrites } = await materialize({
         original,
         assets,
         state: request.state,
@@ -131,6 +133,7 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
           id: request.id,
           bytes,
           placed,
+          rewrites,
           millis: performance.now() - started,
         },
         // The worker has no further use for these, so hand the memory over

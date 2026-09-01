@@ -111,6 +111,16 @@ export interface TextRewrite {
   fit: 'squeeze' | 'keep-layout' | 'keep-flow';
   /** Which match on the page, or every one of them. */
   occurrence: number | 'all';
+  /**
+   * The same two options the search offered when the reader picked the word.
+   *
+   * Carried rather than defaulted: the panel searches without regard to case
+   * unless asked, so a rewrite that defaulted the other way would find a
+   * different set of matches from the one the reader was looking at and replace
+   * a different number of them.
+   */
+  caseSensitive?: boolean;
+  wholeWord?: boolean;
 }
 
 export interface PageState {

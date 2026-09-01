@@ -2,7 +2,12 @@
 
 ## Estado
 
-Aceptada el 25 de agosto de 2026.
+Aceptada el 25 de agosto de 2026. Reemplazada parcialmente por la
+[0007](0007-reescritura-de-operadores.md) el 31 de agosto de 2026: la premisa de
+que la edición vectorial real necesitaba un motor con licencia incompatible
+resultó falsa. Lo que faltaba era un lector de content streams, no un motor.
+Este camino sigue siendo el respaldo, y es el único que funciona cuando la fuente
+incrustada no tiene los signos que la palabra nueva necesita.
 
 ## Contexto
 

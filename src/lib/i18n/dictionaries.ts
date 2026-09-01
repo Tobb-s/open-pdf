@@ -712,6 +712,13 @@ export interface Dictionary {
     searchPage: (page: number) => string;
     searchReplacement: string;
     searchReplaceSelected: string;
+    /** The surgical route: the operators that draw the word are rewritten. */
+    searchRewriteInPlace: string;
+    searchRewriteInPlaceNote: string;
+    searchRewriteDone: (replaced: number) => string;
+    searchRewriteRefused: (count: number) => string;
+    searchRewriteMissing: (characters: string) => string;
+    searchRewritePartial: string;
     searchRedactSelected: string;
     searchApplying: (current: number, total: number) => string;
     searchRewriteNote: string;
@@ -1712,6 +1719,19 @@ export const es: Dictionary = {
     searchPage: (page) => `Página ${page}`,
     searchReplacement: 'Reemplazar por',
     searchReplaceSelected: 'Reemplazar seleccionadas',
+    searchRewriteInPlace: 'Reemplazar sin rehacer la página',
+    searchRewriteInPlaceNote:
+      'Reescribe los operadores que dibujan la palabra, con la misma fuente incrustada del documento y en el mismo lugar. La página sigue siendo texto: conserva enlaces, formularios y anotaciones, y no se convierte en imagen. Lo único que no puede quedar idéntico es el ancho, así que la palabra nueva se ajusta al espacio que ocupaba la vieja.',
+    searchRewriteDone: (replaced) =>
+      replaced === 1 ? 'Se reemplazó 1 aparición.' : `Se reemplazaron ${replaced} apariciones.`,
+    searchRewriteRefused: (count) =>
+      count === 1
+        ? 'Quedó 1 sin reemplazar.'
+        : `Quedaron ${count} sin reemplazar.`,
+    searchRewriteMissing: (characters) =>
+      `La fuente incrustada de esas páginas no tiene ${characters}. Los PDF traen solo los signos que el documento usó, así que no hay forma de dibujarlos con esa misma fuente.`,
+    searchRewritePartial:
+      'Para reescribir sin rehacer la página hay que tener seleccionadas todas las apariciones de cada página, porque el reemplazo se aplica por página completa.',
     searchRedactSelected: 'Censurar seleccionadas',
     searchApplying: (current, total) => `Procesando página ${current} de ${total}…`,
     searchRewriteNote:
@@ -2714,6 +2734,17 @@ export const en: Dictionary = {
     searchPage: (page) => `Page ${page}`,
     searchReplacement: 'Replace with',
     searchReplaceSelected: 'Replace selected',
+    searchRewriteInPlace: 'Replace without rebuilding the page',
+    searchRewriteInPlaceNote:
+      "Rewrites the operators that draw the word, using the document's own embedded font, in the same place. The page stays text: links, forms and annotations survive, and nothing becomes an image. The one thing that cannot stay identical is the width, so the new word is fitted into the space the old one had.",
+    searchRewriteDone: (replaced) =>
+      replaced === 1 ? '1 occurrence replaced.' : `${replaced} occurrences replaced.`,
+    searchRewriteRefused: (count) =>
+      count === 1 ? '1 was left as it was.' : `${count} were left as they were.`,
+    searchRewriteMissing: (characters) =>
+      `The embedded font on those pages does not contain ${characters}. A PDF carries only the characters the document used, so there is no way to draw them in that same font.`,
+    searchRewritePartial:
+      'Rewriting without rebuilding the page needs every occurrence on a page selected, because the replacement is applied a whole page at a time.',
     searchRedactSelected: 'Redact selected',
     searchApplying: (current, total) => `Processing page ${current} of ${total}…`,
     searchRewriteNote:

@@ -608,7 +608,10 @@ export async function materialize({
       const streams = readPageStream(handle);
       const operations = parseOperations(streams.bytes);
       const scan = scanText(operations, readPageFonts(handle.node.Resources()));
-      const all = findOccurrences(scan, rewrite.needle);
+      const all = findOccurrences(scan, rewrite.needle, {
+        ignoreCase: !rewrite.caseSensitive,
+        wholeWord: rewrite.wholeWord ?? false,
+      });
       const wanted =
         rewrite.occurrence === 'all'
           ? all
