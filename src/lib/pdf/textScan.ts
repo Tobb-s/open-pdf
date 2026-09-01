@@ -80,6 +80,18 @@ export interface ShowRun {
   size: number;
   /** Render mode. Three means invisible, which is what a scan's text layer uses. */
   renderMode: number;
+  /**
+   * The spacing state in force, which a rewrite has to reproduce.
+   *
+   * A glyph's advance is not its width: character spacing is added to every
+   * glyph, word spacing to single-byte code 32, and horizontal scaling
+   * multiplies the lot. A replacement measured without them comes out the
+   * wrong length in exactly the documents that set them.
+   */
+  charSpacing: number;
+  wordSpacing: number;
+  /** Horizontal scaling as a fraction, so `Tz 100` reads as 1. */
+  horizontal: number;
   glyphs: Glyph[];
   /** Text matrix in effect when the run began. */
   matrix: Matrix;
@@ -219,6 +231,9 @@ export function scanText(
       font,
       size: state.size,
       renderMode: state.renderMode,
+      charSpacing: state.charSpacing,
+      wordSpacing: state.wordSpacing,
+      horizontal: state.horizontal,
       glyphs,
       matrix: startMatrix,
       ctm: state.ctm,
