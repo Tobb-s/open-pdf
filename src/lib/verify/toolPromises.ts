@@ -54,6 +54,7 @@ export const TOOL_STRUCTURES: Record<ToolSlug, StructurePromise> = {
   'pdf-to-word': 'not-applicable',
   'image-pdf': 'not-applicable',
   'office-to-pdf': 'not-applicable',
+  markdown: 'not-applicable',
 };
 
 /**

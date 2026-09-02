@@ -13,7 +13,7 @@ export interface FileKind {
   /** Accepted MIME types or prefixes, e.g. `image/`. */
   mimePrefixes: string[];
   /** Key into the dictionary for the name of this kind of file. */
-  labelKey: 'kindPdf' | 'kindImage' | 'kindOffice';
+  labelKey: 'kindPdf' | 'kindImage' | 'kindOffice' | 'kindMarkdown';
 }
 
 export const PDF_FILES: FileKind = {
@@ -39,6 +39,13 @@ export const OFFICE_FILES: FileKind = {
   // extension is what decides here.
   mimePrefixes: [],
   labelKey: 'kindOffice',
+};
+
+export const MARKDOWN_FILES: FileKind = {
+  accept: '.md,.markdown,text/markdown,text/plain',
+  extensions: ['.md', '.markdown'],
+  mimePrefixes: ['text/markdown', 'text/plain'],
+  labelKey: 'kindMarkdown',
 };
 
 interface FileDropzoneProps {

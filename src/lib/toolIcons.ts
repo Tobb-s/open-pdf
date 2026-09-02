@@ -1,5 +1,6 @@
 import {
   Combine,
+  FileCode2,
   FileStack,
   FileType,
   FormInput,
@@ -35,6 +36,7 @@ export const TOOL_ICONS: Record<ToolSlug, LucideIcon> = {
   'image-pdf': ImageIcon,
   watermark: Stamp,
   'page-numbers': Hash,
+  markdown: FileCode2,
   batch: Workflow,
   studio: SquarePen,
 };

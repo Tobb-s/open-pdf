@@ -73,6 +73,7 @@ export interface Dictionary {
     kindPdf: string;
     kindImage: string;
     kindOffice: string;
+    kindMarkdown: string;
   };
   home: {
     badge: string;
@@ -520,6 +521,52 @@ export interface Dictionary {
     pages: (count: number) => string;
     formsFixed: (count: number) => string;
   };
+  markdown: {
+    heading: string;
+    intro: string;
+    badge: string;
+    dropLabel: string;
+    dropHint: string;
+    addMore: string;
+    filesCount: (count: number) => string;
+    statsSummary: (files: number, words: number, lines: number) => string;
+    tabFiles: string;
+    tabPreview: string;
+    tabSettings: string;
+    moveUp: string;
+    moveDown: string;
+    removeFile: (name: string) => string;
+    settingsTitle: string;
+    pageSize: string;
+    pageSizeA4: string;
+    pageSizeLetter: string;
+    theme: string;
+    themeSans: string;
+    themeSerif: string;
+    pageBreak: string;
+    pageBreakEach: string;
+    pageBreakContinuous: string;
+    pageNumbers: string;
+    showPageNumbers: string;
+    hidePageNumbers: string;
+    separator: string;
+    separatorDivider: string;
+    separatorHeading: string;
+    separatorBoth: string;
+    separatorBlank: string;
+    actionMergeMd: string;
+    actionConvertToPdf: string;
+    workingMerge: string;
+    workingPdf: string;
+    doneMergeTitle: string;
+    donePdfTitle: string;
+    doneMergeBody: (files: number, words: number) => string;
+    donePdfBody: (pages: number) => string;
+    downloadMergedMd: string;
+    downloadPdf: string;
+    another: string;
+    previewPlaceholder: string;
+  };
   studio: {
     heading: string;
     intro: string;
@@ -855,6 +902,7 @@ export const es: Dictionary = {
     kindPdf: 'PDF',
     kindImage: 'de imagen',
     kindOffice: 'de Office',
+    kindMarkdown: 'Markdown (.md)',
   },
   home: {
     badge: 'Libre y de código abierto',
@@ -998,6 +1046,14 @@ export const es: Dictionary = {
       description:
         'Numerá las páginas de un PDF eligiendo posición, desde qué número empezar y el formato. Funciona también en páginas rotadas. Todo en tu navegador.',
       keywords: ['numerar', 'números', 'página', 'foliar', 'paginación', 'numeración'],
+    },
+    markdown: {
+      title: 'Herramientas Markdown a PDF',
+      navLabel: 'Markdown',
+      tagline: 'Uní archivos Markdown y convertilos a PDF.',
+      description:
+        'Combiná varios archivos .md en uno solo o convertilos directamente a PDF con tipografía profesional y maquetación cuidada. Todo en tu navegador.',
+      keywords: ['markdown', 'md', 'unir', 'combinar', 'convertir', 'pdf', 'documento'],
     },
     batch: {
       title: 'Automatizar PDFs por lote',
@@ -1519,6 +1575,52 @@ export const es: Dictionary = {
     pages: (count) => `${count} ${count === 1 ? 'página' : 'páginas'}`,
     formsFixed: (count) => `${count} ${count === 1 ? 'campo fijado' : 'campos fijados'}`,
   },
+  markdown: {
+    heading: 'Markdown a PDF y Unir Markdown',
+    intro: 'Combiná múltiples archivos .md en uno solo o convertilos a un PDF elegante y paginado. Todo en tu navegador.',
+    badge: '100% en tu navegador · Sin servidores',
+    dropLabel: 'Elegí o soltá tus archivos Markdown (.md)',
+    dropHint: 'Podés seleccionar varios archivos a la vez',
+    addMore: 'Agregar más archivos .md',
+    filesCount: (count) => `${count} ${count === 1 ? 'archivo' : 'archivos'} Markdown cargados`,
+    statsSummary: (files, words, lines) => `${files} archivos · ${words.toLocaleString()} palabras · ${lines.toLocaleString()} líneas`,
+    tabFiles: 'Archivos y orden',
+    tabPreview: 'Vista previa unificada',
+    tabSettings: 'Opciones de exportación',
+    moveUp: 'Subir',
+    moveDown: 'Bajar',
+    removeFile: (name) => `Quitar ${name}`,
+    settingsTitle: 'Configuración del documento',
+    pageSize: 'Tamaño de página',
+    pageSizeA4: 'A4 (210 × 297 mm)',
+    pageSizeLetter: 'Carta / Letter (8.5 × 11 in)',
+    theme: 'Estilo tipográfico',
+    themeSans: 'Moderno (Sans-serif)',
+    themeSerif: 'Editorial (Serif)',
+    pageBreak: 'Separación entre documentos',
+    pageBreakEach: 'Nueva página por cada archivo',
+    pageBreakContinuous: 'Flujo continuo con separador',
+    pageNumbers: 'Numeración de páginas',
+    showPageNumbers: 'Incluir "Página X de Y" al pie',
+    hidePageNumbers: 'Sin numeración al pie',
+    separator: 'Separador al unir .md',
+    separatorDivider: 'Línea divisoria (---)',
+    separatorHeading: 'Título del archivo (# Nombre)',
+    separatorBoth: 'Línea y título del archivo',
+    separatorBlank: 'Solo líneas en blanco',
+    actionMergeMd: 'Descargar Markdown Unificado (.md)',
+    actionConvertToPdf: 'Convertir a PDF',
+    workingMerge: 'Unificando archivos...',
+    workingPdf: 'Diagramando y compilando PDF...',
+    doneMergeTitle: '¡Markdown unificado con éxito!',
+    donePdfTitle: '¡PDF generado con éxito!',
+    doneMergeBody: (files, words) => `Se combinaron ${files} documentos (${words.toLocaleString()} palabras) en un único archivo.`,
+    donePdfBody: (pages) => `Tu documento Markdown fue compilado a un PDF de ${pages} ${pages === 1 ? 'página' : 'páginas'}.`,
+    downloadMergedMd: 'Descargar .md Unificado',
+    downloadPdf: 'Descargar PDF',
+    another: 'Procesar otros archivos',
+    previewPlaceholder: 'Cargá al menos un archivo Markdown para ver la vista previa unificada.',
+  },
   studio: {
     heading: 'OpenPDF Studio',
     intro:
@@ -1885,6 +1987,7 @@ export const en: Dictionary = {
     kindPdf: 'PDF',
     kindImage: 'image',
     kindOffice: 'Office',
+    kindMarkdown: 'Markdown (.md)',
   },
   home: {
     badge: 'Free and open source',
@@ -2028,6 +2131,14 @@ export const en: Dictionary = {
       description:
         'Number the pages of a PDF, choosing position, the number to start from and the format. Works on rotated pages too. All in your browser.',
       keywords: ['page numbers', 'numbering', 'paginate', 'folio', 'number pages'],
+    },
+    markdown: {
+      title: 'Markdown to PDF Tools',
+      navLabel: 'Markdown',
+      tagline: 'Merge Markdown files and convert them to PDF.',
+      description:
+        'Combine multiple .md files into a single document or convert them directly to high-quality formatted PDF. All in your browser.',
+      keywords: ['markdown', 'md', 'merge', 'combine', 'convert', 'pdf', 'document'],
     },
     batch: {
       title: 'Batch PDF automation',
@@ -2534,6 +2645,52 @@ export const en: Dictionary = {
     failed: 'Failed',
     pages: (count) => `${count} ${count === 1 ? 'page' : 'pages'}`,
     formsFixed: (count) => `${count} ${count === 1 ? 'field flattened' : 'fields flattened'}`,
+  },
+  markdown: {
+    heading: 'Markdown to PDF & Merge Markdown',
+    intro: 'Combine multiple .md files into one or compile them into an elegant, paginated PDF. Everything stays on your device.',
+    badge: '100% in-browser · Zero uploads',
+    dropLabel: 'Choose or drop your Markdown (.md) files',
+    dropHint: 'You can select multiple files at once',
+    addMore: 'Add more .md files',
+    filesCount: (count) => `${count} Markdown ${count === 1 ? 'file' : 'files'} loaded`,
+    statsSummary: (files, words, lines) => `${files} files · ${words.toLocaleString()} words · ${lines.toLocaleString()} lines`,
+    tabFiles: 'Files & ordering',
+    tabPreview: 'Unified preview',
+    tabSettings: 'Export options',
+    moveUp: 'Move up',
+    moveDown: 'Move down',
+    removeFile: (name) => `Remove ${name}`,
+    settingsTitle: 'Document settings',
+    pageSize: 'Page size',
+    pageSizeA4: 'A4 (210 × 297 mm)',
+    pageSizeLetter: 'Letter (8.5 × 11 in)',
+    theme: 'Typography style',
+    themeSans: 'Modern (Sans-serif)',
+    themeSerif: 'Editorial (Serif)',
+    pageBreak: 'Multi-file page layout',
+    pageBreakEach: 'Start each file on a new page',
+    pageBreakContinuous: 'Continuous flow with separator',
+    pageNumbers: 'Page numbering',
+    showPageNumbers: 'Include "Page X of Y" footer',
+    hidePageNumbers: 'No page numbers',
+    separator: 'Separator when merging .md',
+    separatorDivider: 'Divider line (---)',
+    separatorHeading: 'File title (# Filename)',
+    separatorBoth: 'Divider line and file title',
+    separatorBlank: 'Blank lines only',
+    actionMergeMd: 'Download Unified Markdown (.md)',
+    actionConvertToPdf: 'Convert to PDF',
+    workingMerge: 'Merging files...',
+    workingPdf: 'Laying out and compiling PDF...',
+    doneMergeTitle: 'Markdown merged successfully!',
+    donePdfTitle: 'PDF created successfully!',
+    doneMergeBody: (files, words) => `Combined ${files} files (${words.toLocaleString()} words) into a single document.`,
+    donePdfBody: (pages) => `Your Markdown document was compiled into a ${pages}-page PDF.`,
+    downloadMergedMd: 'Download Unified .md',
+    downloadPdf: 'Download PDF',
+    another: 'Process more files',
+    previewPlaceholder: 'Upload at least one Markdown file to view the unified preview.',
   },
   studio: {
     heading: 'OpenPDF Studio',
