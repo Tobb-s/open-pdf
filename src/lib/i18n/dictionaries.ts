@@ -199,6 +199,17 @@ export interface Dictionary {
     modeRange: string;
     modeParts: string;
     modeEachPage: string;
+    modeSize: string;
+    sizeLabel: string;
+    sizePreset: (mb: number) => string;
+    sizeNote: (parts: number, maxMb: number) => string;
+    visualView: string;
+    textView: string;
+    selectAll: string;
+    selectNone: string;
+    selectEven: string;
+    selectOdd: string;
+    invertSelection: string;
     partsLabel: string;
     partsChoice: (parts: number) => string;
     partsNote: (parts: number, sizes: string) => string;
@@ -1194,6 +1205,17 @@ export const es: Dictionary = {
     modeRange: 'Un rango',
     modeParts: 'En partes',
     modeEachPage: 'Una por página',
+    modeSize: 'Por tamaño',
+    sizeLabel: 'Tamaño máximo por archivo',
+    sizePreset: (mb) => `${mb} MB`,
+    sizeNote: (parts, maxMb) => `Se generarán aproximadamente ${parts} partes de hasta ${maxMb} MB cada una.`,
+    visualView: 'Selector visual',
+    textView: 'Rango de texto',
+    selectAll: 'Todas',
+    selectNone: 'Ninguna',
+    selectEven: 'Pares',
+    selectOdd: 'Impares',
+    invertSelection: 'Invertir',
     partsLabel: '¿En cuántas partes?',
     partsChoice: (parts) => `${parts} partes`,
     partsNote: (parts, sizes) =>
@@ -2276,6 +2298,17 @@ export const en: Dictionary = {
     modeRange: 'A range',
     modeParts: 'Into parts',
     modeEachPage: 'One per page',
+    modeSize: 'By size',
+    sizeLabel: 'Maximum size per file',
+    sizePreset: (mb) => `${mb} MB`,
+    sizeNote: (parts, maxMb) => `Will generate approximately ${parts} parts of up to ${maxMb} MB each.`,
+    visualView: 'Visual selector',
+    textView: 'Text range',
+    selectAll: 'All',
+    selectNone: 'None',
+    selectEven: 'Even',
+    selectOdd: 'Odd',
+    invertSelection: 'Invert',
     partsLabel: 'How many parts?',
     partsChoice: (parts) => `${parts} parts`,
     partsNote: (parts, sizes) =>

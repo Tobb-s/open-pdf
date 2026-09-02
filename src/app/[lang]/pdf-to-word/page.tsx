@@ -1,7 +1,17 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Document, Packer, Paragraph, TextRun } from 'docx';
+import {
+  Document,
+  HeadingLevel,
+  Packer,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  WidthType,
+} from 'docx';
 import Navbar from '@/components/Navbar';
 import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
@@ -13,19 +23,14 @@ import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize, throwIfCancelled } from '@/lib/limits';
 import { openPdf } from '@/lib/pdfjs';
-import { extractParagraphs, toTextFragments } from '@/lib/textLayout';
+import { extractDocumentElements, toTextFragments } from '@/lib/textLayout';
 
 interface ConversionResult {
   blob: Blob;
   paragraphs: number;
+  headings: number;
+  tables: number;
   pages: number;
-  /**
-   * Pages that yielded at least one paragraph.
-   *
-   * «Listo» used to be said the moment the document had ANY text, so a
-   * two-hundred-page scan with one typed cover came back as a success with
-   * one page of content and no word about the other hundred and ninety-nine.
-   */
   pagesWithText: number;
 }
 
@@ -57,8 +62,10 @@ export default function PdfToWordPage() {
       source = await openPdf(await file.arrayBuffer());
       const pageCount = source.document.numPages;
 
-      const paragraphs: Paragraph[] = [];
+      const docChildren: (Paragraph | Table)[] = [];
       let paragraphCount = 0;
+      let headingCount = 0;
+      let tableCount = 0;
       let pagesWithText = 0;
 
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
@@ -71,21 +78,68 @@ export default function PdfToWordPage() {
         page.cleanup();
 
         let onThisPage = 0;
-        for (const text of extractParagraphs(toTextFragments(content.items))) {
-          paragraphs.push(new Paragraph({ children: [new TextRun({ text })] }));
-          paragraphCount += 1;
-          onThisPage += 1;
+        const elements = extractDocumentElements(toTextFragments(content.items));
+
+        for (const el of elements) {
+          if (el.type === 'heading') {
+            docChildren.push(
+              new Paragraph({
+                heading: el.level === 1 ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2,
+                children: el.runs.map(
+                  (r) => new TextRun({ text: r.text, bold: r.bold ?? true, italics: r.italic })
+                ),
+                spacing: { before: 240, after: 120 },
+              })
+            );
+            headingCount += 1;
+            onThisPage += 1;
+          } else if (el.type === 'table') {
+            docChildren.push(
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: el.rows.map((rowCells) =>
+                  new TableRow({
+                    children: rowCells.map(
+                      (cellText) =>
+                        new TableCell({
+                          children: [
+                            new Paragraph({
+                              children: [new TextRun({ text: cellText, size: 20 })],
+                            }),
+                          ],
+                          margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                        })
+                    ),
+                  })
+                ),
+              })
+            );
+            tableCount += 1;
+            onThisPage += 1;
+          } else {
+            docChildren.push(
+              new Paragraph({
+                children: el.runs.map(
+                  (r) => new TextRun({ text: r.text, bold: r.bold, italics: r.italic })
+                ),
+                spacing: { after: 120 },
+              })
+            );
+            paragraphCount += 1;
+            onThisPage += 1;
+          }
         }
+
         if (onThisPage > 0) pagesWithText += 1;
 
         if (pageNumber < pageCount) {
-          paragraphs.push(new Paragraph({ children: [] }));
+          docChildren.push(new Paragraph({ children: [] }));
         }
       }
 
-      // A scanned PDF has no text layer at all. Handing back an empty .docx and
-      // calling it a success is what sent people away thinking the tool worked.
-      if (paragraphCount === 0) {
+      // A scanned PDF has no text layer at all.
+      const totalElements = paragraphCount + headingCount + tableCount;
+      if (totalElements === 0) {
         throw new KnownToolError(
           'unknown',
           t.pdfToWord.noTextTitle,
@@ -99,11 +153,18 @@ export default function PdfToWordPage() {
       const blob = await Packer.toBlob(
         new Document({
           title: derivedFileName(file.name, ''),
-          sections: [{ children: paragraphs }],
+          sections: [{ children: docChildren }],
         })
       );
 
-      setResult({ blob, paragraphs: paragraphCount, pages: pageCount, pagesWithText });
+      setResult({
+        blob,
+        paragraphs: paragraphCount,
+        headings: headingCount,
+        tables: tableCount,
+        pages: pageCount,
+        pagesWithText,
+      });
       setProgressPercent(100);
     } catch (caught) {
       const described = describeError(caught, t);
@@ -198,9 +259,16 @@ export default function PdfToWordPage() {
               <FileText className="h-10 w-10" />
             </div>
             <ResultHeading className="mb-2 text-2xl font-bold">{t.pdfToWord.doneTitle}</ResultHeading>
-            <p className="mb-4 text-gray-600">
+            <p className="mb-2 text-gray-600">
               {t.pdfToWord.doneBody(result.paragraphs, result.pagesWithText)}
             </p>
+            {(result.headings > 0 || result.tables > 0) && (
+              <p className="mb-4 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                {result.headings > 0 && `${result.headings} ${result.headings === 1 ? 'encabezado estructurado' : 'encabezados estructurados'}`}
+                {result.headings > 0 && result.tables > 0 && ' · '}
+                {result.tables > 0 && `${result.tables} ${result.tables === 1 ? 'tabla detectada' : 'tablas detectadas'}`}
+              </p>
+            )}
             {result.pages - result.pagesWithText > 0 ? (
               /* The pages that gave nothing, named. The file is still handed
                  over — it is what it is — but not under a sentence that

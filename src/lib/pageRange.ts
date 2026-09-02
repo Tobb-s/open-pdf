@@ -147,3 +147,40 @@ export function parsePageSet(input: string, pageCount: number): PageRangeResult 
 export function canTrimTo(pages: readonly number[]): boolean {
   return new Set(pages).size === pages.length;
 }
+
+/**
+ * Groups consecutive pages into chunks such that each chunk stays under maxBytesPerPart.
+ */
+export function splitByTargetSize(
+  pageCount: number,
+  totalBytes: number,
+  maxBytesPerPart: number,
+  pageByteSizes?: number[]
+): PagePart[] {
+  if (pageCount < 1) return [];
+  if (maxBytesPerPart <= 0 || maxBytesPerPart >= totalBytes) {
+    return [{ from: 1, to: pageCount }];
+  }
+
+  const parts: PagePart[] = [];
+  let chunkStart = 1;
+  let currentChunkBytes = 0;
+
+  for (let page = 1; page <= pageCount; page++) {
+    const pageSize = pageByteSizes?.[page - 1] ?? Math.ceil(totalBytes / pageCount);
+
+    if (currentChunkBytes + pageSize > maxBytesPerPart && page > chunkStart) {
+      parts.push({ from: chunkStart, to: page - 1 });
+      chunkStart = page;
+      currentChunkBytes = pageSize;
+    } else {
+      currentChunkBytes += pageSize;
+    }
+  }
+
+  if (chunkStart <= pageCount) {
+    parts.push({ from: chunkStart, to: pageCount });
+  }
+
+  return parts;
+}
