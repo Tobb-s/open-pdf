@@ -68,6 +68,8 @@ interface StageProps {
   pageIndex: number;
   tool: StageTool;
   busy: boolean;
+  /** Whether this document already represents the latest edit script. */
+  current: boolean;
   /** Called with coordinates in the page's PDF user space. */
   onAction: (action: StageAction, pageRotation: number) => void;
   selectedTextId?: string | null;
@@ -88,6 +90,13 @@ type Drag =
   | { kind: 'rect'; from: { x: number; y: number }; to: { x: number; y: number } }
   | { kind: 'path'; points: Array<{ x: number; y: number }> };
 
+interface RenderedRequest {
+  document: PDFDocumentProxy;
+  pageIndex: number;
+  tool: StageTool;
+  zoom: number;
+}
+
 export default function Stage({
   document: pdf,
   embeddedFonts = [],
@@ -95,6 +104,7 @@ export default function Stage({
   pageIndex,
   tool,
   busy,
+  current,
   onAction,
   selectedTextId = null,
   onTextSelect,
@@ -111,6 +121,7 @@ export default function Stage({
   const [size, setSize] = useState<{ width: number; height: number; scale: number } | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [rendering, setRendering] = useState(false);
+  const [renderedRequest, setRenderedRequest] = useState<RenderedRequest | null>(null);
   const [textRuns, setTextRuns] = useState<FlatTextRun[]>([]);
   const paragraphs = useMemo(() => groupTextParagraphs(textRuns), [textRuns]);
 
@@ -151,10 +162,12 @@ export default function Stage({
         viewportRef.current = rendered.viewport;
         setSize({ width: rendered.width, height: rendered.height, scale: rendered.viewport.scale });
         setTextRuns(content ? flattenTextRuns(content.items, rendered.viewport, fonts) : []);
+        setRenderedRequest({ document: pdf, pageIndex, tool, zoom });
       } catch {
         if (!cancelled) {
           setSize(null);
           setTextRuns([]);
+          setRenderedRequest(null);
         }
       } finally {
         if (!cancelled) setRendering(false);
@@ -275,9 +288,20 @@ export default function Stage({
   };
 
   const cursor = busy || tool === 'pick' || tool === 'replaceText' || tool === 'paragraph' ? 'default' : 'crosshair';
+  const stageReady =
+    !busy &&
+    current &&
+    !rendering &&
+    renderedRequest?.document === pdf &&
+    renderedRequest.pageIndex === pageIndex &&
+    renderedRequest.tool === tool &&
+    renderedRequest.zoom === zoom;
 
   return (
-    <div className="relative flex min-h-[30rem] items-start justify-center overflow-auto rounded-lg border bg-gray-100 p-4 sm:items-center">
+    <div
+      aria-busy={!stageReady}
+      className="relative flex min-h-[30rem] items-start justify-center overflow-auto rounded-lg border bg-gray-100 p-4 sm:items-center"
+    >
       <div className="relative min-w-max">
         <canvas
           ref={canvasRef}

@@ -2440,6 +2440,7 @@ export default function StudioPage() {
               zoom={zoom}
               tool={tool}
               busy={building || replacingText || paragraphBusy || bulkTextBusy}
+              current={!live || built?.state === state}
               onAction={onStageAction}
               selectedTextId={textSelection?.page === pageIdAt(pageIndex) ? textSelection.selected.id : null}
               onTextSelect={(selection) => {
