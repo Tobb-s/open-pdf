@@ -15,9 +15,14 @@ import Stage, {
   type ParagraphSelection,
   type TextSelection,
 } from '@/components/studio/Stage';
-import { isEditableTarget, shortcutFor, TOOL_ORDER } from '@/lib/studio/shortcuts';
-import { EDIT_TOOL_IDS, REVIEW_TOOL_IDS } from '@/lib/studio/toolbars';
+import { isEditableTarget, shortcutFor } from '@/lib/studio/shortcuts';
 import DocumentPanel from '@/components/studio/DocumentPanel';
+import {
+  SourceFontControl,
+  StudioPageControls,
+  StudioToolPicker,
+  StudioTopBar,
+} from '@/components/studio/StudioControls';
 import { readDocumentFacts, type FormFieldInfo } from '@/lib/studio/facts';
 import {
   choiceFor,
@@ -31,43 +36,23 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
-  ChevronLeft,
-  ChevronRight,
-  Circle,
-  Crop,
-  Eraser,
   Download,
-  EyeOff,
   FilePlus2,
   FileText,
-  Hand,
-  Highlighter,
   Image as ImageIcon,
   ImageUp,
   Italic,
   Keyboard,
   Loader2,
-  Minus,
   Pen,
   Pilcrow,
-  Redo2,
   Replace,
   Send,
   Signature as SignatureIcon,
-  MessageSquareText,
-  Maximize2,
   Search as SearchIcon,
   ShieldCheck,
-  Square,
-  Strikethrough,
   Trash2,
-  Type,
-  Underline,
-  Undo2,
   Upload,
-  X,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
@@ -192,45 +177,6 @@ const sharedSourceFont = (runs: readonly FlatTextRun[]): DetectedPdfFont | null 
   if (!first || !runs.every((run) => run.sourceFont?.id === first.id)) return null;
   return first;
 };
-
-function SourceFontControl({
-  id,
-  source,
-  useSource,
-  onUseSource,
-}: {
-  id: string;
-  source: DetectedPdfFont | null;
-  useSource: boolean;
-  onUseSource: (next: boolean) => void;
-}) {
-  const { t } = useI18n();
-  if (!source) return null;
-
-  return (
-    <div className="border border-cyan-200 bg-cyan-50 px-3 py-2.5 text-xs text-cyan-950">
-      <p className="font-semibold">{t.studio.sourceFontDetected(source.name)}</p>
-      {source.bytes ? (
-        <>
-          <p className="mt-1">{t.studio.sourceFontAvailable}</p>
-          <label htmlFor={id} className="mt-2 flex cursor-pointer items-center gap-2 font-medium">
-            <input
-              id={id}
-              type="checkbox"
-              checked={useSource}
-              onChange={(event) => onUseSource(event.target.checked)}
-              className="h-4 w-4 accent-cyan-700"
-            />
-            {t.studio.sourceFontUse}
-          </label>
-          <p className="mt-1 text-cyan-800">{t.studio.sourceFontRights}</p>
-        </>
-      ) : (
-        <p className="mt-1">{t.studio.sourceFontUnavailable}</p>
-      )}
-    </div>
-  );
-}
 
 /**
  * Looks for the redacted words in the file that is about to be handed over.
@@ -2375,109 +2321,23 @@ export default function StudioPage() {
     );
   }
 
-  /**
-   * The two toolbars, built from the roster in src/lib/studio/toolbars.ts.
-   *
-   * The order lives there so the keyboard mapping can be checked against it:
-   * the digits and the buttons had already drifted apart once, and nothing
-   * could notice while the order was written out here, in a component no test
-   * reaches.
-   */
-  const TOOL_FACE: Record<StageTool, { label: string; icon: typeof Hand }> = {
-    pick: { label: t.studio.tools.pick, icon: Hand },
-    text: { label: t.studio.tools.text, icon: Type },
-    rect: { label: t.studio.tools.rect, icon: Square },
-    ink: { label: t.studio.tools.ink, icon: Pen },
-    image: { label: t.studio.tools.image, icon: ImageUp },
-    crop: { label: t.studio.tools.crop, icon: Crop },
-    redact: { label: t.studio.tools.redact, icon: EyeOff },
-    erase: { label: t.studio.tools.erase, icon: Eraser },
-    line: { label: t.studio.tools.line, icon: Minus },
-    ellipse: { label: t.studio.tools.ellipse, icon: Circle },
-    replaceText: { label: t.studio.tools.replaceText, icon: Replace },
-    paragraph: { label: t.studio.tools.paragraph, icon: Pilcrow },
-    signature: { label: t.studio.tools.signature, icon: SignatureIcon },
-    highlight: { label: t.studio.tools.highlight, icon: Highlighter },
-    underline: { label: t.studio.tools.underline, icon: Underline },
-    strikeout: { label: t.studio.tools.strikeout, icon: Strikethrough },
-    comment: { label: t.studio.tools.comment, icon: MessageSquareText },
-  };
-  const face = (id: StageTool) => ({ id, ...TOOL_FACE[id] });
-  const EDIT_TOOLS = EDIT_TOOL_IDS.map(face);
-  const REVIEW_TOOLS = REVIEW_TOOL_IDS.map(face);
-  const toolsShown = toolMode === 'review' ? REVIEW_TOOLS : EDIT_TOOLS;
-
   return (
     <div className="min-h-screen bg-white">
       <Navbar />
       <main className="mx-auto max-w-[1600px] px-4 py-6">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <FileText className="h-5 w-5 shrink-0 text-violet-600" />
-            <span className="truncate font-medium">{name}</span>
-            <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-              {cursor === 0 ? t.studio.noEdits : t.studio.editCount(cursor)}
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={undo}
-              disabled={cursor === 0}
-              title={t.studio.undoHint}
-              className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-            >
-              <Undo2 className="h-4 w-4" /> {t.studio.undo}
-            </button>
-            <button
-              type="button"
-              onClick={redo}
-              disabled={cursor >= edits.length}
-              title={t.studio.redoHint}
-              className="flex items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-40"
-            >
-              <Redo2 className="h-4 w-4" /> {t.studio.redo}
-            </button>
-
-            {!live && (
-              <button
-                type="button"
-                onClick={() => setNudge((value) => value + 1)}
-                className="rounded-xl bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200"
-              >
-                {t.studio.checkPage}
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => void doExport()}
-              disabled={exporting}
-              className="flex items-center gap-2 rounded-full bg-violet-600 px-5 py-2.5 font-bold text-white hover:bg-violet-700 disabled:bg-gray-300"
-            >
-              {exporting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />{' '}
-                  {verifying ? t.studio.checkingRedaction : t.studio.exporting}
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4" /> {t.studio.exportAction}
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void closeSession()}
-              aria-label={t.common.removeFile}
-              className="rounded-full p-2 text-gray-400 hover:bg-gray-100 hover:text-red-500"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
+        <StudioTopBar
+          name={name}
+          cursor={cursor}
+          editCount={edits.length}
+          live={live}
+          exporting={exporting}
+          verifying={verifying}
+          onUndo={undo}
+          onRedo={redo}
+          onRebuild={() => setNudge((value) => value + 1)}
+          onExport={() => void doExport()}
+          onClose={() => void closeSession()}
+        />
 
         <ErrorNotice error={error} onDismiss={() => setError(null)} />
 
@@ -2609,69 +2469,13 @@ export default function StudioPage() {
               />
             </div>
 
-            <div className="order-1 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white px-2 py-1.5">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
-                  disabled={pageIndex === 0}
-                  title={t.studio.previousHint}
-                  aria-label={t.studio.previousHint}
-                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="min-w-24 text-center text-sm font-medium tabular-nums text-gray-800">
-                  {viewPages.length === 0 ? t.studio.building : t.studio.pageOf(pageIndex + 1, viewPages.length)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPageIndex((index) => Math.min(viewPages.length - 1, index + 1))}
-                  disabled={pageIndex >= viewPages.length - 1}
-                  title={t.studio.nextHint}
-                  aria-label={t.studio.nextHint}
-                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-
-              <div role="group" aria-label={t.studio.zoomLevel(Math.round(zoom * 100))} className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setZoom((value) => Math.max(0.5, Number((value - 0.25).toFixed(2))))}
-                  disabled={zoom <= 0.5}
-                  title={t.studio.zoomOut}
-                  aria-label={t.studio.zoomOut}
-                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
-                >
-                  <ZoomOut className="h-4 w-4" />
-                </button>
-                <output className="min-w-14 text-center text-xs font-semibold tabular-nums text-gray-700">
-                  {Math.round(zoom * 100)}%
-                </output>
-                <button
-                  type="button"
-                  onClick={() => setZoom((value) => Math.min(2.5, Number((value + 0.25).toFixed(2))))}
-                  disabled={zoom >= 2.5}
-                  title={t.studio.zoomIn}
-                  aria-label={t.studio.zoomIn}
-                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
-                >
-                  <ZoomIn className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setZoom(1)}
-                  disabled={zoom === 1}
-                  title={t.studio.zoomFit}
-                  aria-label={t.studio.zoomFit}
-                  className="grid h-9 w-9 place-items-center rounded-md text-gray-700 hover:bg-gray-100 disabled:opacity-30"
-                >
-                  <Maximize2 className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
+            <StudioPageControls
+              pageIndex={pageIndex}
+              pageCount={viewPages.length}
+              zoom={zoom}
+              onPageChange={setPageIndex}
+              onZoomChange={setZoom}
+            />
 
           </section>
 
@@ -2967,57 +2771,19 @@ export default function StudioPage() {
               </>
             ) : (
             <>
-            <div className="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1" role="tablist">
-              {(
-                [
-                  ['edit', t.studio.editTools],
-                  ['review', t.studio.reviewTools],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  role="tab"
-                  aria-selected={toolMode === mode}
-                  onClick={() => {
-                    setToolMode(mode);
-                    setTool(mode === 'review' ? 'highlight' : 'pick');
-                  }}
-                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    toolMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {toolsShown.map(({ id, label, icon: Icon }) => {
-                const shortcutIndex = TOOL_ORDER.indexOf(id);
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={tool === id}
-                    onClick={() => {
-                      setTool(id);
-                      if (id !== 'replaceText') setTextSelection(null);
-                      if (id !== 'paragraph') setParagraphSelection(null);
-                    }}
-                    title={shortcutIndex === -1 ? label : `${label} · ${shortcutIndex + 1}`}
-                    className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-xs font-medium transition-colors ${
-                      tool === id
-                        ? 'bg-violet-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span className="text-center leading-tight">{label}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-xs text-gray-500">{t.studio.toolHint[tool]}</p>
+            <StudioToolPicker
+              mode={toolMode}
+              tool={tool}
+              onModeChange={(mode) => {
+                setToolMode(mode);
+                setTool(mode === 'review' ? 'highlight' : 'pick');
+              }}
+              onToolChange={(nextTool) => {
+                setTool(nextTool);
+                if (nextTool !== 'replaceText') setTextSelection(null);
+                if (nextTool !== 'paragraph') setParagraphSelection(null);
+              }}
+            />
 
             {toolMode === 'review' && (
               <>
