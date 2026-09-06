@@ -1,22 +1,29 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { PDFDocument, PDFName, PDFStream, PDFString, StandardFonts, rgb, degrees } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName, PDFStream, PDFString, StandardFonts, rgb, degrees } from 'pdf-lib';
 
 test.setTimeout(60_000);
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const canvas = (page: Page) => page.locator('canvas[style*="touch-action"]').first();
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
-async function fixture({ rotated = false, scan = false } = {}) {
+async function fixture({ rotated = false, scan = false, subset = false } = {}) {
   const doc = await PDFDocument.create();
   const page = doc.addPage([420, 594]);
   if (scan) page.drawImage(await doc.embedPng(PNG), { x: 40, y: 40, width: 300, height: 400 });
   else {
-    const font = await doc.embedFont(StandardFonts.TimesRomanBoldItalic);
-    for (const y of [510, 450]) page.drawText('Original phrase', { x: 48, y, size: 12.75, font, color: rgb(0.2, 0.4, 0.7) });
+    const font = await doc.embedFont(subset ? StandardFonts.CourierBold : StandardFonts.TimesRomanBoldItalic);
+    for (const y of [510, 450]) page.drawText(subset ? 'ALPHA' : 'Original phrase', { x: 48, y, size: 12.75, font, color: rgb(0.2, 0.4, 0.7) });
     page.drawText('Tiny text', { x: 48, y: 300, size: 6.5, font });
     page.drawRectangle({ x: 20, y: 20, width: 80, height: 20, color: rgb(0.1, 0.6, 0.2) });
     page.node.addAnnot(doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Text', Rect: [20, 60, 40, 80], Contents: PDFString.of('Keep this annotation') })));
+    if (subset) {
+      await font.embed();
+      const chars = [...new Set('ALPHATiny text')];
+      const cmap = `1 begincodespacerange <00> <FF> endcodespacerange ${chars.length} beginbfchar\n`
+        + chars.map(c => `<${c.charCodeAt(0).toString(16)}> <${c.charCodeAt(0).toString(16).padStart(4, '0')}>`).join('\n') + '\nendbfchar';
+      doc.context.lookup(font.ref, PDFDict).set(PDFName.of('ToUnicode'), doc.context.register(doc.context.flateStream(cmap)));
+    }
   }
   if (rotated) { page.setRotation(degrees(90)); page.setCropBox(20, 20, 380, 550); }
   return Buffer.from(await doc.save());
@@ -161,4 +168,111 @@ test('empty replacement removes only the selected fragment and stays vector-base
   expect(result.items.filter(i => i.str === 'Original phrase')).toHaveLength(1);
   expect(result.items.find(i => i.str === 'Original phrase')?.transform[5]).toBeCloseTo(450);
   expect(result.images).toBe(0);
+});
+
+async function fontGap(page: Page, value = 'ZETA') {
+  await open(page, { subset: true });
+  await button(page, 'ALPHA').nth(1).click();
+  await page.locator('aside textarea').first().fill(value);
+  await button(page, 'Aplicar reemplazo').click();
+  await expect(page.locator('aside').getByRole('alert')).toContainText('Caracteres no disponibles');
+  await expect(page.getByText('Sin cambios', { exact: true })).toBeVisible();
+}
+
+test('font-gap recovery names missing characters and preserves a vector PDF with explicit consent', async ({ page }, info) => {
+  await fontGap(page);
+  const alert = page.locator('aside').getByRole('alert');
+  await expect(alert).toContainText('Z, E');
+  await expect(alert).toContainText('La forma de las letras puede variar');
+  await alert.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: info.outputPath('font-recovery.png'), fullPage: true });
+  await button(page, 'Reintentar con Courier-Bold').click();
+  await expect(page.getByText('1 edición', { exact: true })).toBeVisible();
+  await ready(page);
+  const result = await download(page, info.outputPath('compatible-font-output.pdf'));
+  expect(result.images).toBe(0);
+  expect(result.doc.getPage(0).node.Annots()?.size()).toBe(1);
+  expect(result.items.filter(i => i.str === 'ALPHA')).toHaveLength(1);
+  expect(result.items.find(i => i.str === 'ZETA')?.transform[5]).toBeCloseTo(450);
+  expect(result.items.find(i => i.str === 'ZETA')?.height).toBeCloseTo(12.75);
+  expect(result.colors).toContain('#3366b2');
+});
+
+test('font-gap recovery supports undo and redo', async ({ page }) => {
+  await fontGap(page);
+  await button(page, 'Reintentar con Courier-Bold').click();
+  await expect(page.getByText('1 edición', { exact: true })).toBeVisible();
+  await ready(page);
+  await button(page, 'Deshacer').click();
+  await expect(page.getByText('Sin cambios', { exact: true })).toBeVisible();
+  await ready(page);
+  await expect(button(page, 'ALPHA')).toHaveCount(2);
+  await button(page, 'Rehacer').click();
+  await expect(page.getByText('1 edición', { exact: true })).toBeVisible();
+  await ready(page);
+  await expect(button(page, 'ZETA')).toHaveCount(1);
+});
+
+test('font-gap recovery does not silently reuse the compatible choice on another fragment', async ({ page }) => {
+  await fontGap(page, '字');
+  await button(page, 'Reintentar con Courier-Bold').click();
+  await expect(page.locator('aside').getByRole('alert')).toContainText('La fuente compatible tampoco');
+  await expect(page.getByText('Sin cambios', { exact: true })).toBeVisible();
+  await expect(button(page, 'Reintentar con Courier-Bold')).toHaveCount(0);
+  await button(page, 'ALPHA').first().click();
+  await page.locator('aside textarea').first().fill('ZETA');
+  await button(page, 'Aplicar reemplazo').click();
+  await expect(button(page, 'Reintentar con Courier-Bold')).toBeVisible();
+});
+
+test('font-gap recovery persists after reload and allows a further native edit', async ({ page }) => {
+  await fontGap(page);
+  await button(page, 'Reintentar con Courier-Bold').click();
+  await expect(page.getByText('1 edición', { exact: true })).toBeVisible();
+  await ready(page);
+  // Rendering finishes before the 900 ms debounced IndexedDB save. Wait for the
+  // committed script, not a fixed sleep or the previous "saved" status label.
+  await expect.poll(() => page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const opening = indexedDB.open('openpdf-studio', 1);
+    opening.onerror = () => reject(opening.error);
+    opening.onsuccess = () => {
+      const db = opening.result;
+      const tx = db.transaction('session', 'readonly');
+      const script = tx.objectStore('session').get('script');
+      tx.oncomplete = () => { resolve(script.result?.cursor ?? -1); db.close(); };
+      tx.onerror = () => { reject(tx.error); db.close(); };
+    };
+  }))).toBe(1);
+  await page.reload();
+  await button(page, 'Seguir donde estaba').click();
+  await expect(page.getByText('1 edición', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await ready(page);
+  await button(page, 'Reemplazar').click();
+  await ready(page);
+  await button(page, 'ZETA').click();
+  await page.locator('aside textarea').first().fill('OMEGA');
+  await button(page, 'Aplicar reemplazo').click();
+  await expect(page.getByText('2 ediciones', { exact: true })).toBeVisible();
+  expect((await download(page)).items.some(i => i.str === 'OMEGA')).toBe(true);
+});
+
+test('width refusal offers an explicit natural-width retry', async ({ page }) => {
+  await open(page);
+  await button(page, 'Original phrase').first().click();
+  await page.locator('aside textarea').first().fill('A very long phrase that cannot fit in the original space');
+  await button(page, 'Aplicar reemplazo').click();
+  await expect(button(page, 'Reintentar con ancho natural')).toBeVisible();
+  await button(page, 'Reintentar con ancho natural').click();
+  await expect(page.getByText('1 edición', { exact: true })).toBeVisible();
+  expect((await download(page)).images).toBe(0);
+});
+
+test('page reconstruction recovery only opens settings and retains the typed replacement', async ({ page }) => {
+  await fontGap(page);
+  await page.getByText('Otra alternativa con pérdidas', { exact: true }).click();
+  await button(page, 'Configurar reconstrucción de página').click();
+  await expect(page.getByRole('combobox', { name: 'Método de reemplazo' })).toHaveValue('raster');
+  await expect(page.locator('aside textarea').first()).toHaveValue('ZETA');
+  await expect(page.getByText('Sin cambios', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Pierde enlaces, formularios y capas de esta página/)).toBeVisible();
 });

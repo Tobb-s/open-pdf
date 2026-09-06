@@ -1,5 +1,10 @@
 export const replacementCopy = {
   es: {
+    notApplied: 'No se aplicó el cambio.', missingCharacters: 'Caracteres no disponibles',
+    compatibleNote: 'Podés continuar con una fuente compatible sólo en este fragmento. El resto del PDF se conserva y la página no se convierte en imagen. La forma de las letras puede variar ligeramente; revisá la vista previa.',
+    retryCompatible: 'Reintentar con', compatibleActive: 'Fuente compatible elegida', originalFont: 'Volver a la fuente original',
+    compatibleMissing: 'La fuente compatible tampoco permite escribir todos estos caracteres. Necesitás una fuente con cobertura de ese idioma o cambiar el texto.',
+    retryNatural: 'Reintentar con ancho natural', moreOptions: 'Otra alternativa con pérdidas', prepareRebuild: 'Configurar reconstrucción de página',
     detected: 'Formato detectado', unknown: 'No determinado', dimensions: 'Caja de texto', position: 'Posición de la línea base',
     empty: 'Dejá el campo vacío para eliminar este fragmento. No equivale a sanitizar el documento; para información sensible usá Tachar.',
     rotation: 'Rotación', opacity: 'Opacidad', spacing: 'Espaciado de letras / palabras', scale: 'Escala horizontal',
@@ -21,6 +26,11 @@ export const replacementCopy = {
     search: 'Filtrar fragmentos de esta página', fragments: 'Fragmentos detectados', colorUnknown: 'El color no pudo aislarse; el modo estructural lo conserva sin adivinarlo.',
   },
   en: {
+    notApplied: 'No change was applied.', missingCharacters: 'Unavailable characters',
+    compatibleNote: 'You can continue using a compatible font for this fragment only. The rest of the PDF is preserved and the page is not turned into an image. Letter shapes may vary slightly; inspect the preview.',
+    retryCompatible: 'Retry with', compatibleActive: 'Selected compatible font', originalFont: 'Return to the original font',
+    compatibleMissing: 'The compatible font cannot encode all these characters either. You need a font covering that language or different text.',
+    retryNatural: 'Retry with natural width', moreOptions: 'Another option with losses', prepareRebuild: 'Set up page reconstruction',
     detected: 'Detected formatting', unknown: 'Unknown', dimensions: 'Text bounds', position: 'Baseline position',
     empty: 'Leave empty to remove this fragment. This is not document sanitization; use Redact for sensitive information.',
     rotation: 'Rotation', opacity: 'Opacity', spacing: 'Character / word spacing', scale: 'Horizontal scale',
