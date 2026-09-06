@@ -80,3 +80,13 @@ disponible; no promete equivalencia exacta cuando necesita una alternativa.
 No se agregaron dependencias ni servicios externos. El trabajo de formato se
 separó en módulos y el matching espacial evita comparar cada fragmento contra
 todos los glifos de la página.
+
+## Corrección del entorno de CI
+
+La primera ejecución remota aprobó 41 de 42 casos de navegador. El caso de color
+falló porque `.nvmrc` seguía indicando Node 20, mientras que la versión instalada
+de PDF.js declara Node >=22.13 o >=24. El lector de operaciones encontraba
+`buffer.transferToFixedLength is not a function` y devolvía información parcial.
+Se alineó `.nvmrc` con Node 22 y se activó `stopAtErrors` en la inspección del PDF
+descargado para que un error de lectura no pueda pasar como un resultado completo.
+No se relajó la aserción de color ni se incorporó un polyfill que oculte el fallo.

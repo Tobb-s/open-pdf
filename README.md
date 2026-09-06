@@ -82,7 +82,7 @@ anterior no podía hacerlo.
 
 ## Requisitos
 
-- Node.js 20.9 o superior — la versión exacta está en `.nvmrc`.
+- Node.js 22.13 o superior — `.nvmrc` selecciona la rama 22 usada en CI.
 - npm 10 o superior.
 
 ## Cómo ejecutarlo

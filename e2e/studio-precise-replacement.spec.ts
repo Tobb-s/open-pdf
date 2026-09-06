@@ -46,7 +46,8 @@ async function download(page: Page, saveTo?: string) {
   const bytes = await readFile((await artifact.path())!);
   const doc = await PDFDocument.load(bytes);
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const task = pdfjs.getDocument({ data: new Uint8Array(bytes), standardFontDataUrl: resolve('node_modules/pdfjs-dist/standard_fonts').replaceAll('\\', '/') + '/' });
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes), stopAtErrors: true,
+    standardFontDataUrl: resolve('node_modules/pdfjs-dist/standard_fonts').replaceAll('\\', '/') + '/' });
   try {
     const pdf = await task.promise;
     const page = await pdf.getPage(1);
