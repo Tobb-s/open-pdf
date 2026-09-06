@@ -7,9 +7,25 @@ test.setTimeout(60_000);
 const button = (page: Page, name: string) => page.getByRole('button', { name, exact: true });
 const canvas = (page: Page) => page.locator('canvas[style*="touch-action"]').first();
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
-async function fixture({ rotated = false, scan = false, subset = false } = {}) {
+async function fixture({ rotated = false, scan = false, subset = false, neighbor = false } = {}) {
   const doc = await PDFDocument.create();
   const page = doc.addPage([420, 594]);
+  if (neighbor) {
+    const source = await doc.embedFont(StandardFonts.CourierBold);
+    const following = await doc.embedFont(StandardFonts.Courier);
+    await source.embed(); await following.embed();
+    if (subset) {
+      const chars = [...new Set('ALPHA')];
+      const cmap = `1 begincodespacerange <00> <FF> endcodespacerange ${chars.length} beginbfchar\n`
+        + chars.map(c => `<${c.charCodeAt(0).toString(16)}> <${c.charCodeAt(0).toString(16).padStart(4, '0')}>`).join('\n') + '\nendbfchar';
+      doc.context.lookup(source.ref, PDFDict).set(PDFName.of('ToUnicode'), doc.context.register(doc.context.flateStream(cmap)));
+    }
+    page.node.set(PDFName.of('Resources'), doc.context.obj({ Font: { Source: source.ref, Neighbor: following.ref } }));
+    page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(
+      'BT /Source 12.75 Tf 24 TL 1 0 0 1 48 450 Tm (ALPHA) Tj /Neighbor 12.75 Tf ( OMEGA) Tj T* (NEXT) Tj ET',
+    )));
+    return Buffer.from(await doc.save());
+  }
   if (scan) page.drawImage(await doc.embedPng(PNG), { x: 40, y: 40, width: 300, height: 400 });
   else {
     const font = await doc.embedFont(subset ? StandardFonts.CourierBold : StandardFonts.TimesRomanBoldItalic);
@@ -212,6 +228,39 @@ test('font-gap recovery supports undo and redo', async ({ page }) => {
   await ready(page);
   await expect(button(page, 'ZETA')).toHaveCount(1);
 });
+
+for (const subset of [false, true]) {
+  test(`adjacent word stays in place in preview and export after ${subset ? 'font recovery' : 'style change'}`, async ({ page }, info) => {
+    await open(page, { neighbor: true, subset });
+    const neighbor = button(page, 'OMEGA');
+    const before = await neighbor.boundingBox();
+    const canvasBefore = (await canvas(page).boundingBox())!;
+    expect(before).not.toBeNull();
+    await button(page, 'ALPHA').click();
+    await page.locator('aside textarea').first().fill('ZETAAA');
+    if (!subset) {
+      await page.getByRole('spinbutton', { name: 'Tamaño', exact: true }).fill('14.25');
+      await page.locator('aside input[type="color"]').fill('#d02030');
+    }
+    await button(page, 'Aplicar reemplazo').click();
+    if (subset) await button(page, 'Reintentar con Courier-Bold').click();
+    await expect(page.getByText('1 edición', { exact: true })).toBeVisible();
+    await ready(page);
+    const after = await neighbor.boundingBox();
+    const canvasAfter = (await canvas(page).boundingBox())!;
+    // Applying may scroll the workspace. Compare page-relative coordinates.
+    expect(after!.x - canvasAfter.x).toBeCloseTo(before!.x - canvasBefore.x, 1);
+    expect(after!.y - canvasAfter.y).toBeCloseTo(before!.y - canvasBefore.y, 1);
+    await canvas(page).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath('neighbor-position.png'), fullPage: true });
+    const result = await download(page, info.outputPath('neighbor-position.pdf'));
+    const suffix = result.items.find(i => i.str.includes('OMEGA'))!;
+    expect(suffix.transform[4] + suffix.width - 5 * 7.65).toBeCloseTo(48 + 6 * 7.65, 2);
+    expect(suffix.transform[5]).toBeCloseTo(450, 2);
+    expect(result.items.find(i => i.str === 'NEXT')?.transform.slice(4)).toEqual([48, 426]);
+    expect(result.images).toBe(0);
+  });
+}
 
 test('font-gap recovery does not silently reuse the compatible choice on another fragment', async ({ page }) => {
   await fontGap(page, '字');

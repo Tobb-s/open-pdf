@@ -1,5 +1,5 @@
 import type { Operation } from '@/lib/pdf/contentStream';
-import { PDFName } from 'pdf-lib';
+import { PDFName, PDFNumber } from 'pdf-lib';
 import { spliceBytes } from '@/lib/pdf/contentStream';
 import type { FontMap } from '@/lib/pdf/fontMap';
 import { UNREADABLE, type ScannedText, type ShowRun } from '@/lib/pdf/textScan';
@@ -240,6 +240,36 @@ const hexOf = (codes: readonly number[], codeBytes: number): string => {
 
 const asciiBytes = (text: string) => Uint8Array.from(text, (character) => character.charCodeAt(0) & 0xff);
 
+/** Restore only the fill state we change, never the text matrices via q/Q.
+ * Keep the source color space (including named/pattern spaces), not a lossy RGB
+ * approximation. Unrecognized operands fail closed when a color edit needs them.
+ */
+function originalFill(operations: readonly Operation[], until: number): string | null {
+  let space: string | null = '/DeviceGray cs';
+  let paint: string | null = '0 g';
+  const stack: Array<[string | null, string | null]> = [];
+  for (let i = 0; i < until; i++) {
+    const op = operations[i];
+    if (op.operator === 'q') { stack.push([space, paint]); continue; }
+    if (op.operator === 'Q') {
+      const saved = stack.pop();
+      if (saved) [space, paint] = saved;
+      continue;
+    }
+    if (!['cs', 'sc', 'scn', 'g', 'rg', 'k'].includes(op.operator)) continue;
+    const args = op.operands.map(arg => arg.kind === 'number' && Number.isFinite(arg.value)
+      ? String(PDFNumber.of(arg.value)) : arg.kind === 'name' ? String(PDFName.of(arg.name)) : null);
+    const command = args.some(arg => arg === null) || args.length === 0 ? null : `${args.join(' ')} ${op.operator}`;
+    if (op.operator === 'cs') { space = command; paint = ''; }
+    else if (op.operator === 'sc' || op.operator === 'scn') paint = command;
+    else {
+      space = `/${op.operator === 'g' ? 'DeviceGray' : op.operator === 'rg' ? 'DeviceRGB' : 'DeviceCMYK'} cs`;
+      paint = command;
+    }
+  }
+  return space === null || paint === null ? null : [space, paint].filter(Boolean).join(' ');
+}
+
 /**
  * The advance one code contributes, under a run's own state.
  *
@@ -401,10 +431,16 @@ export function planReplacement(
   const word = `<${hexOf(codes, replacementFont.codeBytes)}>`;
   const showBefore = before.length > 0 ? `[${before.join(' ')}] TJ ` : '';
   const showAfter = after.length > 0 ? ` [${after.join(' ')}] TJ` : '';
-  const styled = options.color !== undefined || sizeRatio !== 1 || options.replacementFont !== undefined;
-  const styleStart = styled ? `q ${PDFName.of(replacementFont.resource)} ${formatNumber(replacementRun.size)} Tf `
-    + (options.color ? `${formatNumber(options.color.r)} ${formatNumber(options.color.g)} ${formatNumber(options.color.b)} rg ` : '') : '';
-  const styleEnd = styled ? ' Q' : '';
+  const changeFont = sizeRatio !== 1 || options.replacementFont !== undefined;
+  const restoreFill = options.color ? originalFill(operations, run.operation) : '';
+  if (restoreFill === null) return { ok: false, reason: 'unsupported-operator', missing: [] };
+  // q/Q inside a text object also restores its text and line matrices (ISO
+  // 32000-2, 9.4.1 erratum 368). It rewinds the pen to BEFORE the replacement,
+  // drawing the suffix on top of it. Restore only the properties we changed.
+  const styleStart = (changeFont ? `${PDFName.of(replacementFont.resource)} ${formatNumber(replacementRun.size)} Tf ` : '')
+    + (options.color ? `${formatNumber(options.color.r)} ${formatNumber(options.color.g)} ${formatNumber(options.color.b)} rg ` : '');
+  const styleEnd = (changeFont ? ` ${PDFName.of(run.fontResource)} ${formatNumber(run.size)} Tf` : '')
+    + (restoreFill ? ` ${restoreFill}` : '');
 
   let text: string;
   if (fit === 'squeeze' && widthDelta === 0 && naturalWidth > 0 && oldWidth > 0) {
