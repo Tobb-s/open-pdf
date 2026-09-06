@@ -62,11 +62,14 @@ import { useI18n } from '@/lib/i18n/context';
 import { describeError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { cn } from '@/lib/utils';
-import { fitWithin, pdfToViewportPoint, uprightTextRotation, visualToPdfPoint } from '@/lib/geometry';
+import { fitWithin, pdfToViewportPoint, uprightTextRotation } from '@/lib/geometry';
 import { assertFileSize, MAX_EDITABLE_BYTES, yieldToBrowser } from '@/lib/limits';
-import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { openPdf } from '@/lib/pdfjs';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { extractOcrWords, fitFontSize, RECOGNIZE_OUTPUT, toWinAnsi } from '@/lib/ocr';
+import OcrControls from '@/components/OcrControls';
+import OcrReview from '@/components/OcrReview';
+import { DEFAULT_OCR_OPTIONS, layerWords, type OcrPageResult } from '@/lib/ocrAdvanced';
+import { toWinAnsi, type OcrWord } from '@/lib/ocr';
 import {
   firstUnsupportedCharacter,
   hexToRgb,
@@ -437,6 +440,12 @@ export default function StudioPage() {
     Array<{ asset: string; name: string; lost: string[] }>
   >([]);
   const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrOptions, setOcrOptions] = useState(DEFAULT_OCR_OPTIONS);
+  const [ocrProgress, setOcrProgress] = useState('');
+  const [ocrDraft, setOcrDraft] = useState<{ page: string; result: OcrPageResult; revision: { edits: Edit[]; cursor: number } } | null>(null);
+  const [ocrReviewDirty, setOcrReviewDirty] = useState(false);
+  const ocrAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => ocrAbortRef.current?.abort(), [original, script, built?.document]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchWholeWord, setSearchWholeWord] = useState(false);
@@ -616,6 +625,7 @@ export default function StudioPage() {
       setPanel('page');
       setImportNotes([]);
       setOcrResult(null);
+      setOcrDraft(null);
       setResult(null);
       setResumable(null);
       setLive(true);
@@ -1408,80 +1418,61 @@ export default function StudioPage() {
   const runOcr = async () => {
     const page = pageIdAt(pageIndex);
     const document_ = built?.document;
-    if (!page || !document_) return;
-
-    setOcrBusy(true);
-    setOcrResult(null);
-    setError(null);
-
-    let worker: Awaited<ReturnType<typeof import('tesseract.js').createWorker>> | null = null;
+    if (!page || !document_ || ocrBusy || building || built?.state !== state) return;
+    const before = script;
+    const controller = new AbortController();
+    ocrAbortRef.current = controller;
+    setOcrBusy(true); setOcrResult(null); setOcrDraft(null); setError(null);
+    let engine: Awaited<ReturnType<typeof import('@/lib/ocrEngine').createOcrEngine>> | undefined;
     try {
-      const { OCR_SCALE, TESSERACT_PATHS } = await import('@/lib/ocrRuntime');
-      // Loaded here rather than at the top of the route: the OCR engine is the
-      // heaviest thing this page can reach, and most sessions never ask for it.
-      const { createWorker } = await import('tesseract.js');
-      const target = await document_.getPage(pageIndex + 1);
-      const { blob, width, height } = await renderPageToJpeg(target, OCR_SCALE, 0.82);
-      const viewport = target.getViewport({ scale: 1 });
-      const rotation = target.rotate;
-      target.cleanup();
-
-      // The reader's own language rather than Spanish always: an English
-      // document read with the Spanish model comes back worse for no reason.
-      worker = await createWorker(locale === 'en' ? 'eng' : 'spa', 1, TESSERACT_PATHS);
-      const { data } = await worker.recognize(blob, {}, RECOGNIZE_OUTPUT);
-
-      // Measured with the same font the layer is drawn in, so the invisible
-      // words sit over the visible ones rather than near them.
+      const { createOcrEngine } = await import('@/lib/ocrEngine');
+      const ownLayer = state.marks.some(mark => mark.kind === 'ocr' && mark.page === page);
+      engine = await createOcrEngine({ ...ocrOptions, skipText: ocrOptions.skipText && !ownLayer }, controller.signal);
+      const result = await engine.page(await document_.getPage(pageIndex + 1), setOcrProgress);
+      if (controller.signal.aborted) return;
       const probe = await PDFDocument.create();
       const font = await probe.embedFont(StandardFonts.Helvetica);
-      const measure = (text: string, size: number) => font.widthOfTextAtSize(text, size);
-
-      const box = {
-        x: viewport.viewBox[0],
-        y: viewport.viewBox[1],
-        width: viewport.viewBox[2] - viewport.viewBox[0],
-        height: viewport.viewBox[3] - viewport.viewBox[1],
-        rotation,
-      };
-      void width;
-      void height;
-
-      const words = extractOcrWords(data)
-        .map((word) => {
-          const text = toWinAnsi(word.text);
-          if (text === '') return null;
-          // Tesseract measures from the top of the image; the visual frame does
-          // too, so this is a straight divide by the render scale.
-          const point = visualToPdfPoint(box, word.left / OCR_SCALE, word.bottom / OCR_SCALE);
-          // Measured on the text that will actually be drawn. Measuring the
-          // original meant one word mixing Spanish with a character the font
-          // cannot encode threw inside this map and took the whole layer with
-          // it — the opposite of the per-word resilience the drawing side has.
-          const size = fitFontSize({ ...word, text }, OCR_SCALE, measure);
-          return { text, x: point.x, y: point.y, size };
-        })
-        .filter((word): word is { text: string; x: number; y: number; size: number } => word !== null);
-
+      const words = layerWords(result, (text, size) => font.widthOfTextAtSize(text, size));
       setOcrResult({ page, words: words.length });
-      if (words.length > 0) {
-        addEdit({
-          kind: 'draw',
-          mark: {
-            kind: 'ocr',
-            id: newId(),
-            page,
-            rotate: uprightTextRotation(rotation),
-            words,
-          },
-        });
+      let revision = before;
+      if (words.length) {
+        const edit: Edit = { kind: 'draw', mark: { kind: 'ocr', id: newId(), page, rotate: 0, words } };
+        revision = append(before.edits, before.cursor, edit);
+        setScript(current => current === before ? revision : current);
       }
+      setOcrDraft({ page, result, revision }); setOcrReviewDirty(false);
     } catch (caught) {
-      setError(describeStudioError(caught));
+      if (!controller.signal.aborted) setError(describeStudioError(caught));
     } finally {
-      await worker?.terminate().catch(() => {});
+      await engine?.close();
+      if (ocrAbortRef.current === controller) ocrAbortRef.current = null;
       setOcrBusy(false);
     }
+  };
+
+  const rereadOcr = async (result: OcrPageResult, word: OcrWord) => {
+    if (!built || !ocrDraft || ocrDraft.revision !== script) throw new Error('No current OCR page');
+    const index = viewPageIds.indexOf(ocrDraft.page);
+    if (index < 0) throw new Error('OCR page removed');
+    const controller = new AbortController();
+    ocrAbortRef.current = controller;
+    const { createOcrEngine } = await import('@/lib/ocrEngine');
+    const engine = await createOcrEngine(ocrOptions, controller.signal);
+    try { return await engine.reread(await built.document.getPage(index + 1), result, word); }
+    finally { await engine.close(); if (ocrAbortRef.current === controller) ocrAbortRef.current = null; }
+  };
+
+  const applyOcrReview = async () => {
+    if (!ocrDraft || ocrDraft.revision !== script) return;
+    const before = script;
+    const probe = await PDFDocument.create();
+    const font = await probe.embedFont(StandardFonts.Helvetica);
+    const words = layerWords(ocrDraft.result, (text, size) => font.widthOfTextAtSize(text, size));
+    const edit: Edit = { kind: 'draw', mark: { kind: 'ocr', id: newId(), page: ocrDraft.page, rotate: 0, words } };
+    const revision = append(before.edits, before.cursor, edit);
+    setScript(current => current === before ? revision : current);
+    setOcrDraft({ ...ocrDraft, revision });
+    setOcrReviewDirty(false);
   };
 
   /**
@@ -2215,6 +2206,7 @@ export default function StudioPage() {
     setSigned(false);
     setImportNotes([]);
     setOcrResult(null);
+      setOcrDraft(null);
     setPanel('page');
     setSavedOk(null);
     setResult(null);
@@ -2583,7 +2575,17 @@ export default function StudioPage() {
                 onNumbering={(spec: NumberingSpec | null) => addEdit({ kind: 'numbering', spec })}
                 onInsertImages={(files) => void onInsertImages(files)}
                 onRunOcr={() => void runOcr()}
+                ocrControls={<>
+                  <OcrControls value={ocrOptions} onChange={setOcrOptions} disabled={ocrBusy || ocrDraft?.revision === script} />
+                  {ocrBusy && <p role="status">{ocrProgress} <button type="button" className="underline" onClick={() => ocrAbortRef.current?.abort()}>{locale === 'es' ? 'Cancelar OCR' : 'Cancel OCR'}</button></p>}
+                  {ocrDraft && <button type="button" className="underline text-xs" onClick={() => setOcrDraft(null)}>{locale === 'es' ? 'Cambiar opciones OCR' : 'Change OCR options'}</button>}
+                </>}
+                ocrReview={ocrDraft && ocrDraft.revision === script && ocrDraft.page === pageIdAt(pageIndex) ? <>
+                  <OcrReview results={[ocrDraft.result]} disabled={ocrBusy || building || built?.state !== state} onReread={rereadOcr} onChange={results => { setOcrDraft({ ...ocrDraft, result: results[0] }); setOcrReviewDirty(true); }} />
+                  {ocrReviewDirty && <button type="button" className="rounded border p-2" onClick={() => void applyOcrReview()}>{locale === 'es' ? 'Aplicar correcciones OCR' : 'Apply OCR corrections'}</button>}
+                </> : null}
                 ocrBusy={ocrBusy}
+                ocrDisabled={building || built?.state !== state}
                 ocrResult={
                   ocrResult && ocrResult.page === pageIdAt(pageIndex) ? ocrResult.words : null
                 }

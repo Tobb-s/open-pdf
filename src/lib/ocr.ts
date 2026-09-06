@@ -20,6 +20,8 @@ export interface OcrWord {
   right: number;
   bottom: number;
   confidence: number;
+  /** Stable reading-line index within one recognition result. */
+  line?: number;
 }
 
 interface RecognizeLike {
@@ -50,10 +52,12 @@ const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : [
  */
 export function extractOcrWords(data: RecognizeLike): OcrWord[] {
   const words: OcrWord[] = [];
+  let lineIndex = 0;
 
   for (const block of asArray(data?.blocks)) {
     for (const paragraph of asArray((block as { paragraphs?: unknown })?.paragraphs)) {
       for (const line of asArray((paragraph as { lines?: unknown })?.lines)) {
+        lineIndex++;
         for (const raw of asArray((line as { words?: unknown })?.words)) {
           const word = raw as WordLike;
           const text = typeof word.text === 'string' ? word.text.trim() : '';
@@ -66,6 +70,7 @@ export function extractOcrWords(data: RecognizeLike): OcrWord[] {
             typeof y0 !== 'number' ||
             typeof x1 !== 'number' ||
             typeof y1 !== 'number' ||
+            ![x0, y0, x1, y1].every(Number.isFinite) ||
             x1 <= x0 ||
             y1 <= y0
           ) {
@@ -78,7 +83,8 @@ export function extractOcrWords(data: RecognizeLike): OcrWord[] {
             top: y0,
             right: x1,
             bottom: y1,
-            confidence: typeof word.confidence === 'number' ? word.confidence : 0,
+            confidence: cleanConfidence(word.confidence),
+            line: lineIndex,
           });
         }
       }
@@ -138,6 +144,10 @@ export function losesCharacters(text: string): boolean {
  */
 export const LOW_CONFIDENCE = 60;
 
+export function cleanConfidence(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+}
+
 export interface ConfidenceSummary {
   /** Mean confidence over the words, rounded; 0 when there were none. */
   mean: number;
@@ -149,7 +159,8 @@ export function confidenceSummary(confidences: readonly number[]): ConfidenceSum
   if (confidences.length === 0) return { mean: 0, low: 0 };
   let sum = 0;
   let low = 0;
-  for (const value of confidences) {
+  for (const raw of confidences) {
+    const value = cleanConfidence(raw);
     sum += value;
     if (value < LOW_CONFIDENCE) low += 1;
   }
