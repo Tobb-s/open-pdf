@@ -59,6 +59,11 @@ describe('advanced local OCR contracts', () => {
     });
     expect(words).toEqual([]);
   });
+  it('prefers upright word geometry over more confident sideways recognition', () => {
+    const upright = Array(20).fill({ ...word, text: 'ROBUSTEZ', confidence: 90 });
+    const sideways = Array(20).fill({ ...word, text: 'ROBUSTEZ', right: 40, bottom: 160, confidence: 99 });
+    expect(recognitionScore(upright)).toBeGreaterThan(recognitionScore(sideways));
+  });
   it('maps OCR layer through crop offset, scale and rotation', () => {
     const result = { words: [word], toPdf: [0, 0.5, 0.5, 0, 10, 20] } as OcrPageResult;
     const layer = layerWords(result, (text, size) => text.length * size * 0.5);

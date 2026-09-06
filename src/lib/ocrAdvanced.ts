@@ -58,13 +58,22 @@ export function unrotatePoint(
 export function recognitionScore(words: readonly OcrWord[]): number {
   let weight = 0;
   let sum = 0;
+  let directionWeight = 0;
+  let horizontalWeight = 0;
   for (const word of words) {
     const letters = (word.text.match(/[\p{L}\p{N}]/gu) ?? []).length;
     const n = Math.min(letters, 12);
     weight += n;
     sum += n * cleanConfidence(word.confidence);
+    if (letters >= 4) {
+      directionWeight += n;
+      if (word.right - word.left > word.bottom - word.top) horizontalWeight += n;
+    }
   }
-  return weight ? (sum / weight) * Math.min(1, weight / 40) : 0;
+  // Tesseract can decode sideways lines with high confidence. We need an upright
+  // working frame as well, otherwise the invisible layer is drawn across the words.
+  const horizontal = directionWeight ? horizontalWeight / directionWeight : 1;
+  return weight ? (sum / weight) * Math.min(1, weight / 40) * (0.2 + 0.8 * horizontal) : 0;
 }
 
 export function boundedScale(width: number, height: number, mode: OcrOptions['mode']) {

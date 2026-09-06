@@ -7,6 +7,7 @@ Motor compartido para OCR de PDF y Studio, con Tesseract.js 7 y los seis modelos
 ## Cambios
 
 - Orientación automática por comparación de cuatro lecturas reducidas (0°, 90°, 180°, 270°), con elección manual disponible. Esto cambia la imagen de trabajo, no la rotación del PDF.
+- La elección combina confianza y proporción de palabras largas con cajas horizontales. El CI de Linux detectó que una lectura lateral podía obtener alta confianza; la geometría evita elegir ese marco y desalinear la capa de texto.
 - Modo rápido hasta 216 dpi y profundo hasta 300 dpi. El código anterior usaba escala 2: 144 dpi, no 300. Entrada sin recompresión JPEG y límites de 9 millones de píxeles / 5.000 píxeles por lado.
 - En modo profundo, otra lectura con umbral adaptativo si el candidato inicial tiene puntuación inferior a 90. Se elige un resultado completo, sin concatenar resultados ni duplicar palabras. La alternativa necesita mejorar la puntuación y conservar al menos el 80% del número de palabras.
 - Idioma del documento independiente del idioma de la interfaz.
