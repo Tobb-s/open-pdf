@@ -125,6 +125,8 @@ export interface TextRewrite {
   target?: { x: number; y: number; font: string; size: number };
   sizeRatio?: number;
   color?: Rgb;
+  /** User-approved standard face for this fragment only, never an implicit fallback. */
+  replacementFont?: FontChoice;
 }
 
 export interface PageState {

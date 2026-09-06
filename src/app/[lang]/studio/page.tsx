@@ -9,6 +9,8 @@ import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import SignaturePad from '@/components/studio/SignaturePad';
 import TextFormatInspector from '@/components/studio/TextFormatInspector';
+import ReplacementRecovery from '@/components/studio/ReplacementRecovery';
+import { replacementFailure, type ReplacementFailure } from '@/lib/studio/replacementRecovery';
 import { replacementCopy } from '@/lib/studio/replacementCopy';
 import CompareWorkspace from '@/components/studio/CompareWorkspace';
 import Stage, {
@@ -355,7 +357,8 @@ export default function StudioPage() {
   const [replacementFit, setReplacementFit] = useState<'squeeze' | 'keep-layout' | 'keep-flow'>('squeeze');
   const [replacementColor, setReplacementColor] = useState('#000000');
   const [replacementColorChanged, setReplacementColorChanged] = useState(false);
-  const [replacementIssue, setReplacementIssue] = useState<string | null>(null);
+  const [replacementIssue, setReplacementIssue] = useState<ReplacementFailure | null>(null);
+  const [useCompatibleReplacementFont, setUseCompatibleReplacementFont] = useState(false);
   const [replacementBackground, setReplacementBackground] = useState('#ffffff');
   const [replacementSourceFont, setReplacementSourceFont] = useState<DetectedPdfFont | null>(null);
   const [useReplacementSourceFont, setUseReplacementSourceFont] = useState(false);
@@ -1580,7 +1583,7 @@ export default function StudioPage() {
    * paints out the old glyph box and rebuilds the text over a page bitmap.
    * Either path is one atomic, undoable edit; failures append nothing.
    */
-  const replaceSelectedText = async () => {
+  const replaceSelectedText = async (compatible = useCompatibleReplacementFont, fit = replacementFit) => {
     const engine = engineRef.current;
     const selection = textSelection;
     const document_ = built?.document;
@@ -1600,10 +1603,11 @@ export default function StudioPage() {
           throw new Error('native-text:ambiguous');
         }
         const edit: Edit = { kind: 'rewriteText', page, rewrite: {
-          needle: selected.text, replacement, occurrence: 0, caseSensitive: true, fit: replacementFit,
+          needle: selected.text, replacement, occurrence: 0, caseSensitive: true, fit,
           target: { x: selected.source.x, y: selected.source.y, size: selected.source.size, font: selected.sourceFont.name },
           ...(replacementSize !== selected.size ? { sizeRatio: replacementSize / selected.size } : {}),
           ...(replacementColorChanged ? { color: hexToRgb(replacementColor) } : {}),
+          ...(compatible ? { replacementFont: fallbackFor(fontStyles, selected.sourceFont.name) } : {}),
         } };
         const candidate = append(edits, cursor, edit);
         // Preflight the actual replay, not just the rendered bytes (which may
@@ -1696,11 +1700,7 @@ export default function StudioPage() {
       setUseReplacementSourceFont(false);
     } catch (caught) {
       if (replacementMode === 'native') {
-        const message = caught instanceof Error ? caught.message : '';
-        const explanation = message.includes('missing-glyphs') ? replacementLabels.missing
-          : message.includes('too-different') ? replacementLabels.different
-          : message.includes('ambiguous') || message.includes('split') ? replacementLabels.ambiguous : replacementLabels.unsupported;
-        setReplacementIssue(`${replacementLabels.refusal} ${explanation}`);
+        if (engineRef.current === engine) setReplacementIssue(replacementFailure(caught));
       } else setError(describeStudioError(caught));
     } finally {
       setReplacingText(false);
@@ -2507,6 +2507,7 @@ export default function StudioPage() {
                 setReplacementColor(selection.selected.appearance?.color ?? '#000000');
                 setReplacementColorChanged(false);
                 setReplacementMode('native');
+                setUseCompatibleReplacementFont(false);
                 setReplacementIssue(null);
               }}
               selectedParagraphId={
@@ -2975,13 +2976,19 @@ export default function StudioPage() {
                       </select>
                     </label>
                     <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-950">
-                      {replacementMode === 'native' ? replacementLabels.nativeNote : replacementLabels.rasterNote}
+                      {replacementMode === 'native' ? (useCompatibleReplacementFont ? replacementLabels.compatibleNote : replacementLabels.nativeNote) : replacementLabels.rasterNote}
                     </p>
+                    {replacementMode === 'native' && useCompatibleReplacementFont && <div className="space-y-2 text-xs">
+                      <p>{replacementLabels.compatibleActive}: <strong>{standardFontFor(fallbackFor(fontStyles, replacementSourceFont?.name))}</strong></p>
+                      <button type="button" disabled={replacingText || building}
+                        onClick={() => { setUseCompatibleReplacementFont(false); setReplacementIssue(null); }}
+                        className="text-violet-700 underline">{replacementLabels.originalFont}</button>
+                    </div>}
                     <Field label={t.studio.replaceTextNew}>
                       <textarea
                         value={replacementValue}
                         rows={3}
-                        onChange={(event) => setReplacementValue(event.target.value)}
+                        onChange={(event) => { setReplacementValue(event.target.value); setReplacementIssue(null); }}
                         className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
                       />
                       {replacementMode === 'native' && <p className="text-xs text-gray-500">{replacementLabels.empty}</p>}
@@ -3018,7 +3025,14 @@ export default function StudioPage() {
                       value={replacementBackground}
                       onChange={setReplacementBackground}
                     />}
-                    {replacementIssue && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900">{replacementIssue}</p>}
+                    {replacementMode === 'native' && replacementIssue && <ReplacementRecovery
+                      issue={replacementIssue} usingCompatible={useCompatibleReplacementFont}
+                      font={standardFontFor(fallbackFor(fontStyles, replacementSourceFont?.name))}
+                      disabled={replacingText || building}
+                      onCompatible={() => { setUseCompatibleReplacementFont(true); void replaceSelectedText(true); }}
+                      onNaturalWidth={() => { setReplacementFit('keep-layout'); void replaceSelectedText(useCompatibleReplacementFont, 'keep-layout'); }}
+                      onRebuild={() => { setReplacementMode('raster'); setUseReplacementSourceFont(false); setReplacementIssue(null); }}
+                    />}
                     <button
                       type="button"
                       onClick={() => void replaceSelectedText()}

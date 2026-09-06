@@ -20,6 +20,10 @@ import { UNREADABLE, type ScannedText, type ShowRun } from '@/lib/pdf/textScan';
  * has to give. The caller chooses what: let the rest of the line shift by the
  * difference, or keep the line and squeeze the word into the space the old one
  * had. Neither is hidden.
+ *
+ * A caller may explicitly supply a replacement font. Only the selected span
+ * then uses that face; surrounding bytes are decoded and retained in the old
+ * font. The caller must disclose this approximation and obtain the user's choice.
  */
 
 export interface Occurrence {
@@ -208,6 +212,8 @@ export type Fit =
 
 export interface PlanOptions {
   fit?: Fit;
+  /** Explicit replacement face; the original face still decodes surrounding bytes. */
+  replacementFont?: FontMap;
   sizeRatio?: number;
   color?: { r: number; g: number; b: number };
   /**
@@ -267,12 +273,13 @@ export function planReplacement(
 ): Plan {
   const run = scan.runs[occurrence.run];
   const font = run.font;
+  const replacementFont = options.replacementFont ?? font;
   const positions = scan.positions.slice(occurrence.start, occurrence.end);
   if (positions.some(position => !position || position.run !== occurrence.run)) {
     return { ok: false, reason: 'split', missing: [] };
   }
-  if (!font) return { ok: false, reason: 'split', missing: [] };
-  if (run.renderMode !== 0 && (options.sizeRatio !== undefined || options.color !== undefined)) {
+  if (!font || !replacementFont) return { ok: false, reason: 'split', missing: [] };
+  if (run.renderMode !== 0 && (options.sizeRatio !== undefined || options.color !== undefined || options.replacementFont)) {
     return { ok: false, reason: 'unsupported-operator', missing: [] };
   }
   const sizeRatio = options.sizeRatio ?? 1;
@@ -302,7 +309,7 @@ export function planReplacement(
   const codes: number[] = [];
   const missing: string[] = [];
   for (const character of replacement) {
-    const code = font.fromUnicode.get(character);
+    const code = replacementFont.fromUnicode.get(character);
     if (code === undefined) {
       if (!missing.includes(character)) missing.push(character);
       continue;
@@ -373,7 +380,7 @@ export function planReplacement(
   const oldWidth =
     glyphs.reduce((total, glyph) => total + glyph.advance, 0) + innerKerning;
   const replacementRun = { ...run, size: run.size * sizeRatio };
-  const naturalWidth = codes.reduce((total, code) => total + advanceOf(font, code, replacementRun), 0);
+  const naturalWidth = codes.reduce((total, code) => total + advanceOf(replacementFont, code, replacementRun), 0);
 
   const fit = options.fit ?? 'squeeze';
   const maxScale = options.maxScale ?? 2;
@@ -391,11 +398,11 @@ export function planReplacement(
     widthDelta = 0;
   }
 
-  const word = `<${hexOf(codes, font.codeBytes)}>`;
+  const word = `<${hexOf(codes, replacementFont.codeBytes)}>`;
   const showBefore = before.length > 0 ? `[${before.join(' ')}] TJ ` : '';
   const showAfter = after.length > 0 ? ` [${after.join(' ')}] TJ` : '';
-  const styled = options.color !== undefined || sizeRatio !== 1;
-  const styleStart = styled ? `q ${PDFName.of(run.fontResource)} ${formatNumber(replacementRun.size)} Tf `
+  const styled = options.color !== undefined || sizeRatio !== 1 || options.replacementFont !== undefined;
+  const styleStart = styled ? `q ${PDFName.of(replacementFont.resource)} ${formatNumber(replacementRun.size)} Tf `
     + (options.color ? `${formatNumber(options.color.r)} ${formatNumber(options.color.g)} ${formatNumber(options.color.b)} rg ` : '') : '';
   const styleEnd = styled ? ' Q' : '';
 
