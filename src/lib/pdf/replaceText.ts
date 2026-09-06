@@ -1,4 +1,5 @@
 import type { Operation } from '@/lib/pdf/contentStream';
+import { PDFName } from 'pdf-lib';
 import { spliceBytes } from '@/lib/pdf/contentStream';
 import type { FontMap } from '@/lib/pdf/fontMap';
 import { UNREADABLE, type ScannedText, type ShowRun } from '@/lib/pdf/textScan';
@@ -207,6 +208,8 @@ export type Fit =
 
 export interface PlanOptions {
   fit?: Fit;
+  sizeRatio?: number;
+  color?: { r: number; g: number; b: number };
   /**
    * How far a squeeze may go, as a ratio. Default allows half to double.
    */
@@ -264,7 +267,21 @@ export function planReplacement(
 ): Plan {
   const run = scan.runs[occurrence.run];
   const font = run.font;
+  const positions = scan.positions.slice(occurrence.start, occurrence.end);
+  if (positions.some(position => !position || position.run !== occurrence.run)) {
+    return { ok: false, reason: 'split', missing: [] };
+  }
   if (!font) return { ok: false, reason: 'split', missing: [] };
+  if (run.renderMode !== 0 && (options.sizeRatio !== undefined || options.color !== undefined)) {
+    return { ok: false, reason: 'unsupported-operator', missing: [] };
+  }
+  const sizeRatio = options.sizeRatio ?? 1;
+  if (!Number.isFinite(sizeRatio) || sizeRatio <= 0 || sizeRatio > 100) {
+    return { ok: false, reason: 'too-different', missing: [] };
+  }
+  if (options.color && Object.values(options.color).some(n => !Number.isFinite(n) || n < 0 || n > 1)) {
+    return { ok: false, reason: 'unsupported-operator', missing: [] };
+  }
 
   if (run.operator !== 'Tj' && run.operator !== 'TJ') {
     // `'` and `"` also move to the next line, so rewriting them as a TJ would
@@ -274,6 +291,9 @@ export function planReplacement(
   }
 
   const glyphs = run.glyphs.slice(occurrence.firstGlyph, occurrence.lastGlyph + 1);
+  if (glyphs.map(glyph => glyph.text).join('') !== occurrence.text) {
+    return { ok: false, reason: 'split', missing: [] };
+  }
   if (glyphs.some((glyph) => glyph.text === UNREADABLE)) {
     return { ok: false, reason: 'unreadable', missing: [] };
   }
@@ -352,7 +372,8 @@ export function planReplacement(
   // under a fit that promised nothing would move.
   const oldWidth =
     glyphs.reduce((total, glyph) => total + glyph.advance, 0) + innerKerning;
-  const naturalWidth = codes.reduce((total, code) => total + advanceOf(font, code, run), 0);
+  const replacementRun = { ...run, size: run.size * sizeRatio };
+  const naturalWidth = codes.reduce((total, code) => total + advanceOf(font, code, replacementRun), 0);
 
   const fit = options.fit ?? 'squeeze';
   const maxScale = options.maxScale ?? 2;
@@ -373,30 +394,34 @@ export function planReplacement(
   const word = `<${hexOf(codes, font.codeBytes)}>`;
   const showBefore = before.length > 0 ? `[${before.join(' ')}] TJ ` : '';
   const showAfter = after.length > 0 ? ` [${after.join(' ')}] TJ` : '';
+  const styled = options.color !== undefined || sizeRatio !== 1;
+  const styleStart = styled ? `q ${PDFName.of(run.fontResource)} ${formatNumber(replacementRun.size)} Tf `
+    + (options.color ? `${formatNumber(options.color.r)} ${formatNumber(options.color.g)} ${formatNumber(options.color.b)} rg ` : '') : '';
+  const styleEnd = styled ? ' Q' : '';
 
   let text: string;
   if (fit === 'squeeze' && widthDelta === 0 && naturalWidth > 0 && oldWidth > 0) {
     // The scale wraps the word and nothing else, and is put back immediately —
     // leaving it set would apply it to every later run in the text object.
     text =
-      `${showBefore}${formatNumber(horizontalScale)} Tz [${word}] TJ ` +
-      `${formatNumber(run.horizontal * 100)} Tz${showAfter}`;
-  } else if (fit === 'keep-layout' && widthDelta !== 0) {
+      `${showBefore}${styleStart}${formatNumber(horizontalScale)} Tz [${word}] TJ ` +
+      `${formatNumber(run.horizontal * 100)} Tz${styleEnd}${showAfter}`;
+  } else if ((fit === 'keep-layout' || fit === 'squeeze') && widthDelta !== 0) {
     // Give the difference back so nothing after the word moves. A POSITIVE
     // number in a TJ array moves the pen left, so a word that came out wider
     // needs a positive one to pull the pen back to where the old one ended.
-    const adjustment = (widthDelta / (run.size * run.horizontal || 1)) * 1000;
-    text = `${showBefore}[${word} ${formatNumber(adjustment)}] TJ${showAfter}`;
+    const adjustment = (widthDelta / (replacementRun.size * run.horizontal || 1)) * 1000;
+    text = `${showBefore}${styleStart}[${word} ${formatNumber(adjustment)}] TJ${styleEnd}${showAfter}`;
   } else {
     // `keep-flow`, or a replacement that happened to measure the same.
-    text = `${showBefore}[${word}] TJ${showAfter}`;
+    text = `${showBefore}${styleStart}[${word}] TJ${styleEnd}${showAfter}`;
   }
 
   return {
     ok: true,
     occurrence,
     edit: { start: operation.start, end: operation.end, replacement: asciiBytes(text) },
-    widthDelta: fit === 'keep-layout' ? 0 : widthDelta,
+    widthDelta: fit === 'keep-flow' ? widthDelta : 0,
     naturalWidthDelta: naturalWidth - oldWidth,
     horizontalScale,
     fit,

@@ -7,6 +7,9 @@ import { clientToCanvasPoint, viewportToPdfPoint } from '@/lib/geometry';
 import { renderPageToCanvas } from '@/lib/pdfjs';
 import { flattenTextRuns, type FlatTextRun } from '@/lib/studio/textReplacement';
 import { detectPdfFonts, type EmbeddedPdfFontProgram } from '@/lib/studio/fonts';
+import { readTextPaints } from '@/lib/studio/textAppearance';
+import { useI18n } from '@/lib/i18n/context';
+import { replacementCopy } from '@/lib/studio/replacementCopy';
 import { groupTextParagraphs, type TextParagraph } from '@/lib/studio/paragraphs';
 
 /**
@@ -112,6 +115,9 @@ export default function Stage({
   onParagraphSelect,
   searchHighlights = [],
 }: StageProps) {
+  const { locale } = useI18n();
+  const copy = replacementCopy[locale];
+  const [textFilter, setTextFilter] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<Awaited<ReturnType<typeof renderPageToCanvas>>['viewport'] | null>(
     null
@@ -155,13 +161,20 @@ export default function Stage({
           }
         }
         const fonts = content ? detectPdfFonts(page, content.items, embeddedFonts) : new Map();
+        const paints = content ? await readTextPaints(page).catch(() => []) : [];
+        if (paints.some(paint => paint.layer)) {
+          const layers = await pdf.getOptionalContentConfig().catch(() => null);
+          for (const paint of paints) {
+            if (paint.layer) paint.layer = layers?.getGroup(paint.layer)?.name ?? paint.layer;
+          }
+        }
         rotationRef.current = page.rotate;
         page.cleanup();
         if (cancelled) return;
 
         viewportRef.current = rendered.viewport;
         setSize({ width: rendered.width, height: rendered.height, scale: rendered.viewport.scale });
-        setTextRuns(content ? flattenTextRuns(content.items, rendered.viewport, fonts) : []);
+        setTextRuns(content ? flattenTextRuns(content.items, rendered.viewport, fonts, content.styles, paints) : []);
         setRenderedRequest({ document: pdf, pageIndex, tool, zoom });
       } catch {
         if (!cancelled) {
@@ -298,6 +311,7 @@ export default function Stage({
     renderedRequest.zoom === zoom;
 
   return (
+    <div className="space-y-2">
     <div
       aria-busy={!stageReady}
       className="relative flex min-h-[30rem] items-start justify-center overflow-auto rounded-lg border bg-gray-100 p-4 sm:items-center"
@@ -329,7 +343,7 @@ export default function Stage({
                 <button
                   key={run.id}
                   type="button"
-                  disabled={busy}
+                  disabled={busy || !stageReady}
                   aria-pressed={selected}
                   aria-label={run.text}
                   title={run.text}
@@ -344,6 +358,8 @@ export default function Stage({
                     top: `${top}%`,
                     width: `${Math.max(width, 0.5)}%`,
                     height: `${Math.max(height, 0.8)}%`,
+                    clipPath: run.quad ? `polygon(${run.quad.map(([x, y]) =>
+                      `${((x - run.visual.left) / run.visual.width) * 100}% ${((y - run.visual.top) / run.visual.height) * 100}%`).join(',')})` : undefined,
                   }}
                 />
               );
@@ -484,6 +500,26 @@ export default function Stage({
           </div>
         )}
       </div>
+    </div>
+    {tool === 'replaceText' && stageReady && (textRuns.length === 0 ? (
+      <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">{copy.noText}</p>
+    ) : (
+      <details className="rounded-xl border bg-white p-3 text-sm">
+        <summary className="cursor-pointer font-medium">{copy.fragments} ({textRuns.length})</summary>
+        <input aria-label={copy.search} placeholder={copy.search} value={textFilter}
+          onChange={event => setTextFilter(event.target.value)} className="my-2 w-full rounded border px-2 py-1" />
+        <div className="max-h-48 overflow-auto">
+          {textRuns.filter(run => run.text.toLocaleLowerCase(locale).includes(textFilter.toLocaleLowerCase(locale))).map(run => (
+            <button key={run.id} type="button" disabled={busy || !stageReady}
+              aria-label={`${copy.fragments}: ${run.text}`} aria-pressed={run.id === selectedTextId}
+              onClick={() => onTextSelect?.({ selected: run, runs: textRuns })}
+              className="block w-full rounded px-2 py-1 text-left hover:bg-cyan-50 aria-pressed:bg-cyan-100">
+              {run.text} <span className="text-xs text-gray-500">({run.size.toFixed(2)} pt)</span>
+            </button>
+          ))}
+        </div>
+      </details>
+    ))}
     </div>
   );
 }
