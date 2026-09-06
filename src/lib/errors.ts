@@ -59,6 +59,9 @@ export function describeError(error: unknown, t: Dictionary): ToolError {
   const name = error instanceof Error ? error.name : '';
   const constructorName = (error as { constructor?: { name?: string } })?.constructor?.name;
   const message = error instanceof Error ? error.message : String(error);
+  if (/replacement image|redaction verification refused/i.test(message)) {
+    return { kind: 'invalid', title: messages.integrityTitle, detail: messages.integrityBody };
+  }
 
   // Matched by message as well as by type: pdf-lib's own text says "encrypted"
   // and never "password", and the class identity is not dependable once the app

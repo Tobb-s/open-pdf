@@ -151,6 +151,18 @@ describe('a redacted page in the produced document', () => {
     raster: { asset: 'bitmap', boxes },
   });
 
+  it.each([
+    ['missing', undefined],
+    ['not an image', Uint8Array.of(1, 2, 3)],
+    ['truncated PNG', Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10)],
+  ])('refuses export when the redaction bitmap is %s', async (_label, bitmap) => {
+    await expect(materialize({
+      original: secret,
+      assets: bitmap ? new Map([['bitmap', bitmap]]) : new Map(),
+      state: stateAt(2, [rasterEdit('o0', [{ x: 30, y: 110, width: 220, height: 40 }])], 1),
+    })).rejects.toThrow(/replacement image/i);
+  });
+
   it('THE STAGE GATE: the text under the paint is not in the file', async () => {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
     const { bytes } = await materialize({

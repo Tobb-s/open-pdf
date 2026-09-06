@@ -37,7 +37,7 @@ class FakeWorker {
     this.sent.push(message);
     if (!this.alive) return;
     // Answer `open` the way the real worker does; leave renders to the test.
-    if (message.cmd === 'open') queueMicrotask(() => this.reply({ cmd: 'opened' }));
+    if (message.cmd === 'open') queueMicrotask(() => this.reply({ cmd: 'opened', id: message.id }));
   }
 
   terminate() {
@@ -57,6 +57,91 @@ class FakeWorker {
 const asWorker = (fake: FakeWorker) => fake as unknown as Worker;
 
 describe('the worker engine', () => {
+  it('keeps the asset whose postMessage failed when demoting', async () => {
+    const fake = new FakeWorker();
+    const engine = new WorkerEngine(asWorker(fake));
+    await engine.open(fixture);
+    const imported = await PDFDocument.create();
+    imported.addPage([321, 654]);
+    fake.postMessage = () => { throw new Error('transport unavailable'); };
+    engine.putAsset('extra', await imported.save());
+    const result = await engine.render(stateAt(PAGES, [
+      { kind: 'insert', before: null, asset: 'extra', indices: [0] },
+    ], 1));
+    expect((await PDFDocument.load(result.bytes)).getPageCount()).toBe(PAGES + 1);
+    engine.dispose();
+  });
+
+  it('settles pending work and clears deadlines when disposed', async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = new FakeWorker();
+      const engine = new WorkerEngine(asWorker(fake));
+      await engine.open(fixture);
+      const rendering = engine.render(stateAt(PAGES, [], 0));
+      const rejected = expect(rendering).rejects.toThrow(/disposed/i);
+      engine.dispose();
+      await rejected;
+      expect(vi.getTimerCount()).toBe(0);
+      await expect(engine.open(fixture)).rejects.toThrow(/disposed/i);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('rejects an unfinished open when disposed', async () => {
+    const fake = new FakeWorker();
+    fake.die();
+    const engine = new WorkerEngine(asWorker(fake));
+    const rejected = expect(engine.open(fixture)).rejects.toThrow(/disposed/i);
+    engine.dispose();
+    await rejected;
+  });
+
+  it('recovers immediately when postMessage throws during open', async () => {
+    const fake = new FakeWorker();
+    fake.postMessage = () => { throw new Error('transport unavailable'); };
+    const engine = new WorkerEngine(asWorker(fake));
+    await engine.open(fixture);
+    expect((await engine.render(stateAt(PAGES, [], 0))).bytes).toEqual(fixture);
+    expect(fake.terminated).toBe(true);
+    engine.dispose();
+  });
+
+  it('recovers immediately when postMessage throws during render', async () => {
+    const fake = new FakeWorker();
+    const engine = new WorkerEngine(asWorker(fake));
+    await engine.open(fixture);
+    fake.postMessage = () => { throw new Error('transport unavailable'); };
+    expect((await engine.render(stateAt(PAGES, [], 0))).bytes).toEqual(fixture);
+    engine.dispose();
+  });
+
+  it('rejects superseded opens and ignores acknowledgements for the previous document', async () => {
+    const fake = new FakeWorker();
+    fake.die();
+    const engine = new WorkerEngine(asWorker(fake));
+    const first = expect(engine.open(fixture)).rejects.toThrow(/replaced/i);
+    let opened = false;
+    const second = engine.open(fixture).then(() => { opened = true; });
+    await first;
+    fake.reply({ cmd: 'opened', id: fake.sent[0].id });
+    await Promise.resolve();
+    expect(opened).toBe(false);
+    fake.reply({ cmd: 'opened', id: fake.sent[1].id });
+    await second;
+    engine.dispose();
+  });
+
+  it('does not retry a previous document request against the next document', async () => {
+    const fake = new FakeWorker();
+    const engine = new WorkerEngine(asWorker(fake));
+    await engine.open(fixture);
+    const rejected = expect(engine.render(stateAt(PAGES, [], 0))).rejects.toThrow(/replaced/i);
+    await engine.open(fixture);
+    fake.onerror?.({});
+    await rejected;
+    engine.dispose();
+  });
+
   it('opens through the worker and reports it is off the main thread', async () => {
     const fake = new FakeWorker();
     const engine = new WorkerEngine(asWorker(fake));

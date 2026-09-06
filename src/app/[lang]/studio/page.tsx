@@ -252,8 +252,7 @@ async function findSurvivors(
       const produced_ = await loadPdf(produced, { updateMetadata: false });
       all += ' ' + allTextIn(produced_);
     } catch {
-      // A document pdf-lib will not open is judged on its page text alone. The
-      // export's own error path handles a file that cannot be read at all.
+      throw new Error('Unable to inspect PDF metadata. Redaction verification refused.');
     }
 
     return judgeRedaction(targets, all);
@@ -468,10 +467,12 @@ export default function StudioPage() {
     fields: FieldCheck[];
   } | null>(null);
   const [error, setError] = useState<ToolError | null>(null);
+  const [previewError, setPreviewError] = useState<ToolError | null>(null);
 
   const engineRef = useRef<StudioEngine | null>(null);
   /** Bumped per rebuild so a slow one cannot overwrite a newer result. */
   const generationRef = useRef(0);
+  const storageSessionRef = useRef<string | null>(null);
 
   // Releasing the previous render's pdf.js document: the cleanup runs with the
   // value that is being replaced, which is precisely the one to let go of.
@@ -582,6 +583,9 @@ export default function StudioPage() {
       const restoredAssets = restored?.assets ?? {};
       for (const [id, asset] of Object.entries(restoredAssets)) engine.putAsset(id, asset);
 
+      const storageSession = newId();
+      storageSessionRef.current = storageSession;
+
       setName(fileName);
       setOriginal(bytes);
       setOriginalPages(count);
@@ -608,11 +612,19 @@ export default function StudioPage() {
       // Nothing has been written for THIS document yet, whatever was true of
       // the last one.
       setSavedOk(null);
+      setError(null);
+      setPreviewError(null);
 
       // The document itself, written once. Everything after this is the edit
       // list, which is small — rewriting a 169 MB book after every rotation of
       // a page was 150 ms and 185 MB of disk, measured, for nothing.
-      void saveOriginal(fileName, bytes).then((ok) => {
+      void saveOriginal(fileName, bytes, storageSession, {
+        shape: SESSION_SHAPE,
+        edits: restored?.edits ?? [],
+        cursor: restored?.cursor ?? 0,
+        assets: restoredAssets,
+        savedAt: Date.now(),
+      }).then((ok) => {
         if (!ok) setSavedOk(false);
       });
     },
@@ -699,9 +711,9 @@ export default function StudioPage() {
         // the manual view with a number that never justified it.
         setSlowBecause((current) => current ?? elapsed);
       }
-      setError(null);
+      setPreviewError(null);
     } catch (caught) {
-      if (generation === generationRef.current) setError(describeStudioError(caught));
+      if (generation === generationRef.current) setPreviewError(describeStudioError(caught));
     } finally {
       if (generation === generationRef.current) setBuilding(false);
     }
@@ -736,6 +748,7 @@ export default function StudioPage() {
 
   useEffect(() => {
     if (!original) return;
+    const storageSession = storageSessionRef.current;
     const timer = setTimeout(() => {
       void (async () => {
         // Which bytes the edit list still reaches. This lives in store.ts as a
@@ -747,6 +760,7 @@ export default function StudioPage() {
         );
 
         const ok = await saveScript({
+          sessionId: storageSession ?? undefined,
           shape: SESSION_SHAPE,
           edits,
           cursor,
@@ -2097,6 +2111,7 @@ export default function StudioPage() {
     const engine = engineRef.current;
     if (!engine || !original) return;
     setExporting(true);
+    setError(null);
     setBlocked(null);
     try {
       // The worker builds it and reads it: both the page count and the
@@ -2151,7 +2166,8 @@ export default function StudioPage() {
   };
 
   const closeSession = async () => {
-    await clearSession();
+    await clearSession(storageSessionRef.current ?? undefined);
+    storageSessionRef.current = null;
     setBuilt(null);
     setOriginal(null);
     setName('');
@@ -2167,6 +2183,7 @@ export default function StudioPage() {
     setSavedOk(null);
     setResult(null);
     setError(null);
+    setPreviewError(null);
   };
 
   const listFormat = (items: string[]) =>
@@ -2235,7 +2252,7 @@ export default function StudioPage() {
           </FileDropzone>
           <p className="mt-4 text-center text-sm text-gray-500">{t.studio.openNote}</p>
           <div className="mt-6">
-            <ErrorNotice error={error} onDismiss={() => setError(null)} />
+            <ErrorNotice error={error ?? previewError} onDismiss={() => { setError(null); setPreviewError(null); }} />
           </div>
         </main>
       </div>
@@ -2339,7 +2356,7 @@ export default function StudioPage() {
           onClose={() => void closeSession()}
         />
 
-        <ErrorNotice error={error} onDismiss={() => setError(null)} />
+        <ErrorNotice error={error ?? previewError} onDismiss={() => { setError(null); setPreviewError(null); }} />
 
         {blocked && (
           <div className="mb-3 rounded-2xl border-2 border-red-300 bg-red-50 p-4">
@@ -3424,7 +3441,7 @@ export default function StudioPage() {
               {building && <p className="mt-1 text-violet-600">{t.studio.building}</p>}
               <button
                 type="button"
-                onClick={() => void clearSession().then(() => setSavedOk(null))}
+                onClick={() => void clearSession(storageSessionRef.current ?? undefined).then(() => setSavedOk(null))}
                 className="mt-2 underline hover:text-gray-600"
               >
                 {t.studio.forget}

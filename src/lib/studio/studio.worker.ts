@@ -18,13 +18,13 @@ import { summarizeStructures, type StructuralSummary } from '@/lib/verify/struct
  */
 
 export type StudioRequest =
-  | { cmd: 'open'; original: Uint8Array }
+  | { cmd: 'open'; id: number; original: Uint8Array }
   | { cmd: 'asset'; id: string; bytes: Uint8Array }
   | { cmd: 'render'; id: number; state: ScriptState }
   | { cmd: 'export'; id: number; state: ScriptState };
 
 export type StudioResponse =
-  | { cmd: 'opened' }
+  | { cmd: 'opened'; id: number }
   | {
       cmd: 'rendered';
       id: number;
@@ -62,7 +62,7 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
   if (request.cmd === 'open') {
     original = request.original;
     assets.clear();
-    post({ cmd: 'opened' });
+    post({ cmd: 'opened', id: request.id });
     return;
   }
 
@@ -76,17 +76,19 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
       post({ cmd: 'failed', id: request.id, message: 'No document is open.' });
       return;
     }
+    const sourceBytes = original;
+    const requestAssets = new Map(assets);
     try {
       const { bytes, pages: placed } = await materialize({
-        original,
-        assets,
+        original: sourceBytes,
+        assets: requestAssets,
         state: request.state,
       });
       // Read from the produced bytes, here, where pdf-lib already lives. Doing
       // it on the page would parse two whole documents on the main thread — the
       // one thing this file exists to prevent.
       const [source, produced] = await Promise.all([
-        loadPdf(original, { updateMetadata: false }),
+        loadPdf(sourceBytes, { updateMetadata: false }),
         loadPdf(bytes, { updateMetadata: false }),
       ]);
       post(
@@ -124,7 +126,7 @@ self.onmessage = async (event: MessageEvent<StudioRequest>) => {
     try {
       const { bytes, pages: placed, rewrites } = await materialize({
         original,
-        assets,
+        assets: new Map(assets),
         state: request.state,
       });
       post(

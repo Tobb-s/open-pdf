@@ -22,6 +22,37 @@ beforeAll(async () => {
 });
 
 describe('the main-thread fallback', () => {
+  it('keeps the source report tied to an export while another document opens', async () => {
+    const engine = createStudioEngine();
+    await engine.open(fixture);
+    const exported = engine.exportDocument(stateAt(PAGES, [], 0));
+    const other = await PDFDocument.create();
+    other.addPage([200, 200]);
+    await engine.open(await other.save());
+    const result = await exported;
+    expect(result.before.pageCount).toBe(PAGES);
+    expect(result.after.pageCount).toBe(PAGES);
+    expect(result.bytes).toEqual(fixture);
+    engine.dispose();
+  });
+
+  it('keeps imported assets for an in-flight render after the session changes', async () => {
+    const engine = createStudioEngine();
+    await engine.open(fixture);
+    const imported = await PDFDocument.create();
+    imported.addPage([321, 654]);
+    const bytes = await imported.save();
+    engine.putAsset('extra', bytes);
+    const rendering = engine.render(stateAt(PAGES, [
+      { kind: 'insert', before: null, asset: 'extra', indices: [0] },
+    ], 1));
+    await engine.open(bytes);
+    const out = await PDFDocument.load((await rendering).bytes);
+    expect(out.getPageCount()).toBe(PAGES + 1);
+    expect(out.getPage(PAGES).getWidth()).toBe(321);
+    engine.dispose();
+  });
+
   it('is what you get when a worker cannot be built', () => {
     const engine = createStudioEngine();
     expect(engine.offMainThread).toBe(false);

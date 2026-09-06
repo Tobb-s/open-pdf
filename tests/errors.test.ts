@@ -4,6 +4,12 @@ import { describeError, KnownToolError } from '@/lib/errors';
 import { en, es } from '@/lib/i18n/dictionaries';
 
 describe('describeError', () => {
+  it('localizes integrity failures even after a worker reduces them to messages', () => {
+    for (const message of ['Missing replacement image for page o0. Export refused.', 'Redaction verification refused.']) {
+      expect(describeError(new Error(message), es).title).toBe(es.errors.integrityTitle);
+      expect(describeError(new Error(message), en).title).toBe(en.errors.integrityTitle);
+    }
+  });
   it('names an encrypted document and says what to do', () => {
     const described = describeError(new EncryptedPDFError(), en);
     expect(described.kind).toBe('encrypted');

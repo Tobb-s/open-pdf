@@ -1,4 +1,5 @@
 import {
+  decodePDFRawStream,
   PDFArray,
   PDFDict,
   PDFHexString,
@@ -137,10 +138,11 @@ export function allTextIn(document: PDFDocument): string {
   const parts: string[] = [];
 
   const take = (value: PDFObject | undefined, depth: number): void => {
-    if (value === undefined || depth > 24) return;
+    if (value === undefined) return;
+    if (depth > 24) throw new Error('Unable to inspect deeply nested PDF metadata. Redaction verification refused.');
 
     if (value instanceof PDFString) {
-      parts.push(value.asString());
+      parts.push(value.decodeText());
       return;
     }
     if (value instanceof PDFHexString) {
@@ -166,11 +168,10 @@ export function allTextIn(document: PDFDocument): string {
       if (subtype === '/XML' || type === '/Metadata') {
         try {
           const contents =
-            value instanceof PDFRawStream ? value.contents : value.getContents();
+            value instanceof PDFRawStream ? decodePDFRawStream(value).decode() : value.getContents();
           parts.push(new TextDecoder().decode(contents));
         } catch {
-          // A metadata stream that will not decode carries nothing a reader
-          // could recover either.
+          throw new Error('Unable to inspect PDF metadata. Redaction verification refused.');
         }
       }
       return;
