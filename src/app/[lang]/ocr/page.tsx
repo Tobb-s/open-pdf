@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
-import { savePdf } from '@/lib/pdfio';
 import OcrControls from '@/components/OcrControls';
 import OcrReview from '@/components/OcrReview';
-import { DEFAULT_OCR_OPTIONS, layerWords, type OcrPageResult } from '@/lib/ocrAdvanced';
+import { DEFAULT_OCR_OPTIONS, type OcrPageResult } from '@/lib/ocrAdvanced';
+import { exportOcrPages, summarizeOcrPages, type OcrResult } from '@/lib/ocrResult';
 import type { OcrWord } from '@/lib/ocr';
 import { createOcrEngine } from '@/lib/ocrEngine';
 import Navbar from '@/components/Navbar';
@@ -21,26 +20,6 @@ import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize, assertPageCount, MAX_OCR_PAGES, throwIfCancelled } from '@/lib/limits';
 import { openPdf } from '@/lib/pdfjs';
 import { reportStructures, type StructureCategory } from '@/lib/verify/structural';
-import {
-  confidenceSummary,
-  losesCharacters,
-} from '@/lib/ocr';
-
-interface OcrResult {
-  pdf: Blob;
-  recognized: OcrPageResult[];
-  text: string;
-  pages: number;
-  wordsFound: number;
-  /** Mean tesseract confidence over the words in the layer, 0–100. */
-  meanConfidence: number;
-  /** Words under LOW_CONFIDENCE: the engine itself was not sure. */
-  lowConfidence: number;
-  /** Words whose search-layer copy lost characters the PDF font cannot carry. */
-  stripped: number;
-  /** Structural losses reported by the post-export check, if any. */
-  lost: StructureCategory[];
-}
 
 /** Pages sampled for an existing text layer when a file is chosen. */
 const TEXT_SAMPLE_PAGES = 3;
@@ -49,8 +28,9 @@ export default function OcrPage() {
   const { locale, t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
   const [options, setOptions] = useState(DEFAULT_OCR_OPTIONS);
-  const [reviewDirty, setReviewDirty] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [lost, setLost] = useState<StructureCategory[] | null>([]);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [result, setResult] = useState<OcrResult | null>(null);
@@ -60,13 +40,31 @@ export default function OcrPage() {
   const [hasRealText, setHasRealText] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const selectionRef = useRef(0);
-  useEffect(() => () => abortRef.current?.abort(), []);
-
-  const reset = () => {
+  useEffect(() => () => {
     selectionRef.current++;
     abortRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!result && !isProcessing) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [result, isProcessing]);
+
+  const resultText = result ? [
+    result.partial ? (locale === 'es'
+      ? `OCR PARCIAL: ${result.recognized.length} de ${result.pages} páginas procesadas. Las restantes todavía no se reconocieron.`
+      : `PARTIAL OCR: ${result.recognized.length} of ${result.pages} pages processed. Remaining pages have not been recognized yet.`) : '',
+    result.text,
+  ].filter(Boolean).join('\n\n') : '';
+
+  const reset = () => {
+    if (abortRef.current) return;
+    selectionRef.current++;
     setFile(null);
     setResult(null);
+    setLost([]);
     setError(null);
     setHasRealText(false);
     setProgressPercent(0);
@@ -75,9 +73,11 @@ export default function OcrPage() {
 
   /** Sample only for advice; recognition checks every page independently. */
   const selectFile = async (selected: File) => {
+    if (abortRef.current) return;
     const selection = ++selectionRef.current;
     setFile(selected);
     setResult(null);
+    setLost([]);
     setError(null);
     setHasRealText(false);
 
@@ -105,14 +105,17 @@ export default function OcrPage() {
   };
 
   const runOcr = async () => {
-    if (!file) return;
+    if (!file || abortRef.current || (result && !result.partial)) return;
 
+    const selection = selectionRef.current;
     const controller = new AbortController();
     abortRef.current = controller;
     const { signal } = controller;
 
     setIsProcessing(true);
+    setIsRecognizing(true);
     setError(null);
+    setLost([]);
     setProgressPercent(2);
     setProgressMessage(t.ocr.starting);
 
@@ -122,27 +125,18 @@ export default function OcrPage() {
     try {
       assertFileSize(file, t);
 
-      engine = await createOcrEngine(options, signal);
-      throwIfCancelled(signal, t);
-
       setProgressPercent(8);
       setProgressMessage(t.ocr.reading);
 
       pdfSource = await openPdf(await file.arrayBuffer());
       const pageCount = pdfSource.document.numPages;
       assertPageCount(pageCount, MAX_OCR_PAGES, 'ocr', t);
+      throwIfCancelled(signal, t);
+      engine = await createOcrEngine(options, signal);
+      const recognized = result?.recognized.slice() ?? [];
+      summarizeOcrPages(recognized, pageCount);
 
-      const output = await PDFDocument.load(await file.arrayBuffer(), { updateMetadata: false });
-      const font = await output.embedFont(StandardFonts.Helvetica);
-      const measure = (text: string, size: number) => font.widthOfTextAtSize(text, size);
-
-      let fullText = '';
-      let wordsFound = 0;
-      const confidences: number[] = [];
-      let stripped = 0;
-      const recognized: OcrPageResult[] = [];
-
-      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+      for (let pageNumber = recognized.length + 1; pageNumber <= pageCount; pageNumber += 1) {
         throwIfCancelled(signal, t);
         setProgressPercent(8 + ((pageNumber - 1) / pageCount) * 86);
         setProgressMessage(t.ocr.readingPage(pageNumber, pageCount));
@@ -152,21 +146,13 @@ export default function OcrPage() {
         const recognizedPage = await engine.page(page, detail => setProgressMessage(`${t.ocr.readingPage(pageNumber, pageCount)} · ${detail}`));
         throwIfCancelled(signal, t);
         recognized.push(recognizedPage);
-        fullText += `--- Page ${pageNumber} ---\n${recognizedPage.text}\n\n`;
-        confidences.push(...recognizedPage.words.map(word => word.confidence));
-        stripped += recognizedPage.words.filter(word => losesCharacters(word.text)).length;
-        for (const word of layerWords(recognizedPage, measure)) {
-          output.getPage(pageNumber - 1).drawText(word.text, { ...word, rotate: degrees(word.rotate), font, color: rgb(0, 0, 0), opacity: 0 });
-          wordsFound += 1;
+        // Publish the checkpoint before starting the next page. A failure never clears it.
+        if (selection === selectionRef.current) {
+          setResult(summarizeOcrPages(recognized, pageCount));
         }
       }
 
-      setProgressMessage(t.ocr.assembling);
-      setProgressPercent(96);
-
-      const bytes = (await savePdf(output)).slice();
-
-      if (wordsFound === 0 && !recognized.some(page => page.skipped)) {
+      if (!recognized.some(page => page.words.length || page.skipped)) {
         throw new KnownToolError(
           'unknown',
           t.ocr.noTextTitle,
@@ -174,81 +160,72 @@ export default function OcrPage() {
         );
       }
 
-      const confidence = confidenceSummary(confidences);
-      // A diagnostic report, not a claim that every possible PDF structure is understood.
-      let lost: StructureCategory[] = [];
-      try {
-        const original = new Uint8Array(await file.arrayBuffer());
-        lost = (await reportStructures(original, bytes)).losses.map((loss) => loss.category);
-      } catch {
-        lost = [];
-      }
-
-      setResult({
-        pdf: new Blob([bytes], { type: 'application/pdf' }),
-        recognized,
-        text: fullText.trim(),
-        pages: pageCount,
-        wordsFound,
-        meanConfidence: confidence.mean,
-        lowConfidence: confidence.low,
-        stripped,
-        lost,
-      });
-      setReviewDirty(false);
       setProgressPercent(100);
     } catch (caught) {
       const described = describeError(caught, t);
-      if (!signal.aborted && described.kind !== 'cancelled') setError(described);
+      if (selection === selectionRef.current && !signal.aborted && described.kind !== 'cancelled') setError(described);
     } finally {
-      abortRef.current = null;
-      await engine?.close();
+      await engine?.close().catch(() => {});
       await pdfSource?.destroy().catch(() => {});
-      setIsProcessing(false);
+      if (abortRef.current === controller) abortRef.current = null;
+      if (selection === selectionRef.current) {
+        setIsProcessing(false);
+        setIsRecognizing(false);
+      }
     }
   };
 
   const reread = async (pageResult: OcrPageResult, word: OcrWord) => {
-    if (!file) throw new Error('No file');
+    if (!file || abortRef.current) throw new Error('OCR unavailable');
     const controller = new AbortController();
     abortRef.current = controller;
-    const source = await openPdf(await file.arrayBuffer());
+    setIsProcessing(true);
+    let source: Awaited<ReturnType<typeof openPdf>> | undefined;
     let engine: Awaited<ReturnType<typeof createOcrEngine>> | undefined;
     try {
+      source = await openPdf(await file.arrayBuffer());
+      throwIfCancelled(controller.signal, t);
       engine = await createOcrEngine(options, controller.signal);
       return await engine.reread(await source.document.getPage(pageResult.page), pageResult, word);
-    } finally { await engine?.close(); await source.destroy(); if (abortRef.current === controller) abortRef.current = null; }
+    } finally {
+      await engine?.close().catch(() => {});
+      await source?.destroy().catch(() => {});
+      if (abortRef.current === controller) { abortRef.current = null; setIsProcessing(false); }
+    }
   };
 
   const updateReview = (recognized: OcrPageResult[]) => {
-    setResult(current => current ? { ...current, recognized, stripped: recognized.flatMap(page => page.words).filter(word => losesCharacters(word.text)).length, text: recognized.map(page => `--- Page ${page.page} ---\n${page.text}`).join('\n\n') } : current);
-    setReviewDirty(true);
+    if (abortRef.current) return;
+    setResult(current => current ? summarizeOcrPages(recognized, current.pages) : current);
+    setLost([]);
   };
 
   const downloadReviewedPdf = async () => {
-    if (!file || !result) return;
+    if (!file || !result || abortRef.current) return;
+    const controller = new AbortController();
+    abortRef.current = controller;
     setIsProcessing(true);
+    setError(null);
     try {
-      let blob = result.pdf;
-      if (reviewDirty) {
-        const output = await PDFDocument.load(await file.arrayBuffer(), { updateMetadata: false });
-        const font = await output.embedFont(StandardFonts.Helvetica);
-        for (const page of result.recognized) for (const word of layerWords(page, (text, size) => font.widthOfTextAtSize(text, size))) {
-          output.getPage(page.page - 1).drawText(word.text, { ...word, rotate: degrees(word.rotate), font, opacity: 0 });
-        }
-        blob = new Blob([(await savePdf(output)).slice()], { type: 'application/pdf' });
-        setResult(current => current ? { ...current, pdf: blob } : current);
-        setReviewDirty(false);
+      const original = await file.arrayBuffer();
+      const bytes = await exportOcrPages(original, result.recognized);
+      throwIfCancelled(controller.signal, t);
+      try {
+        const report = await reportStructures(new Uint8Array(original), bytes);
+        if (!controller.signal.aborted) setLost(report.losses.map(loss => loss.category));
+      } catch {
+        if (!controller.signal.aborted) setLost(null);
       }
-      downloadBlob(blob, derivedFileName(file.name, '_searchable.pdf'));
-    } catch (caught) { setError(describeError(caught, t)); }
-    finally { setIsProcessing(false); }
+      throwIfCancelled(controller.signal, t);
+      downloadBlob(new Blob([bytes], { type: 'application/pdf' }), derivedFileName(file.name, result.partial ? '_searchable_partial.pdf' : '_searchable.pdf'));
+    } catch (caught) { if (!controller.signal.aborted) setError(describeError(caught, t)); }
+    finally { if (abortRef.current === controller) { abortRef.current = null; setIsProcessing(false); } }
   };
 
   const copyText = async () => {
     if (!result) return;
     try {
-      await navigator.clipboard.writeText(result.text);
+      await navigator.clipboard.writeText(resultText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
@@ -276,7 +253,7 @@ export default function OcrPage() {
         </div>
 
         <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
-          {!result ? (
+          {!result || isRecognizing ? (
             <div className="p-8 sm:p-12">
               <div className="mx-auto max-w-xl space-y-8">
                 <div>
@@ -307,7 +284,7 @@ export default function OcrPage() {
                   </FileDropzone>
                 </div>
 
-                <OcrControls value={options} onChange={setOptions} disabled={isProcessing} />
+                <OcrControls value={options} onChange={setOptions} disabled={isProcessing || !!result} />
 
                 {hasRealText && !isProcessing && (
                   <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -346,15 +323,24 @@ export default function OcrPage() {
           ) : (
             <div className="p-8 sm:p-12">
               <div className="mx-auto max-w-2xl">
-                <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
-                  <CheckCircle2 className="h-8 w-8" />
+                <div className={cn('mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full', result.partial ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-600')}>
+                  {result.partial ? <AlertTriangle className="h-8 w-8" /> : <CheckCircle2 className="h-8 w-8" />}
                 </div>
                 <ResultHeading className="mb-2 text-center text-2xl font-semibold text-gray-900">
-                  {result.wordsFound ? t.ocr.doneTitle(result.wordsFound) : locale === 'es' ? 'Se conservó el texto existente' : 'Existing text preserved'}
+                  {result.partial ? (locale === 'es' ? 'OCR parcial — avance conservado' : 'Partial OCR — progress retained') : result.wordsFound ? t.ocr.doneTitle(result.wordsFound) : result.recognized.some(page => page.skipped) ? (locale === 'es' ? 'Se conservó el texto existente' : 'Existing text preserved') : t.ocr.noTextTitle}
                 </ResultHeading>
                 <p className="mb-2 text-center text-gray-500">
-                  {locale === 'es' ? `${result.pages} páginas procesadas; ${result.recognized.filter(page => page.skipped).length} conservadas sin otra capa OCR. El contenido visible no se reemplaza.` : `${result.pages} pages processed; ${result.recognized.filter(page => page.skipped).length} preserved without another OCR layer. Visible content is not replaced.`}
+                  {locale === 'es' ? `${result.recognized.length} de ${result.pages} páginas procesadas; ${result.recognized.filter(page => page.skipped).length} conservadas sin otra capa OCR. El contenido visible no se reemplaza.` : `${result.recognized.length} of ${result.pages} pages processed; ${result.recognized.filter(page => page.skipped).length} preserved without another OCR layer. Visible content is not replaced.`}
                 </p>
+                <p className="mb-4 text-center text-sm text-amber-800">
+                  {locale === 'es' ? 'El avance se conserva en esta pestaña. Recargarla, cerrarla o cambiar de herramienta lo borra; descargá una copia antes.' : 'Progress is retained in this tab. Reloading, closing it or changing tools clears it; download a copy first.'}
+                </p>
+                {result.partial && <div className="mb-4 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p>{locale === 'es' ? `Podés reanudar desde la página ${result.recognized.length + 1}, incluso después de un error. La descarga parcial mantiene las ${result.pages} páginas originales, pero sólo las primeras ${result.recognized.length} fueron procesadas por OCR.` : `You can resume from page ${result.recognized.length + 1}, even after an error. The partial download retains all ${result.pages} original pages, but only the first ${result.recognized.length} have been processed by OCR.`}</p>
+                  <button type="button" disabled={isProcessing} onClick={runOcr} className="rounded-xl bg-orange-600 px-4 py-2 text-white disabled:opacity-50">
+                    {locale === 'es' ? `Reanudar desde la página ${result.recognized.length + 1}` : `Resume from page ${result.recognized.length + 1}`}
+                  </button>
+                </div>}
                 <p className="mb-6 text-center text-sm text-gray-500">
                   {result.wordsFound > 0 ? t.ocr.confidenceLine(result.meanConfidence) : ''}
                 </p>
@@ -374,13 +360,14 @@ export default function OcrPage() {
                   </div>
                 )}
 
-                    {result.lost.length > 0 && (
+                {lost === null && <p role="status" className="mb-4 text-sm text-amber-800">{locale === 'es' ? 'No se pudo completar la verificación de estructuras del PDF exportado. Revisá el archivo descargado.' : 'The exported PDF structure check could not be completed. Review the downloaded file.'}</p>}
+                    {lost && lost.length > 0 && (
                   <div className="mx-auto mb-8 flex max-w-lg items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left">
                     <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                     <p className="text-sm text-amber-900">
                       {t.ocr.lostNote(
                         new Intl.ListFormat(locale, { style: 'long', type: 'conjunction' }).format(
-                          result.lost.map((category) => t.structures[category])
+                          lost.map((category) => t.structures[category])
                         )
                       )}
                     </p>
@@ -400,7 +387,7 @@ export default function OcrPage() {
                     </div>
                     <div className="text-center">
                       <span className="mb-1 block font-semibold text-orange-900">
-                        {t.ocr.searchablePdf}
+                        {result.partial ? (locale === 'es' ? 'PDF buscable parcial' : 'Partial searchable PDF') : t.ocr.searchablePdf}
                       </span>
                       <span className="text-xs text-orange-700 opacity-80">
                         {t.ocr.searchablePdfNote}
@@ -413,8 +400,8 @@ export default function OcrPage() {
                     onClick={() =>
                       file &&
                       downloadBlob(
-                        new Blob([result.text], { type: 'text/plain;charset=utf-8' }),
-                        derivedFileName(file.name, '_extracted.txt')
+                        new Blob([resultText], { type: 'text/plain;charset=utf-8' }),
+                        derivedFileName(file.name, result.partial ? '_extracted_partial.txt' : '_extracted.txt')
                       )
                     }
                     className="group flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-blue-200 bg-blue-50 p-6 transition-colors hover:bg-blue-100"
@@ -447,15 +434,19 @@ export default function OcrPage() {
                   </div>
                   <div className="h-64 overflow-y-auto rounded-xl border border-gray-200 bg-white p-4">
                     <pre className="whitespace-pre-wrap font-sans text-xs text-gray-700">
-                      {result.text}
+                      {resultText}
                     </pre>
                   </div>
                 </div>
 
                 <div className="text-center">
+                  <button type="button" disabled={isProcessing} onClick={() => { if (!abortRef.current) { setResult(null); setLost([]); setError(null); } }} className="mb-3 block w-full text-sm text-gray-500 underline disabled:opacity-50">
+                    {locale === 'es' ? 'Descartar avance y cambiar opciones OCR' : 'Discard progress and change OCR options'}
+                  </button>
                   <button
                     type="button"
                     onClick={reset}
+                    disabled={isProcessing}
                     className="text-sm font-medium text-gray-500 transition-colors hover:text-gray-700"
                   >
                     {t.ocr.another}
