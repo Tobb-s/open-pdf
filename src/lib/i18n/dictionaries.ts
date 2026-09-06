@@ -1158,7 +1158,7 @@ export const es: Dictionary = {
     doneBody: (pages) =>
       `En ${pages} ${pages === 1 ? 'página' : 'páginas'}. El PDF de abajo lleva una capa de texto invisible, así que podés buscarlo y seleccionarlo.`,
     lostNote: (list) =>
-      `La copia buscable es un documento nuevo hecho con fotos de cada página, así que no viajaron ${list}. Si el original los tenía y te importan, conservalo: esta copia sirve para buscar, no para reemplazarlo.`,
+      `La verificación de la copia detectó diferencias en ${list}. Conservá el original y revisá esas funciones antes de reemplazarlo.`,
     searchablePdf: 'PDF buscable',
     hasTextTitle: 'Este PDF ya tiene texto seleccionable.',
     hasTextBody:
@@ -2253,7 +2253,7 @@ export const en: Dictionary = {
     doneBody: (pages) =>
       `Across ${pages} ${pages === 1 ? 'page' : 'pages'}. The PDF below carries an invisible text layer, so you can search and select it.`,
     lostNote: (list) =>
-      `The searchable copy is a new document made from photographs of each page, so ${list} did not travel. If the original had them and they matter, keep it: this copy is for searching, not for replacing it.`,
+      `Verification of the searchable copy detected differences in ${list}. Keep the original and review those features before replacing it.`,
     searchablePdf: 'Searchable PDF',
     hasTextTitle: 'This PDF already has selectable text.',
     hasTextBody:

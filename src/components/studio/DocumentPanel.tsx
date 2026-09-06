@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { FormFieldInfo } from '@/lib/studio/facts';
 import { FileImage, ScanText, Loader2 } from 'lucide-react';
 import {
@@ -50,7 +50,10 @@ interface DocumentPanelProps {
   onInsertImages: (files: FileList) => void;
   onRunOcr: () => void;
   ocrBusy: boolean;
+  ocrDisabled?: boolean;
   ocrResult: number | null;
+  ocrControls?: ReactNode;
+  ocrReview?: ReactNode;
   disabled: boolean;
 }
 
@@ -154,7 +157,10 @@ export default function DocumentPanel({
   onInsertImages,
   onRunOcr,
   ocrBusy,
+  ocrDisabled,
   ocrResult,
+  ocrControls,
+  ocrReview,
   disabled,
 }: DocumentPanelProps) {
   const { t } = useI18n();
@@ -344,6 +350,7 @@ export default function DocumentPanel({
       </section>
 
       <section className="space-y-2 border-t pt-5">
+        {ocrControls}
         <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200">
           <FileImage className="h-4 w-4" />
           {t.studio.insertImages}
@@ -365,7 +372,7 @@ export default function DocumentPanel({
         <button
           type="button"
           onClick={onRunOcr}
-          disabled={disabled || ocrBusy}
+          disabled={disabled || ocrBusy || ocrDisabled}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
         >
           {ocrBusy ? (
@@ -384,6 +391,7 @@ export default function DocumentPanel({
           </p>
         )}
         <p className="text-xs text-gray-400">{t.studio.ocrNote}</p>
+        {ocrReview}
       </section>
     </div>
   );

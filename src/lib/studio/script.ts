@@ -211,7 +211,7 @@ export type Mark =
       page: PageId;
       /** Degrees counter-clockwise in PDF user space, so it turns with the page. */
       rotate: number;
-      words: ReadonlyArray<{ text: string; x: number; y: number; size: number }>;
+      words: ReadonlyArray<{ text: string; x: number; y: number; size: number; rotate?: number }>;
     }
   | {
       /** Searchable text rebuilt after a page is flattened for text replacement. */
@@ -567,7 +567,7 @@ export function reduce(state: ScriptState, edit: Edit, seq: number): ScriptState
       // A mark on a page that no longer exists would be unreachable and would
       // silently disappear at materialise time; drop it here instead.
       if (!state.pages.some((page) => page.id === edit.mark.page)) return state;
-      return { ...state, marks: [...state.marks, edit.mark] };
+      return { ...state, marks: [...state.marks.filter(mark => !(edit.mark.kind === 'ocr' && mark.kind === 'ocr' && mark.page === edit.mark.page)), edit.mark] };
     }
 
     case 'replaceMark': {

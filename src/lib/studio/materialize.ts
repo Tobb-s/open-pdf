@@ -355,7 +355,7 @@ async function drawMark(
           font,
           color: rgb(0, 0, 0),
           opacity: 0,
-          rotate: degrees(mark.rotate),
+          rotate: degrees(word.rotate ?? mark.rotate),
         });
       }
       return;

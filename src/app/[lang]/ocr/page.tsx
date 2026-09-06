@@ -1,38 +1,34 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { useEffect, useRef, useState } from 'react';
+import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import { savePdf } from '@/lib/pdfio';
-import { createWorker } from 'tesseract.js';
+import OcrControls from '@/components/OcrControls';
+import OcrReview from '@/components/OcrReview';
+import { DEFAULT_OCR_OPTIONS, layerWords, type OcrPageResult } from '@/lib/ocrAdvanced';
+import type { OcrWord } from '@/lib/ocr';
+import { createOcrEngine } from '@/lib/ocrEngine';
 import Navbar from '@/components/Navbar';
 import ResultHeading from '@/components/ResultHeading';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import ProgressPanel from '@/components/ProgressPanel';
-import { CheckCircle2, Download, FileText, Info, Languages, ScanText, Type, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, Download, FileText, Info, ScanText, Type, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/context';
 import { describeError, KnownToolError, type ToolError } from '@/lib/errors';
 import { derivedFileName, downloadBlob } from '@/lib/files';
 import { assertFileSize, assertPageCount, MAX_OCR_PAGES, throwIfCancelled } from '@/lib/limits';
-import { openPdf, renderPageToJpeg } from '@/lib/pdfjs';
+import { openPdf } from '@/lib/pdfjs';
 import { reportStructures, type StructureCategory } from '@/lib/verify/structural';
-import { OCR_SCALE, TESSERACT_PATHS } from '@/lib/ocrRuntime';
 import {
   confidenceSummary,
-  extractOcrWords,
-  fitFontSize,
   losesCharacters,
-  RECOGNIZE_OUTPUT,
-  toWinAnsi,
 } from '@/lib/ocr';
-
-type OcrLanguage = 'spa' | 'eng' | 'fra' | 'deu' | 'ita' | 'por';
-
-const LANGUAGES: OcrLanguage[] = ['spa', 'eng', 'fra', 'deu', 'ita', 'por'];
 
 interface OcrResult {
   pdf: Blob;
+  recognized: OcrPageResult[];
   text: string;
   pages: number;
   wordsFound: number;
@@ -42,14 +38,7 @@ interface OcrResult {
   lowConfidence: number;
   /** Words whose search-layer copy lost characters the PDF font cannot carry. */
   stripped: number;
-  /**
-   * What the document carried that the searchable copy could not bring.
-   *
-   * OCR photographs every page into a new document. A new document assembled
-   * from images has no form, no bookmarks, no attachments and no title — and
-   * this tool is often pointed at a contract, where those are the parts that
-   * matter.
-   */
+  /** Structural losses reported by the post-export check, if any. */
   lost: StructureCategory[];
 }
 
@@ -59,7 +48,8 @@ const TEXT_SAMPLE_PAGES = 3;
 export default function OcrPage() {
   const { locale, t } = useI18n();
   const [file, setFile] = useState<File | null>(null);
-  const [language, setLanguage] = useState<OcrLanguage>('spa');
+  const [options, setOptions] = useState(DEFAULT_OCR_OPTIONS);
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressMessage, setProgressMessage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
@@ -69,8 +59,12 @@ export default function OcrPage() {
   /** True when the chosen file already carries real text on its first pages. */
   const [hasRealText, setHasRealText] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const selectionRef = useRef(0);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const reset = () => {
+    selectionRef.current++;
+    abortRef.current?.abort();
     setFile(null);
     setResult(null);
     setError(null);
@@ -79,16 +73,9 @@ export default function OcrPage() {
     setProgressMessage('');
   };
 
-  /**
-   * Takes the file, and looks at its first pages for a text layer.
-   *
-   * OCR turns every page into a photograph and recognises it again. On a
-   * scanned document that is the whole point; on a document that already has
-   * real text it trades a perfect layer for a recognised one, silently, and the
-   * reader ends up with a worse file than they started with. Compress samples
-   * the same way for the same reason; this tool never did.
-   */
+  /** Sample only for advice; recognition checks every page independently. */
   const selectFile = async (selected: File) => {
+    const selection = ++selectionRef.current;
     setFile(selected);
     setResult(null);
     setError(null);
@@ -108,7 +95,7 @@ export default function OcrPage() {
         );
         page.cleanup();
       }
-      setHasRealText(characters > 200 * sampled);
+      if (selection === selectionRef.current) setHasRealText(characters > 200 * sampled);
     } catch {
       // Advice, not a gate: a file this cannot open is reported properly by
       // the run itself, with the message that case deserves.
@@ -129,13 +116,13 @@ export default function OcrPage() {
     setProgressPercent(2);
     setProgressMessage(t.ocr.starting);
 
-    let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
+    let engine: Awaited<ReturnType<typeof createOcrEngine>> | null = null;
     let pdfSource: Awaited<ReturnType<typeof openPdf>> | null = null;
 
     try {
       assertFileSize(file, t);
 
-      worker = await createWorker(language, 1, TESSERACT_PATHS);
+      engine = await createOcrEngine(options, signal);
       throwIfCancelled(signal, t);
 
       setProgressPercent(8);
@@ -145,7 +132,7 @@ export default function OcrPage() {
       const pageCount = pdfSource.document.numPages;
       assertPageCount(pageCount, MAX_OCR_PAGES, 'ocr', t);
 
-      const output = await PDFDocument.create();
+      const output = await PDFDocument.load(await file.arrayBuffer(), { updateMetadata: false });
       const font = await output.embedFont(StandardFonts.Helvetica);
       const measure = (text: string, size: number) => font.widthOfTextAtSize(text, size);
 
@@ -153,6 +140,7 @@ export default function OcrPage() {
       let wordsFound = 0;
       const confidences: number[] = [];
       let stripped = 0;
+      const recognized: OcrPageResult[] = [];
 
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         throwIfCancelled(signal, t);
@@ -161,52 +149,14 @@ export default function OcrPage() {
 
         const page = await pdfSource.document.getPage(pageNumber);
 
-        // JPEG rather than PNG: a page of scanned text as lossless PNG is roughly
-        // ten times the size, which is how the "searchable" copy used to come back
-        // an order of magnitude heavier than the original.
-        const { blob, width, height } = await renderPageToJpeg(page, OCR_SCALE, 0.82);
-        page.cleanup();
-
-        const imageBytes = new Uint8Array(await blob.arrayBuffer());
-        const { data } = await worker.recognize(blob, {}, RECOGNIZE_OUTPUT);
+        const recognizedPage = await engine.page(page, detail => setProgressMessage(`${t.ocr.readingPage(pageNumber, pageCount)} · ${detail}`));
         throwIfCancelled(signal, t);
-
-        fullText += `--- Page ${pageNumber} ---\n${data.text.trim()}\n\n`;
-
-        const image = await output.embedJpg(imageBytes);
-        const pageWidth = width / OCR_SCALE;
-        const pageHeight = height / OCR_SCALE;
-        const newPage = output.addPage([pageWidth, pageHeight]);
-        newPage.drawImage(image, { x: 0, y: 0, width: pageWidth, height: pageHeight });
-
-        // The invisible text layer. This is what makes the output searchable, and
-        // it is what silently never ran before: tesseract.js only returns `blocks`
-        // when asked, so the old `data.words` was always undefined.
-        for (const word of extractOcrWords(data)) {
-          const text = toWinAnsi(word.text);
-          if (text === '') continue;
-          // What the engine thought of this word, kept rather than thrown away;
-          // and whether the search layer is about to carry it with something
-          // missing, which the reader is told instead of finding out.
-          confidences.push(word.confidence);
-          if (losesCharacters(word.text)) stripped += 1;
-
-          // Measured on the text that will actually be drawn. Measuring the
-          // ORIGINAL meant one word mixing Spanish with a character the font
-          // cannot encode — «precio→10», «ﬁnal», «Łukasz» — threw here and
-          // killed the whole run, minutes in, with nothing to show. The guard
-          // above only catches words that are entirely unencodable. Studio was
-          // fixed for this and the tool never was.
-          const size = fitFontSize({ ...word, text }, OCR_SCALE, measure);
-          newPage.drawText(text, {
-            x: word.left / OCR_SCALE,
-            // PDF coordinates start at the bottom; tesseract measures from the top.
-            y: pageHeight - word.bottom / OCR_SCALE,
-            size,
-            font,
-            color: rgb(0, 0, 0),
-            opacity: 0,
-          });
+        recognized.push(recognizedPage);
+        fullText += `--- Page ${pageNumber} ---\n${recognizedPage.text}\n\n`;
+        confidences.push(...recognizedPage.words.map(word => word.confidence));
+        stripped += recognizedPage.words.filter(word => losesCharacters(word.text)).length;
+        for (const word of layerWords(recognizedPage, measure)) {
+          output.getPage(pageNumber - 1).drawText(word.text, { ...word, rotate: degrees(word.rotate), font, color: rgb(0, 0, 0), opacity: 0 });
           wordsFound += 1;
         }
       }
@@ -216,7 +166,7 @@ export default function OcrPage() {
 
       const bytes = (await savePdf(output)).slice();
 
-      if (wordsFound === 0) {
+      if (wordsFound === 0 && !recognized.some(page => page.skipped)) {
         throw new KnownToolError(
           'unknown',
           t.ocr.noTextTitle,
@@ -225,18 +175,7 @@ export default function OcrPage() {
       }
 
       const confidence = confidenceSummary(confidences);
-      // Compared against the file that went in, not guessed at: whatever the
-      // verifier can vouch for and no longer finds is what the reader gave up.
-      // Re-read from the File rather than kept in a variable — pdf.js detaches
-      // the buffer it is handed, and holding a second copy alive through the
-      // whole run would double the peak on exactly the documents that can least
-      // afford it.
-      //
-      // The report is the last thing that happens and it must not be able to
-      // take the result down with it: pdf.js reads documents pdf-lib refuses,
-      // so this can fail on a file that was read perfectly well. If it does,
-      // the reader gets their searchable copy and no note — silence being the
-      // one wrong answer that is at least not a false one.
+      // A diagnostic report, not a claim that every possible PDF structure is understood.
       let lost: StructureCategory[] = [];
       try {
         const original = new Uint8Array(await file.arrayBuffer());
@@ -247,6 +186,7 @@ export default function OcrPage() {
 
       setResult({
         pdf: new Blob([bytes], { type: 'application/pdf' }),
+        recognized,
         text: fullText.trim(),
         pages: pageCount,
         wordsFound,
@@ -255,16 +195,54 @@ export default function OcrPage() {
         stripped,
         lost,
       });
+      setReviewDirty(false);
       setProgressPercent(100);
     } catch (caught) {
       const described = describeError(caught, t);
-      if (described.kind !== 'cancelled') setError(described);
+      if (!signal.aborted && described.kind !== 'cancelled') setError(described);
     } finally {
       abortRef.current = null;
-      await worker?.terminate().catch(() => {});
+      await engine?.close();
       await pdfSource?.destroy().catch(() => {});
       setIsProcessing(false);
     }
+  };
+
+  const reread = async (pageResult: OcrPageResult, word: OcrWord) => {
+    if (!file) throw new Error('No file');
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const source = await openPdf(await file.arrayBuffer());
+    let engine: Awaited<ReturnType<typeof createOcrEngine>> | undefined;
+    try {
+      engine = await createOcrEngine(options, controller.signal);
+      return await engine.reread(await source.document.getPage(pageResult.page), pageResult, word);
+    } finally { await engine?.close(); await source.destroy(); if (abortRef.current === controller) abortRef.current = null; }
+  };
+
+  const updateReview = (recognized: OcrPageResult[]) => {
+    setResult(current => current ? { ...current, recognized, stripped: recognized.flatMap(page => page.words).filter(word => losesCharacters(word.text)).length, text: recognized.map(page => `--- Page ${page.page} ---\n${page.text}`).join('\n\n') } : current);
+    setReviewDirty(true);
+  };
+
+  const downloadReviewedPdf = async () => {
+    if (!file || !result) return;
+    setIsProcessing(true);
+    try {
+      let blob = result.pdf;
+      if (reviewDirty) {
+        const output = await PDFDocument.load(await file.arrayBuffer(), { updateMetadata: false });
+        const font = await output.embedFont(StandardFonts.Helvetica);
+        for (const page of result.recognized) for (const word of layerWords(page, (text, size) => font.widthOfTextAtSize(text, size))) {
+          output.getPage(page.page - 1).drawText(word.text, { ...word, rotate: degrees(word.rotate), font, opacity: 0 });
+        }
+        blob = new Blob([(await savePdf(output)).slice()], { type: 'application/pdf' });
+        setResult(current => current ? { ...current, pdf: blob } : current);
+        setReviewDirty(false);
+      }
+      downloadBlob(blob, derivedFileName(file.name, '_searchable.pdf'));
+    } catch (caught) { setError(describeError(caught, t)); }
+    finally { setIsProcessing(false); }
   };
 
   const copyText = async () => {
@@ -329,38 +307,14 @@ export default function OcrPage() {
                   </FileDropzone>
                 </div>
 
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    {t.ocr.step2}
-                  </label>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {LANGUAGES.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => setLanguage(option)}
-                        disabled={isProcessing}
-                        aria-pressed={language === option}
-                        className={cn(
-                          'flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-all',
-                          language === option
-                            ? 'border-orange-500 bg-orange-50 text-orange-700'
-                            : 'border-gray-200 bg-white text-gray-600 hover:border-orange-200 hover:bg-gray-50'
-                        )}
-                      >
-                        <Languages className="h-4 w-4" />
-                        {t.ocr.languages[option]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <OcrControls value={options} onChange={setOptions} disabled={isProcessing} />
 
                 {hasRealText && !isProcessing && (
                   <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
                     <div>
                       <p className="font-semibold">{t.ocr.hasTextTitle}</p>
-                      <p className="mt-1 leading-relaxed">{t.ocr.hasTextBody}</p>
+                      <p className="mt-1 leading-relaxed">{locale === 'es' ? 'Las páginas con texto abundante se conservan sin otra capa OCR. Un escaneo con sólo un pie breve sí se lee, conservando ese pie sin duplicarlo.' : 'Pages with substantial text are preserved without another OCR layer. Scans with only a short footer are still recognized, preserving the footer without duplication.'}</p>
                     </div>
                   </div>
                 )}
@@ -396,13 +350,13 @@ export default function OcrPage() {
                   <CheckCircle2 className="h-8 w-8" />
                 </div>
                 <ResultHeading className="mb-2 text-center text-2xl font-semibold text-gray-900">
-                  {t.ocr.doneTitle(result.wordsFound)}
+                  {result.wordsFound ? t.ocr.doneTitle(result.wordsFound) : locale === 'es' ? 'Se conservó el texto existente' : 'Existing text preserved'}
                 </ResultHeading>
                 <p className="mb-2 text-center text-gray-500">
-                  {t.ocr.doneBody(result.pages)}
+                  {locale === 'es' ? `${result.pages} páginas procesadas; ${result.recognized.filter(page => page.skipped).length} conservadas sin otra capa OCR. El contenido visible no se reemplaza.` : `${result.pages} pages processed; ${result.recognized.filter(page => page.skipped).length} preserved without another OCR layer. Visible content is not replaced.`}
                 </p>
                 <p className="mb-6 text-center text-sm text-gray-500">
-                  {t.ocr.confidenceLine(result.meanConfidence)}
+                  {result.wordsFound > 0 ? t.ocr.confidenceLine(result.meanConfidence) : ''}
                 </p>
 
                 {/* The engine's own doubt, when there is enough of it to matter:
@@ -432,14 +386,13 @@ export default function OcrPage() {
                     </p>
                   </div>
                 )}
-                <div className="mb-6" />
+                <OcrReview results={result.recognized} onChange={updateReview} onReread={reread} disabled={isProcessing} />
 
                 <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      file && downloadBlob(result.pdf, derivedFileName(file.name, '_searchable.pdf'))
-                    }
+                    onClick={downloadReviewedPdf}
+                    disabled={isProcessing}
                     className="group flex flex-col items-center justify-center gap-3 rounded-2xl border-2 border-orange-200 bg-orange-50 p-6 transition-colors hover:bg-orange-100"
                   >
                     <div className="rounded-xl bg-white p-3 text-orange-600 shadow-sm transition-transform group-hover:scale-110">
