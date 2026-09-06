@@ -81,7 +81,7 @@ class MainThreadEngine implements StudioEngine {
     const started = performance.now();
     const { bytes, pages: placed, rewrites } = await materialize({
       original: this.original,
-      assets: this.assets,
+      assets: new Map(this.assets),
       state,
     });
     return { bytes, placed, rewrites, millis: performance.now() - started, offMainThread: false };
@@ -89,13 +89,14 @@ class MainThreadEngine implements StudioEngine {
 
   async exportDocument(state: ScriptState): Promise<ExportResult> {
     if (!this.original) throw new Error('No document is open.');
+    const original = this.original;
     const { bytes, pages: placed } = await materialize({
-      original: this.original,
-      assets: this.assets,
+      original,
+      assets: new Map(this.assets),
       state,
     });
     const [source, produced] = await Promise.all([
-      loadPdf(this.original, { updateMetadata: false }),
+      loadPdf(original, { updateMetadata: false }),
       loadPdf(bytes, { updateMetadata: false }),
     ]);
     return {
@@ -140,7 +141,9 @@ export class WorkerEngine implements StudioEngine {
     number,
     { resolve: (result: never) => void; reject: (error: Error) => void }
   >();
-  private opened: (() => void) | null = null;
+  private opened: { id: number; resolve: () => void; reject: (error: Error) => void } | null = null;
+  private disposed = false;
+  private session = 0;
   /** Set once the worker has failed; from then on the fallback does the work. */
   private fallback: MainThreadEngine | null = null;
   private original: Uint8Array | null = null;
@@ -148,9 +151,11 @@ export class WorkerEngine implements StudioEngine {
 
   constructor(private readonly worker: Worker) {
     worker.onmessage = (event: MessageEvent<StudioResponse>) => {
+      if (this.disposed || this.fallback) return;
       const message = event.data;
       if (message.cmd === 'opened') {
-        this.opened?.();
+        if (message.id !== this.opened?.id) return;
+        this.opened.resolve();
         this.opened = null;
         return;
       }
@@ -201,16 +206,18 @@ export class WorkerEngine implements StudioEngine {
    * Hands the session to a main-thread engine and re-serves everything the
    * worker was going to answer, so a failure costs time rather than work.
    */
-  private async demote(): Promise<void> {
-    if (this.fallback) return;
+  private demote(): void {
+    if (this.fallback || this.disposed) return;
 
     const fallback = new MainThreadEngine();
     this.fallback = fallback;
-    if (this.original) await fallback.open(this.original);
+    // open installs the bytes synchronously; publish all assets before any
+    // waiting request is released or retried.
+    if (this.original) void fallback.open(this.original);
     for (const [id, bytes] of this.assets) fallback.putAsset(id, bytes);
 
     // Whoever was waiting on `open` gets it now; the worker is never answering.
-    this.opened?.();
+    this.opened?.resolve();
     this.opened = null;
 
     // In-flight renders are retried here rather than failed: the reader asked
@@ -229,6 +236,13 @@ export class WorkerEngine implements StudioEngine {
   }
 
   open(original: Uint8Array): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error('Studio engine disposed.'));
+    this.session += 1;
+    const replaced = new Error('The open document was replaced.');
+    this.opened?.reject(replaced);
+    this.opened = null;
+    for (const entry of this.pending.values()) entry.reject(replaced);
+    this.pending.clear();
     // Kept here as well as in the worker, so a demotion mid-session can carry
     // the whole session across without asking the page to re-send it.
     this.original = original;
@@ -236,26 +250,37 @@ export class WorkerEngine implements StudioEngine {
 
     if (this.fallback) return this.fallback.open(original);
 
-    return new Promise((resolve) => {
+    const id = this.nextId++;
+    return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.opened) void this.demote();
       }, REPLY_TIMEOUT_MS);
 
-      this.opened = () => {
-        clearTimeout(timer);
-        resolve();
+      this.opened = {
+        id,
+        resolve: () => { clearTimeout(timer); resolve(); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
       };
-      this.worker.postMessage({ cmd: 'open', original } satisfies StudioRequest);
+      try {
+        this.worker.postMessage({ cmd: 'open', id, original } satisfies StudioRequest);
+      } catch {
+        this.demote();
+      }
     });
   }
 
   putAsset(id: string, bytes: Uint8Array): void {
+    if (this.disposed) throw new Error('Studio engine disposed.');
     this.assets.set(id, bytes);
     if (this.fallback) {
       this.fallback.putAsset(id, bytes);
       return;
     }
-    this.worker.postMessage({ cmd: 'asset', id, bytes } satisfies StudioRequest);
+    try {
+      this.worker.postMessage({ cmd: 'asset', id, bytes } satisfies StudioRequest);
+    } catch {
+      this.demote();
+    }
   }
 
   private ask<T>(cmd: 'render' | 'export', state: ScriptState): Promise<T> {
@@ -276,11 +301,17 @@ export class WorkerEngine implements StudioEngine {
           reject(error);
         },
       });
-      this.worker.postMessage({ cmd, id, state } satisfies StudioRequest);
+      try {
+        this.worker.postMessage({ cmd, id, state } satisfies StudioRequest);
+      } catch {
+        this.demote();
+      }
     });
   }
 
   async render(state: ScriptState): Promise<RenderResult> {
+    if (this.disposed) throw new Error('Studio engine disposed.');
+    const session = this.session;
     if (this.fallback) return this.fallback.render(state);
     try {
       return await this.ask<RenderResult>('render', state);
@@ -289,24 +320,37 @@ export class WorkerEngine implements StudioEngine {
       // installed a fallback that can answer; otherwise the failure is about
       // this document and belongs to the caller.
       const fallback = this.currentFallback();
-      if (fallback) return fallback.render(state);
+      if (!this.disposed && session === this.session && fallback) return fallback.render(state);
       throw caught;
     }
   }
 
   async exportDocument(state: ScriptState): Promise<ExportResult> {
+    if (this.disposed) throw new Error('Studio engine disposed.');
+    const session = this.session;
     if (this.fallback) return this.fallback.exportDocument(state);
     try {
       return await this.ask<ExportResult>('export', state);
     } catch (caught) {
       const fallback = this.currentFallback();
-      if (fallback) return fallback.exportDocument(state);
+      if (!this.disposed && session === this.session && fallback) return fallback.exportDocument(state);
       throw caught;
     }
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    const error = new Error('Studio engine disposed.');
+    this.opened?.reject(error);
+    this.opened = null;
+    for (const entry of this.pending.values()) entry.reject(error);
     this.pending.clear();
+    this.original = null;
+    this.assets.clear();
+    this.worker.onmessage = null;
+    this.worker.onerror = null;
+    this.worker.onmessageerror = null;
     this.fallback?.dispose();
     try {
       this.worker.terminate();

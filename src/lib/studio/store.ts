@@ -39,6 +39,7 @@ const VERSION = 1;
  */
 const ORIGINAL_KEY = 'original';
 const SCRIPT_KEY = 'script';
+const OWNER_KEY = 'owner';
 /** The single record written by versions before the split, still readable. */
 const LEGACY_KEY = 'current';
 
@@ -67,12 +68,14 @@ export interface StoredSession {
 
 /** The half that is written once: the document as it was opened. */
 interface StoredOriginal {
+  sessionId?: string;
   name: string;
   original: Uint8Array;
 }
 
 /** The half that is written on every change. */
 interface StoredScript {
+  sessionId?: string;
   shape?: number;
   edits: Edit[];
   cursor: number;
@@ -93,19 +96,17 @@ function open(): Promise<IDBDatabase> {
   });
 }
 
-function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+function transact<T>(
+  mode: IDBTransactionMode,
+  work: (store: IDBObjectStore, done: (result: T) => void) => void
+): Promise<T> {
   return open().then(
     (database) =>
       new Promise<T>((resolve, reject) => {
-        const transaction = database.transaction(STORE, mode);
-        const request = work(transaction.objectStore(STORE));
+        let transaction: IDBTransaction;
+        try { transaction = database.transaction(STORE, mode); }
+        catch (error) { database.close(); reject(error); return; }
         let result: T;
-
-        request.onsuccess = () => {
-          result = request.result;
-        };
-        request.onerror = () =>
-          reject(request.error ?? new Error('IndexedDB refused the request.'));
 
         // Settled on the TRANSACTION, not on the request. A request can succeed
         // and the transaction still abort at commit time — over quota, for
@@ -123,8 +124,22 @@ function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRe
           database.close();
           reject(transaction.error ?? new Error('IndexedDB refused the write.'));
         };
+        try {
+          work(transaction.objectStore(STORE), (value) => { result = value; });
+        } catch (error) {
+          transaction.abort();
+          database.close();
+          reject(error);
+        }
       })
   );
+}
+
+function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return transact(mode, (store, done) => {
+    const request = work(store);
+    request.onsuccess = () => done(request.result);
+  });
 }
 
 /**
@@ -142,12 +157,19 @@ function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRe
  * original with an old edit list would replay somebody else's afternoon onto
  * this file.
  */
-export async function saveOriginal(name: string, original: Uint8Array): Promise<boolean> {
+export async function saveOriginal(
+  name: string,
+  original: Uint8Array,
+  sessionId: string,
+  initialScript?: StoredScript
+): Promise<boolean> {
   try {
     await run('readwrite', (store) => {
-      store.delete(SCRIPT_KEY);
+      if (initialScript) store.put({ ...initialScript, sessionId }, SCRIPT_KEY);
+      else store.delete(SCRIPT_KEY);
       store.delete(LEGACY_KEY);
-      return store.put({ name, original } satisfies StoredOriginal, ORIGINAL_KEY);
+      store.put(sessionId, OWNER_KEY);
+      return store.put({ name, original, sessionId } satisfies StoredOriginal, ORIGINAL_KEY);
     });
     return true;
   } catch {
@@ -158,8 +180,16 @@ export async function saveOriginal(name: string, original: Uint8Array): Promise<
 /** Writes the edit list and the imported assets. Called on every change. */
 export async function saveScript(script: StoredScript): Promise<boolean> {
   try {
-    await run('readwrite', (store) => store.put(script, SCRIPT_KEY));
-    return true;
+    return await transact<boolean>('readwrite', (store, done) => {
+      // A separate small owner record avoids re-reading the original PDF on
+      // every save. The check and write share a transaction across all tabs.
+      const owner = store.get(OWNER_KEY);
+      owner.onsuccess = () => {
+        if (!script.sessionId || owner.result !== script.sessionId) { done(false); return; }
+        store.put(script, SCRIPT_KEY);
+        done(true);
+      };
+    });
   } catch {
     return false;
   }
@@ -282,14 +312,20 @@ export function assetsReferencedBy(edits: readonly Edit[]): Set<string> {
  */
 export async function loadSession(): Promise<StoredSession | null> {
   try {
-    const [document_, script, legacy] = await Promise.all([
-      run<StoredOriginal | undefined>('readonly', (store) => store.get(ORIGINAL_KEY)),
-      run<StoredScript | undefined>('readonly', (store) => store.get(SCRIPT_KEY)),
-      run<StoredSession | undefined>('readonly', (store) => store.get(LEGACY_KEY)),
-    ]);
+    const [document_, script, legacy] = await transact<[
+      StoredOriginal | undefined, StoredScript | undefined, StoredSession | undefined
+    ]>('readonly', (store, done) => {
+      const documentRequest = store.get(ORIGINAL_KEY);
+      const scriptRequest = store.get(SCRIPT_KEY);
+      const legacyRequest = store.get(LEGACY_KEY);
+      legacyRequest.onsuccess = () => done([
+        documentRequest.result, scriptRequest.result, legacyRequest.result,
+      ]);
+    });
 
     const joined: StoredSession | null =
-      document_?.original && script && Array.isArray(script.edits)
+      document_?.original && script && Array.isArray(script.edits) &&
+      document_.sessionId === script.sessionId
         ? {
             shape: script.shape,
             name: document_.name,
@@ -308,7 +344,6 @@ export async function loadSession(): Promise<StoredSession | null> {
     // An older shape cannot be replayed faithfully, and replaying it anyway
     // would quietly produce a document nobody asked for.
     if (joined.shape !== SESSION_SHAPE) {
-      await clearSession();
       return null;
     }
     return joined;
@@ -317,12 +352,19 @@ export async function loadSession(): Promise<StoredSession | null> {
   }
 }
 
-export async function clearSession(): Promise<void> {
+export async function clearSession(sessionId?: string): Promise<void> {
   try {
-    await run('readwrite', (store) => {
-      store.delete(ORIGINAL_KEY);
-      store.delete(SCRIPT_KEY);
-      return store.delete(LEGACY_KEY);
+    await transact<void>('readwrite', (store, done) => {
+      const owner = store.get(OWNER_KEY);
+      owner.onsuccess = () => {
+        if (!sessionId || owner.result === sessionId) {
+          store.delete(ORIGINAL_KEY);
+          store.delete(SCRIPT_KEY);
+          store.delete(LEGACY_KEY);
+          store.delete(OWNER_KEY);
+        }
+        done();
+      };
     });
   } catch {
     // nothing to do: see above

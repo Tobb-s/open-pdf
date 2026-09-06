@@ -845,6 +845,8 @@ export interface Dictionary {
     memoryTitle: string;
     memoryBody: string;
     unknownTitle: string;
+    integrityTitle: string;
+    integrityBody: string;
     unknownBody: string;
     tooLargeTitle: (name: string) => string;
     tooLargeBody: (limit: string, actual: string) => string;
@@ -1937,6 +1939,8 @@ export const es: Dictionary = {
     memoryBody:
       'Este documento es demasiado grande para procesarlo de una vez. Dividilo en partes más chicas y volvé a intentar.',
     unknownTitle: 'Algo salió mal',
+    integrityTitle: 'No se puede verificar esta exportación',
+    integrityBody: 'Falta una imagen de reemplazo, está dañada o no se pudo revisar la información oculta del PDF. Volvé a abrir el original y repetí la edición, o quitá los metadatos desde Buscar antes de exportar. No se generó un archivo para descargar.',
     unknownBody: 'No hay más detalle disponible. La consola del navegador puede tener más datos.',
     tooLargeTitle: (name) => `${name} es demasiado grande`,
     tooLargeBody: (limit, actual) =>
@@ -3016,6 +3020,8 @@ export const en: Dictionary = {
     memoryBody:
       'This document is too large to process in one pass. Split it into smaller parts and try again.',
     unknownTitle: 'Something went wrong',
+    integrityTitle: 'This export could not be verified',
+    integrityBody: 'A replacement image is missing or damaged, or hidden PDF information could not be inspected. Reopen the original and repeat the edit, or remove metadata from Search before exporting. No download was generated.',
     unknownBody: 'No further detail is available. The browser console may have more.',
     tooLargeTitle: (name) => `${name} is too large`,
     tooLargeBody: (limit, actual) =>

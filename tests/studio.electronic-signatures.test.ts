@@ -51,6 +51,19 @@ describe('electronic signature audit record', () => {
 });
 
 describe('Studio electronic signatures', () => {
+  it.each(['signature', 'image'] as const)('refuses a missing or invalid %s appearance', async (kind) => {
+    const source = await PDFDocument.create();
+    source.addPage([400, 300]);
+    const original = await source.save();
+    const mark: Mark = kind === 'signature' ? signature : {
+      kind, id: 'image-1', page: 'o0', asset: 'appearance', x: 60, y: 80, width: 180, height: 48, opacity: 1,
+    };
+    for (const assets of [new Map<string, Uint8Array>(), new Map([['appearance', Uint8Array.of(1, 2, 3)]])]) {
+      await expect(materialize({ original, assets, state: stateAt(1, [{ kind: 'draw', mark }], 1) }))
+        .rejects.toThrow(/replacement image/i);
+    }
+  });
+
   it('draws the signature and caption, and embeds one inspectable audit attachment', async () => {
     const source = await PDFDocument.create();
     source.addPage([400, 300]);

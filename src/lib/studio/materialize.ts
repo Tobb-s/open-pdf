@@ -269,11 +269,11 @@ async function drawMark(
 
     case 'image': {
       const bytes = assets.get(mark.asset);
-      if (!bytes) return;
+      if (!bytes) throw new Error('Missing replacement image for an image mark. Export refused.');
       let image = images.get(mark.asset);
       if (!image) {
         const kind = imageKind(bytes);
-        if (kind === null) return;
+        if (kind === null) throw new Error('Invalid replacement image for an image mark. Export refused.');
         image =
           kind === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
         images.set(mark.asset, image);
@@ -290,11 +290,11 @@ async function drawMark(
 
     case 'signature': {
       const bytes = assets.get(mark.asset);
-      if (!bytes) return;
+      if (!bytes) throw new Error('Missing replacement image for a signature. Export refused.');
       let image = images.get(mark.asset);
       if (!image) {
         const kind = imageKind(bytes);
-        if (kind === null) return;
+        if (kind === null) throw new Error('Invalid replacement image for a signature. Export refused.');
         image = kind === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
         images.set(mark.asset, image);
       }
@@ -668,15 +668,15 @@ export async function materialize({
     const handle = byId.get(page.id);
     if (!handle) continue;
     const bytes = assets.get(page.raster.asset);
-    if (!bytes) continue;
+    if (!bytes) throw new Error(`Missing replacement image for page ${page.id}. Export refused.`);
 
     const kind = imageKind(bytes);
-    if (kind === null) continue;
+    if (kind === null) throw new Error(`Invalid replacement image for page ${page.id}. Export refused.`);
     let image;
     try {
       image = kind === 'png' ? await document.embedPng(bytes) : await document.embedJpg(bytes);
     } catch {
-      continue;
+      throw new Error(`Unreadable replacement image for page ${page.id}. Export refused.`);
     }
 
     // The size the page looked before it became a picture.
