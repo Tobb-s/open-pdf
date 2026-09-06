@@ -47,18 +47,22 @@ export interface PageStreams {
 }
 
 /** Joins a page's content streams into the single sequence a viewer sees. */
-export function readPageStream(page: PDFPage): PageStreams {
+export function readPageStream(page: PDFPage, options: { strict?: boolean } = {}): PageStreams {
   const contents = page.node.Contents();
   const refs: PDFRef[] = [];
   const parts: Uint8Array[] = [];
 
   const take = (value: unknown, ref: PDFRef | null) => {
     const stream = page.node.context.lookup(value as never);
-    if (!(stream instanceof PDFRawStream)) return;
+    if (!(stream instanceof PDFRawStream)) {
+      if (options.strict && stream) throw new Error('native-text:unsupported-operator');
+      return;
+    }
     try {
       parts.push(decodePDFRawStream(stream).decode());
       if (ref) refs.push(ref);
     } catch {
+      if (options.strict) throw new Error('native-text:unreadable');
       // A stream with a filter this build cannot decode is a stream whose text
       // cannot be edited. It still has to occupy its place in the sequence, or
       // every byte offset after it would be wrong.

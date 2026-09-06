@@ -350,22 +350,28 @@ function assemble(runs: ShowRun[]): ScannedText {
   let text = '';
   const positions: ScannedText['positions'] = [];
 
-  let previousEnd: { x: number; y: number; size: number } | null = null;
+  let previousEnd: { x: number; y: number; size: number; ux: number; uy: number } | null = null;
 
   runs.forEach((run, runIndex) => {
-    const gap = spaceThreshold(run);
+    const transform = multiply(run.matrix, run.ctm);
+    const horizontalScale = Math.hypot(transform[0], transform[1]) || 1;
+    const ux = transform[0] / horizontalScale, uy = transform[1] / horizontalScale;
+    const gap = spaceThreshold(run) * horizontalScale;
+    const size = Math.abs(run.size) * Math.hypot(transform[2], transform[3]);
 
     // A run that starts on another line, or far to the right of where the last
     // one ended, is a new word — usually a new line.
     if (previousEnd && run.glyphs.length > 0) {
       const first = run.glyphs[0];
-      const movedDown = Math.abs(first.y - previousEnd.y) > previousEnd.size * 0.5;
-      const movedRight = first.x - previousEnd.x > gap;
-      const movedBack = first.x < previousEnd.x - gap;
+      const dx = first.x - previousEnd.x, dy = first.y - previousEnd.y;
+      const movedDown = Math.abs(-dx * uy + dy * ux) > previousEnd.size * 0.5
+        || Math.abs(ux - previousEnd.ux) + Math.abs(uy - previousEnd.uy) > 0.05;
+      const movedRight = dx * ux + dy * uy > gap;
+      const movedBack = dx * ux + dy * uy < -gap;
       if (movedDown) {
         text += '\n';
         positions.push(null);
-      } else if (movedRight || movedBack) {
+      } else if ((movedRight || movedBack) && !/\s$/.test(text) && !/^\s/.test(first.text)) {
         text += ' ';
         positions.push(null);
       }
@@ -376,8 +382,9 @@ function assemble(runs: ShowRun[]): ScannedText {
       if (previous) {
         // Inside a run the pen only jumps when a TJ number moved it. The glyph
         // advance is already accounted for, so anything beyond it is the gap.
-        const expected = previous.x + previous.advance;
-        if (glyph.x - expected > gap) {
+        const dx = glyph.x - previous.x - previous.advance * transform[0];
+        const dy = glyph.y - previous.y - previous.advance * transform[1];
+        if (dx * ux + dy * uy > gap && !/\s$/.test(text) && !/^\s/.test(glyph.text)) {
           text += ' ';
           positions.push(null);
         }
@@ -390,7 +397,7 @@ function assemble(runs: ShowRun[]): ScannedText {
     });
 
     const last = run.glyphs[run.glyphs.length - 1];
-    if (last) previousEnd = { x: last.x + last.advance, y: last.y, size: run.size };
+    if (last) previousEnd = { x: last.x + last.advance * transform[0], y: last.y + last.advance * transform[1], size, ux, uy };
   });
 
   return { runs, text, positions };

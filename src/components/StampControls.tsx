@@ -188,6 +188,7 @@ export function NumberRow({
   min,
   max,
   onChange,
+  step = 1,
 }: {
   label: string;
   hint?: string;
@@ -195,6 +196,7 @@ export function NumberRow({
   min: number;
   max: number;
   onChange: (value: number) => void;
+  step?: number;
 }) {
   return (
     <Field label={label} hint={hint}>
@@ -202,6 +204,7 @@ export function NumberRow({
         type="number"
         min={min}
         max={max}
+        step={step}
         value={value}
         aria-label={label}
         onChange={(event) => {

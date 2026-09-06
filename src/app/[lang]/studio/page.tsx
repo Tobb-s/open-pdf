@@ -8,6 +8,8 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import ErrorNotice from '@/components/ErrorNotice';
 import PageStrip from '@/components/studio/PageStrip';
 import SignaturePad from '@/components/studio/SignaturePad';
+import TextFormatInspector from '@/components/studio/TextFormatInspector';
+import { replacementCopy } from '@/lib/studio/replacementCopy';
 import CompareWorkspace from '@/components/studio/CompareWorkspace';
 import Stage, {
   type StageAction,
@@ -312,6 +314,7 @@ const newId = () =>
 
 export default function StudioPage() {
   const { locale, t } = useI18n();
+  const replacementLabels = replacementCopy[locale];
 
   const [name, setName] = useState('');
   const [original, setOriginal] = useState<Uint8Array | null>(null);
@@ -348,6 +351,11 @@ export default function StudioPage() {
   >(null);
   const [replacementValue, setReplacementValue] = useState('');
   const [replacementSize, setReplacementSize] = useState(14);
+  const [replacementMode, setReplacementMode] = useState<'native' | 'raster'>('native');
+  const [replacementFit, setReplacementFit] = useState<'squeeze' | 'keep-layout' | 'keep-flow'>('squeeze');
+  const [replacementColor, setReplacementColor] = useState('#000000');
+  const [replacementColorChanged, setReplacementColorChanged] = useState(false);
+  const [replacementIssue, setReplacementIssue] = useState<string | null>(null);
   const [replacementBackground, setReplacementBackground] = useState('#ffffff');
   const [replacementSourceFont, setReplacementSourceFont] = useState<DetectedPdfFont | null>(null);
   const [useReplacementSourceFont, setUseReplacementSourceFont] = useState(false);
@@ -1567,24 +1575,46 @@ export default function StudioPage() {
   /**
    * Replaces selected page text without leaving the old content underneath.
    *
-   * The current page is photographed exactly as shown, the old glyph box is
-   * painted out in that bitmap, and the flattened page receives the new text
-   * plus an invisible reconstruction of every other text run. One edit owns
-   * all three pieces, so a single undo restores the complete previous page.
+   * Native mode preflights an exact source-font/position match and changes only
+   * that text operation. Page reconstruction is an explicit alternative: it
+   * paints out the old glyph box and rebuilds the text over a page bitmap.
+   * Either path is one atomic, undoable edit; failures append nothing.
    */
   const replaceSelectedText = async () => {
     const engine = engineRef.current;
     const selection = textSelection;
     const document_ = built?.document;
     const page = pageIdAt(pageIndex);
-    const replacement = replacementValue.trim();
-    if (!engine || !selection || !document_ || !page || selection.page !== page || replacement === '') {
+    const replacement = replacementValue;
+    if (!engine || !selection || !document_ || !page || selection.page !== page || (replacementMode === 'raster' && replacement === '')) {
       return;
     }
 
     setReplacingText(true);
     setError(null);
+    setReplacementIssue(null);
     try {
+      if (replacementMode === 'native') {
+        const selected = selection.selected;
+        if (!selected.source || !selected.sourceFont || selected.appearance?.mode !== 0 || state.pages.find(p => p.id === page)?.raster) {
+          throw new Error('native-text:ambiguous');
+        }
+        const edit: Edit = { kind: 'rewriteText', page, rewrite: {
+          needle: selected.text, replacement, occurrence: 0, caseSensitive: true, fit: replacementFit,
+          target: { x: selected.source.x, y: selected.source.y, size: selected.source.size, font: selected.sourceFont.name },
+          ...(replacementSize !== selected.size ? { sizeRatio: replacementSize / selected.size } : {}),
+          ...(replacementColorChanged ? { color: hexToRgb(replacementColor) } : {}),
+        } };
+        const candidate = append(edits, cursor, edit);
+        // Preflight the actual replay, not just the rendered bytes (which may
+        // include marks applied after the native rewrite phase).
+        await engine.render(stateAt(originalPages, candidate.edits, candidate.cursor));
+        if (engineRef.current !== engine) return;
+        setScript(current => current === script ? candidate : current);
+        setTextSelection(null);
+        setReplacementValue('');
+        return;
+      }
       // The standard face that stands in when the embedded program cannot be
       // used, in the shape the original was drawn at. It was plain Helvetica
       // before, so replacing a line of bold serif produced a line of light sans
@@ -1655,7 +1685,7 @@ export default function StudioPage() {
           y: selection.selected.y,
           text: replacement,
           size: replacementSize,
-          color: hexToRgb(color),
+          color: hexToRgb(replacementColor),
           rotate: selection.selected.rotate,
           font: replacementFont,
         },
@@ -1665,7 +1695,13 @@ export default function StudioPage() {
       setReplacementSourceFont(null);
       setUseReplacementSourceFont(false);
     } catch (caught) {
-      setError(describeStudioError(caught));
+      if (replacementMode === 'native') {
+        const message = caught instanceof Error ? caught.message : '';
+        const explanation = message.includes('missing-glyphs') ? replacementLabels.missing
+          : message.includes('too-different') ? replacementLabels.different
+          : message.includes('ambiguous') || message.includes('split') ? replacementLabels.ambiguous : replacementLabels.unsupported;
+        setReplacementIssue(`${replacementLabels.refusal} ${explanation}`);
+      } else setError(describeStudioError(caught));
     } finally {
       setReplacingText(false);
     }
@@ -2465,9 +2501,13 @@ export default function StudioPage() {
                 if (!page) return;
                 setTextSelection({ ...selection, page });
                 setReplacementValue(selection.selected.text);
-                setReplacementSize(Math.max(4, Math.round(selection.selected.size)));
+                setReplacementSize(selection.selected.size);
                 setReplacementSourceFont(selection.selected.sourceFont ?? null);
-                setUseReplacementSourceFont(false);
+                setUseReplacementSourceFont(Boolean(selection.selected.sourceFont?.bytes));
+                setReplacementColor(selection.selected.appearance?.color ?? '#000000');
+                setReplacementColorChanged(false);
+                setReplacementMode('native');
+                setReplacementIssue(null);
               }}
               selectedParagraphId={
                 paragraphSelection?.page === pageIdAt(pageIndex) ? paragraphSelection.selected.id : null
@@ -2924,6 +2964,19 @@ export default function StudioPage() {
                         {textSelection.selected.text}
                       </p>
                     </Field>
+                    <TextFormatInspector run={textSelection.selected} fontStyle={fontStyles.get(replacementSourceFont?.name ?? '')} />
+                    <label className="block space-y-1 text-xs font-medium">
+                      <span>{replacementLabels.mode}</span>
+                      <select aria-label={replacementLabels.mode} value={replacementMode}
+                        onChange={event => { setReplacementMode(event.target.value as 'native' | 'raster'); setReplacementIssue(null); }}
+                        className="w-full rounded-xl border bg-white px-3 py-2 text-sm">
+                        <option value="native">{replacementLabels.native}</option>
+                        <option value="raster">{replacementLabels.raster}</option>
+                      </select>
+                    </label>
+                    <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-950">
+                      {replacementMode === 'native' ? replacementLabels.nativeNote : replacementLabels.rasterNote}
+                    </p>
                     <Field label={t.studio.replaceTextNew}>
                       <textarea
                         value={replacementValue}
@@ -2931,29 +2984,45 @@ export default function StudioPage() {
                         onChange={(event) => setReplacementValue(event.target.value)}
                         className="w-full resize-y rounded-xl border px-3 py-2 text-sm outline-none focus:border-violet-400"
                       />
+                      {replacementMode === 'native' && <p className="text-xs text-gray-500">{replacementLabels.empty}</p>}
                     </Field>
-                    <SourceFontControl
+                    {replacementMode === 'raster' && <SourceFontControl
                       id="studio-replacement-source-font"
                       source={replacementSourceFont}
                       useSource={useReplacementSourceFont}
                       onUseSource={setUseReplacementSourceFont}
-                    />
+                    />}
                     <NumberRow
                       label={t.stamp.size}
                       value={replacementSize}
-                      min={4}
-                      max={200}
+                      min={0.1}
+                      max={500}
+                      step={0.01}
                       onChange={setReplacementSize}
                     />
-                    <ColorRow
+                    <ColorRow label={t.stamp.color} value={replacementColor}
+                      onChange={value => { setReplacementColor(value); setReplacementColorChanged(true); }} />
+                    {replacementMode === 'native' && <label className="block space-y-1 text-xs font-medium">
+                      <span>{replacementLabels.fit}</span>
+                      <select aria-label={replacementLabels.fit} value={replacementFit}
+                        onChange={event => setReplacementFit(event.target.value as typeof replacementFit)}
+                        className="w-full rounded-xl border bg-white px-3 py-2 text-sm">
+                        <option value="squeeze">{replacementLabels.squeeze}</option>
+                        <option value="keep-layout">{replacementLabels.layout}</option>
+                        <option value="keep-flow">{replacementLabels.flow}</option>
+                      </select>
+                      <p className="font-normal text-gray-500">{replacementLabels.fitNote}</p>
+                    </label>}
+                    {replacementMode === 'raster' && <ColorRow
                       label={t.studio.replaceTextBackground}
                       value={replacementBackground}
                       onChange={setReplacementBackground}
-                    />
+                    />}
+                    {replacementIssue && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-900">{replacementIssue}</p>}
                     <button
                       type="button"
                       onClick={() => void replaceSelectedText()}
-                      disabled={replacingText || building || replacementValue.trim() === ''}
+                      disabled={replacingText || building || (replacementMode === 'raster' && replacementValue.trim() === '')}
                       className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:bg-gray-300"
                     >
                       {replacingText ? <Loader2 className="h-4 w-4 animate-spin" /> : <Replace className="h-4 w-4" />}
@@ -2965,9 +3034,6 @@ export default function StudioPage() {
                     {t.studio.replaceTextPick}
                   </p>
                 )}
-                <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
-                  {t.studio.replaceTextNote}
-                </p>
               </>
             )}
 
@@ -3275,6 +3341,7 @@ export default function StudioPage() {
               tool !== 'signature' &&
               tool !== 'erase' &&
               tool !== 'redact' && (
+              tool !== 'replaceText' &&
               <ColorRow label={t.stamp.color} value={color} onChange={setColor} />
             )}
 

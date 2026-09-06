@@ -121,6 +121,10 @@ export interface TextRewrite {
    */
   caseSensitive?: boolean;
   wholeWord?: boolean;
+  /** Strict visual selection: never substitute another equal string elsewhere. */
+  target?: { x: number; y: number; font: string; size: number };
+  sizeRatio?: number;
+  color?: Rgb;
 }
 
 export interface PageState {

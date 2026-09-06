@@ -1,5 +1,6 @@
 import type { ViewportLike } from '@/lib/geometry';
 import type { DetectedPdfFont } from '@/lib/studio/fonts';
+import { createPaintLookup, type TextPaint } from '@/lib/studio/textAppearance';
 
 /** Geometry needed to select and rebuild one pdf.js text item. */
 export interface FlatTextRun {
@@ -12,6 +13,13 @@ export interface FlatTextRun {
   rotate: number;
   /** Source font identity, with bytes only when its original program is reusable. */
   sourceFont?: DetectedPdfFont | null;
+  /** Original user-space baseline, independent of zoom/crop/page rotation. */
+  source?: { x: number; y: number; fontId: string; size: number };
+  appearance?: { color: string | null; opacity: number | null; mode: number; horizontalScale: number;
+    charSpacing: number; wordSpacing: number; layer: string | null };
+  metrics?: 'font' | 'estimated';
+  /** Polygon avoids oversized rectangular hit areas on rotated/skewed text. */
+  quad?: readonly (readonly number[])[];
   /** Axis-aligned bounds in the visual top-left frame, at scale 1. */
   visual: { left: number; top: number; width: number; height: number };
 }
@@ -38,16 +46,23 @@ const finite = (value: unknown, fallback = 0): number =>
 export function flattenTextRuns(
   items: readonly unknown[],
   viewport: ViewportLike & { scale?: number },
-  fonts: ReadonlyMap<string, DetectedPdfFont> = new Map()
+  fonts: ReadonlyMap<string, DetectedPdfFont> = new Map(),
+  styles: Readonly<Record<string, { ascent?: number; descent?: number; vertical?: boolean }>> = {},
+  paints: readonly TextPaint[] = [],
 ): FlatTextRun[] {
   const scale = finite(viewport.scale, 1) || 1;
   const runs: FlatTextRun[] = [];
+  const paintForItem = createPaintLookup(paints);
 
   items.forEach((raw, index) => {
     const item = raw as TextItemLike;
     const text = typeof item?.str === 'string' ? item.str : '';
     const transform = item?.transform;
-    if (text.trim() === '' || !Array.isArray(transform) || transform.length < 6) return;
+    if (text.trim() === '' || !Array.isArray(transform) || transform.length < 6
+      || !transform.every(Number.isFinite)) return;
+    // Zero-advance combining marks without a base are often malformed encoding
+    // artifacts. Do not place a large clickable rectangle over adjacent text.
+    if (finite(item.width) <= 0 && /^\p{M}+$/u.test(text)) return;
 
     const a = finite(transform[0]);
     const b = finite(transform[1]);
@@ -55,13 +70,15 @@ export function flattenTextRuns(
     const originY = finite(transform[5]);
     const angle = Math.atan2(b, a);
     const width = Math.max(finite(item.width), 1);
-    const height = Math.max(finite(item.height), Math.hypot(a, b), 1);
+    const height = Math.max(Math.hypot(finite(transform[2]), finite(transform[3])), 0.01);
+    const style = styles[item.fontName ?? ''];
     const ux = Math.cos(angle);
     const uy = Math.sin(angle);
-    const nx = -uy;
-    const ny = ux;
-    const descent = height * 0.22;
-    const ascent = height * 0.9;
+    const nx = finite(transform[2]) / height;
+    const ny = finite(transform[3]) / height;
+    const measured = Number.isFinite(style?.ascent) && Number.isFinite(style?.descent);
+    const descent = height * (measured ? -style.descent! : 0.22);
+    const ascent = height * (measured ? style.ascent! : 0.9);
 
     const pdfCorners = [
       [originX - nx * descent, originY - ny * descent],
@@ -80,6 +97,7 @@ export function flattenTextRuns(
     const [startX, startY] = viewport.convertToViewportPoint(originX, originY);
     const [endX, endY] = viewport.convertToViewportPoint(originX + ux, originY + uy);
     const flatAngle = (Math.atan2(-(endY - startY), endX - startX) * 180) / Math.PI;
+    const paint = paintForItem(item);
 
     runs.push({
       id: `text-${index}`,
@@ -89,6 +107,12 @@ export function flattenTextRuns(
       size: height,
       rotate: flatAngle,
       sourceFont: typeof item.fontName === 'string' ? fonts.get(item.fontName) ?? null : null,
+      source: { x: originX, y: originY, fontId: item.fontName ?? '', size: height },
+      appearance: paint ? { color: paint.color, opacity: paint.opacity, mode: paint.mode,
+        horizontalScale: paint.horizontalScale, charSpacing: paint.charSpacing,
+        wordSpacing: paint.wordSpacing, layer: paint.layer } : undefined,
+      metrics: measured ? 'font' : 'estimated',
+      quad: corners.map(([x, y]) => [x / scale, y / scale]),
       visual: {
         left,
         top,

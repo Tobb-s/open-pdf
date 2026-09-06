@@ -36,6 +36,7 @@ import { readPageFonts } from '@/lib/pdf/fontMap';
 import { scanText } from '@/lib/pdf/textScan';
 import { applyPlans, findOccurrences, planReplacement, type PlannedEdit } from '@/lib/pdf/replaceText';
 import { readPageStream, writePageStream } from '@/lib/pdf/pageText';
+import { rewriteSelectedNative } from '@/lib/studio/nativeText';
 import { embedTextFont, textFontCacheKey } from '@/lib/studio/fonts';
 import {
   IMAGE_PAGE_LONG_SIDE,
@@ -595,6 +596,12 @@ export async function materialize({
     if (!handle) continue;
 
     for (const rewrite of page.rewrites) {
+      if (rewrite.target) {
+        rewriteSelectedNative(handle, rewrite);
+        rewrites.push({ page: page.id, needle: rewrite.needle, replacement: rewrite.replacement,
+          found: 1, replaced: 1, refused: [], missing: [] });
+        continue;
+      }
       const outcome: RewriteOutcome = {
         page: page.id,
         needle: rewrite.needle,
