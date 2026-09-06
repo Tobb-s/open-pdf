@@ -6,6 +6,17 @@ import { materialize } from '@/lib/studio/materialize';
 import { stateAt, type Edit, type TextRewrite } from '@/lib/studio/script';
 import { replacementFailure } from '@/lib/studio/replacementRecovery';
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+async function readerItems(bytes: Uint8Array) {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const task = pdfjs.getDocument({ data: bytes.slice(), stopAtErrors: true,
+    standardFontDataUrl: resolve('node_modules/pdfjs-dist/standard_fonts').replaceAll('\\', '/') + '/' });
+  try {
+    const pdf = await task.promise;
+    return (await (await pdf.getPage(1)).getTextContent()).items.filter(i => 'str' in i);
+  } finally { await task.destroy(); }
+}
 
 const target = { x: 40, y: 200, font: 'Courier-Bold', size: 11 };
 const choice = { family: 'courier' as const, bold: true, italic: false };
@@ -51,13 +62,11 @@ describe('explicit compatible font recovery', () => {
     expect(after.text).toBe('prefix ZETA suffix');
     expect(after.runs.find(r => r.glyphs.map(g => g.text).join('') === ' suffix')?.font?.codeBytes).toBe(2);
     expect(after.runs.find(r => r.glyphs.map(g => g.text).join('') === 'ZETA')?.font?.codeBytes).toBe(1);
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const task = pdfjs.getDocument({ data: await doc.save(), stopAtErrors: true });
-    try {
-      const pdf = await task.promise;
-      const content = await (await pdf.getPage(1)).getTextContent();
-      expect(content.items.filter(i => 'str' in i).map(i => i.str).join('')).toContain('ZETA');
-    } finally { await task.destroy(); }
+    const items = await readerItems(await doc.save());
+    expect(items.map(i => i.str).join('')).toContain('ZETA');
+    const suffix = items.find(i => i.str.includes('suffix'))!;
+    const last = before.glyphs.at(-1)!;
+    expect(suffix.transform[4] + suffix.width).toBeCloseTo(last.x + last.advance, 2);
   });
   it('keeps the default strict and reports exact missing characters', async () => {
     const doc = await PDFDocument.load(await fixture());
@@ -84,6 +93,14 @@ describe('explicit compatible font recovery', () => {
     expect(replacement.fontResource).not.toBe(after.fontResource);
     expect(after.fontResource).toBe(source.runs[0].fontResource);
     expect(after.glyphs[1].x).toBeCloseTo(suffixX + (fit === 'keep-flow' ? -6.6 : 0), 3);
+    // Compare the exported document in the actual viewer, not only our scanner:
+    // graphics-state restore inside BT used to rewind PDF.js's text position.
+    const items = await readerItems(await doc.save());
+    const suffix = items.find(i => i.str.includes('suffix'))!;
+    expect(suffix).toBeDefined();
+    // PDF.js may coalesce adjacent resources backed by the same standard face.
+    expect(suffix.transform[4] + suffix.width - 6 * 6.6).toBeCloseTo(after.glyphs[1].x, 2);
+    expect(suffix.transform[5]).toBeCloseTo(200, 2);
     expect(doc.getPage(1).node.Resources()).toBe(originalResources);
     expect(page.node.Resources()).not.toBe(originalResources);
     expect(originalResources.lookup(PDFName.Font, PDFDict).entries()).toEqual(originalFontEntries);

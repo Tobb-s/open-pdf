@@ -156,7 +156,7 @@ export function scanText(
   fonts: ReadonlyMap<string, FontMap>
 ): ScannedText {
   const runs: ShowRun[] = [];
-  const stack: TextState[] = [];
+  const stack: Array<{ state: TextState; matrices?: [Matrix, Matrix] }> = [];
 
   let state: TextState = {
     font: '',
@@ -171,6 +171,7 @@ export function scanText(
   };
   let textMatrix: Matrix = IDENTITY;
   let lineMatrix: Matrix = IDENTITY;
+  let inText = false;
 
   const translateLine = (tx: number, ty: number) => {
     lineMatrix = multiply([1, 0, 0, 1, tx, ty], lineMatrix);
@@ -245,11 +246,16 @@ export function scanText(
 
     switch (operation.operator) {
       case 'q':
-        stack.push({ ...state });
+        stack.push({ state: { ...state }, matrices: inText ? [textMatrix, lineMatrix] : undefined });
         break;
       case 'Q': {
         const previous = stack.pop();
-        if (previous) state = previous;
+        if (previous) {
+          state = previous.state;
+          // Match real readers and ISO 32000-2 9.4.1: q/Q within BT/ET also
+          // saves/restores the pen and the line origin, not just font styling.
+          if (previous.matrices && inText) [textMatrix, lineMatrix] = previous.matrices;
+        }
         break;
       }
       case 'cm':
@@ -258,8 +264,12 @@ export function scanText(
         }
         break;
       case 'BT':
+        inText = true;
         textMatrix = IDENTITY;
         lineMatrix = IDENTITY;
+        break;
+      case 'ET':
+        inText = false;
         break;
       case 'Tf': {
         const name = operation.operands.find((operand) => operand.kind === 'name');
