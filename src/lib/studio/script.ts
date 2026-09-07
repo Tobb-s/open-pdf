@@ -87,6 +87,11 @@ export interface PageRaster {
   boxes: readonly PaintedBox[];
   /** Exact visible terms intentionally removed, retained for the export proof. */
   redactedWords?: readonly string[];
+  /** Session-only text provenance for later redactions of an already baked page.
+   * Boxes are normalized to the bitmap (top-left origin), not exported as PDF text.
+   * Historical terms remain conservative evidence even if earlier strokes removed them.
+   */
+  sourceText?: readonly { text: string; box: Rect }[];
 }
 
 /**

@@ -14,6 +14,21 @@ async function edits(page: Page, count: number) {
   await expect(page.getByText(count === 1 ? '1 edición' : `${count} ediciones`, { exact: true })).toBeVisible();
   await ready(page);
 }
+async function saved(page: Page, cursor: number) {
+  // Autosave is debounced: the previous "saved" label can still be visible
+  // briefly after an edit. Wait for the actual persisted revision before reload.
+  await expect.poll(() => page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const opening = indexedDB.open('openpdf-studio', 1);
+    opening.onerror = () => reject(opening.error);
+    opening.onsuccess = () => {
+      const db = opening.result;
+      const tx = db.transaction('session', 'readonly');
+      const request = tx.objectStore('session').get('script');
+      tx.oncomplete = () => { resolve(request.result?.cursor ?? -1); db.close(); };
+      tx.onabort = () => { reject(tx.error); db.close(); };
+    };
+  }))).toBe(cursor);
+}
 async function open(page: Page, duplicate = false) {
   const pdf = await PDFDocument.create();
   pdf.setTitle('Eraser regression');
@@ -104,7 +119,7 @@ test('added text stays erased after a second stroke, undo, redo and reload', asy
   await button(page, 'Rehacer').click(); await edits(page, 2);
   await paint(page, 'Goma', firstWord, 3);
   expect(await whiteFraction(page, [.12, .42, .88, .58])).toBe(1);
-  await expect(page.getByText('Guardado en este navegador', { exact: true })).toBeVisible();
+  await saved(page, 3);
   await page.reload();
   await button(page, 'Seguir donde estaba').click(); await edits(page, 3);
   expect(await whiteFraction(page, [.12, .42, .88, .58])).toBe(1);
@@ -141,3 +156,19 @@ test('redacting added text remembers its target after baking and erasing again',
   await expect(page.getByText('No se entregó el archivo', { exact: true })).toBeVisible();
   await expect(button(page, 'Descargar')).toHaveCount(0);
 });
+
+for (const initialTool of ['Goma', 'Tachar']) {
+  test(`a later redaction checks text baked by ${initialTool}, even after reload`, async ({ page }) => {
+    await open(page);
+    await addText(page, 'INTACTA', .53, 1);
+    await paint(page, initialTool, firstWord, 2);
+    await saved(page, 2);
+    await page.reload();
+    await button(page, 'Seguir donde estaba').click(); await edits(page, 2);
+    await paint(page, 'Tachar', addedArea, 3);
+    await button(page, 'Exportar').click();
+    await expect(page.getByText('No se entregó el archivo', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Todavía se puede encontrar.*«INTACTA»/)).toBeVisible();
+    await expect(button(page, 'Descargar')).toHaveCount(0);
+  });
+}

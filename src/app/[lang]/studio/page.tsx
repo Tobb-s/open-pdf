@@ -90,6 +90,7 @@ import {
   type Metadata,
   type MetadataPatch,
   type PaintedBox,
+  type PageRaster,
   type NumberingSpec,
   type ScriptState,
   type SanitizationSpec,
@@ -192,6 +193,23 @@ const sharedSourceFont = (runs: readonly FlatTextRun[]): DetectedPdfFont | null 
  * sessions without captured targets are rebuilt without pictures to derive
  * them. White erasures do not request document-wide removal of matching words.
  */
+async function rasterTextRegions(page: import('pdfjs-dist').PDFPageProxy) {
+  const viewport = page.getViewport({ scale: 1 });
+  const content = await page.getTextContent();
+  return content.items.flatMap((item) => {
+    if (!('str' in item) || !item.str.trim()) return [];
+    const [, , , , x, y] = item.transform;
+    const a = viewport.convertToViewportPoint(x, y);
+    const b = viewport.convertToViewportPoint(x + item.width, y + item.height);
+    return [{ text: item.str, box: {
+      x: Math.min(a[0], b[0]) / viewport.width,
+      y: Math.min(a[1], b[1]) / viewport.height,
+      width: Math.abs(b[0] - a[0]) / viewport.width,
+      height: Math.abs(b[1] - a[1]) / viewport.height,
+    } }];
+  });
+}
+
 async function collectRedactionTargets(
   engine: StudioEngine,
   state: ScriptState,
@@ -1512,6 +1530,19 @@ export default function StudioPage() {
           engine, state, redactedPages(state).filter((entry) => entry.page === pageId)
         );
         const redactedWords = priorTargets.flatMap((entry) => entry.words);
+        let priorText: PageRaster['sourceText'] = previous?.sourceText;
+        if (previous && priorText === undefined) {
+          // Upgrade old raster sessions before their remaining live marks are
+          // consumed. Normalized visual coordinates also cover crop/rotation.
+          const bare = { ...state, pages: state.pages.map(page =>
+            page.id === pageId ? { ...page, raster: null } : page) };
+          const legacy = await engine.render(bare);
+          const source = await openPdf(legacy.bytes);
+          try {
+            const index = legacy.placed.indexOf(pageId);
+            if (index !== -1) priorText = await rasterTextRegions(await source.document.getPage(index + 1));
+          } finally { await source.destroy().catch(() => {}); }
+        }
         // Start from the visible page, including earlier erasures and marks.
         // Rebuilding from the original would resurrect content on a second stroke.
         const { bytes, placed } = await engine.render(state);
@@ -1525,15 +1556,19 @@ export default function StudioPage() {
         try {
           const target = await opened.document.getPage(at + 1);
           const viewport = target.getViewport({ scale: RASTER_SCALE });
+          const sourceText = [...(priorText ?? []), ...await rasterTextRegions(target)];
           const strictBoxes = boxes.filter((box) => box.fill !== 'white');
           if (strictBoxes.length > 0) {
-            const content = await target.getTextContent();
-            for (const item of content.items) {
-              if (!('str' in item) || !item.str.trim()) continue;
-              const [, , , , x, y] = item.transform;
-              if (insideAny({ x, y, width: item.width, height: item.height }, strictBoxes)) {
-                redactedWords.push(item.str);
-              }
+            const normalized = strictBoxes.map(box => {
+              const a = viewport.convertToViewportPoint(box.x, box.y);
+              const b = viewport.convertToViewportPoint(box.x + box.width, box.y + box.height);
+              return { x: Math.min(a[0], b[0]) / viewport.width,
+                y: Math.min(a[1], b[1]) / viewport.height,
+                width: Math.abs(b[0] - a[0]) / viewport.width,
+                height: Math.abs(b[1] - a[1]) / viewport.height };
+            });
+            for (const item of sourceText) {
+              if (insideAny(item.box, normalized, 1 / viewport.width)) redactedWords.push(item.text);
             }
           }
 
@@ -1581,6 +1616,7 @@ export default function StudioPage() {
               asset: id,
               boxes: [...(previous?.boxes ?? []), ...boxes],
               redactedWords: [...new Set(redactedWords)],
+              sourceText,
             },
             // Every mark is already in the bitmap. Drawing it again would
             // resurrect erased marks and darken surviving translucent marks.

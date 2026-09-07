@@ -4,6 +4,7 @@ import { materialize } from '@/lib/studio/materialize';
 import { stateAt, type Edit, type PaintedBox } from '@/lib/studio/script';
 import {
   insideAny,
+  allTextIn,
   judgeRedaction,
   redactedPages,
   worthChecking,
@@ -311,6 +312,16 @@ describe('a redacted page in the produced document', () => {
     expect(redactedPages(state)[0].words).toEqual(['CONFIDENCIAL']);
     expect(redactedPages(state)[0].wordsKnown).toBe(true);
     expect(judgeRedaction([{ page: 'o0', words: [...redactedPages(state)[0].words] }], 'CONFIDENCIAL').survivors).not.toHaveLength(0);
+  });
+
+  it('never exports session-only source text provenance into the PDF', async () => {
+    const state = stateAt(2, [{ kind: 'rewritePages', pages: [{ page: 'o0', marks: [], raster: {
+      asset: 'bitmap', boxes: [], sourceText: [{ text: 'SESSION_ONLY_SECRET',
+        box: { x: .1, y: .1, width: .3, height: .1 } }],
+    } }] }], 1);
+    const { bytes } = await materialize({ original: secret, assets: new Map([['bitmap', png]]), state });
+    const pdf = await PDFDocument.load(bytes);
+    expect(allTextIn(pdf)).not.toContain('SESSION_ONLY_SECRET');
   });
 
 });
