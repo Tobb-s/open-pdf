@@ -69,10 +69,9 @@ export const ORIGINAL = 'original';
 /**
  * A region painted over before the page became a picture.
  *
- * `fill` is what separates redacting from erasing, and it is only the colour:
- * both rebuild the page as a bitmap that never held the content, so both really
- * remove it and both are checked the same way at export. Black says «something
- * was here»; white says nothing, which is what an eraser is for.
+ * Both modes remove the selected pixels by rebuilding the page. Black also
+ * requests document-wide verification of removed terms; white is a local
+ * eraser and deliberately allows the same words elsewhere in the document.
  *
  * Optional so a session written before erasing existed still replays: a box
  * with no colour is a redaction, which is all there was.
@@ -84,7 +83,7 @@ export interface PaintedBox extends Rect {
 export interface PageRaster {
   /** The asset holding the rendered, already-painted-out bitmap. */
   asset: string;
-  /** The painted regions, in the page's PDF user space. */
+  /** Historical painted regions; do not repaint them after the page is rebuilt. */
   boxes: readonly PaintedBox[];
   /** Exact visible terms intentionally removed, retained for the export proof. */
   redactedWords?: readonly string[];

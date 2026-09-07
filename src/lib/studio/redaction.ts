@@ -191,12 +191,15 @@ export function allTextIn(document: PDFDocument): string {
 /** The pages a state has painted regions on, with the regions and any remembered targets. */
 export function redactedPages(
   state: ScriptState
-): Array<{ page: string; boxes: readonly Rect[]; words: readonly string[] }> {
+): Array<{ page: string; boxes: readonly Rect[]; words: readonly string[]; wordsKnown: boolean }> {
   return state.pages
-    .filter((page) => page.raster !== null && page.raster.boxes.length > 0)
+    .filter((page) => page.raster !== null &&
+      (page.raster.boxes.some((box) => box.fill !== 'white') ||
+        (page.raster.redactedWords?.length ?? 0) > 0))
     .map((page) => ({
       page: page.id,
-      boxes: page.raster!.boxes,
+      boxes: page.raster!.boxes.filter((box) => box.fill !== 'white'),
       words: page.raster!.redactedWords ?? [],
+      wordsKnown: page.raster!.redactedWords !== undefined,
     }));
 }
