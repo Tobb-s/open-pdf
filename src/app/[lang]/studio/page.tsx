@@ -90,6 +90,7 @@ import {
   type Metadata,
   type MetadataPatch,
   type PaintedBox,
+  type PageRaster,
   type NumberingSpec,
   type ScriptState,
   type SanitizationSpec,
@@ -188,19 +189,36 @@ const sharedSourceFont = (runs: readonly FlatTextRun[]): DetectedPdfFont | null 
 /**
  * Looks for the redacted words in the file that is about to be handed over.
  *
- * The words are re-derived rather than remembered: the document is rebuilt once
- * WITHOUT its pictures, the text inside each painted region is read off that,
- * and then every word of the produced file is searched for it. Re-deriving is
- * what makes this work on a session resumed a day later, and it means the check
- * is against what the page actually said rather than against a note we kept.
+ * New raster edits remember targets before consuming live marks. Legacy
+ * sessions without captured targets are rebuilt without pictures to derive
+ * them. White erasures do not request document-wide removal of matching words.
  */
-async function findSurvivors(
+async function rasterTextRegions(page: import('pdfjs-dist').PDFPageProxy) {
+  const viewport = page.getViewport({ scale: 1 });
+  const content = await page.getTextContent();
+  return content.items.flatMap((item) => {
+    if (!('str' in item) || !item.str.trim()) return [];
+    const [, , , , x, y] = item.transform;
+    const a = viewport.convertToViewportPoint(x, y);
+    const b = viewport.convertToViewportPoint(x + item.width, y + item.height);
+    return [{ text: item.str, box: {
+      x: Math.min(a[0], b[0]) / viewport.width,
+      y: Math.min(a[1], b[1]) / viewport.height,
+      width: Math.abs(b[0] - a[0]) / viewport.width,
+      height: Math.abs(b[1] - a[1]) / viewport.height,
+    } }];
+  });
+}
+
+async function collectRedactionTargets(
   engine: StudioEngine,
   state: ScriptState,
-  painted: ReturnType<typeof redactedPages>,
-  produced: Uint8Array
-): Promise<RedactionVerdict> {
+  painted: ReturnType<typeof redactedPages>
+): Promise<RedactionTarget[]> {
   const targets: RedactionTarget[] = [];
+  if (painted.every((entry) => entry.wordsKnown)) {
+    return painted.map((entry) => ({ page: entry.page, words: [...entry.words] }));
+  }
 
   const bare: ScriptState = {
     ...state,
@@ -210,7 +228,7 @@ async function findSurvivors(
   const source = await openPdf(bytes);
   try {
     for (const entry of painted) {
-      if (entry.words.length > 0) {
+      if (entry.wordsKnown) {
         targets.push({ page: entry.page, words: [...entry.words] });
         continue;
       }
@@ -237,6 +255,16 @@ async function findSurvivors(
     await source.destroy().catch(() => {});
   }
 
+  return targets;
+}
+
+async function findSurvivors(
+  engine: StudioEngine,
+  state: ScriptState,
+  painted: ReturnType<typeof redactedPages>,
+  produced: Uint8Array
+): Promise<RedactionVerdict> {
+  const targets = await collectRedactionTargets(engine, state, painted);
   const opened = await openPdf(produced);
   try {
     let all = '';
@@ -463,6 +491,7 @@ export default function StudioPage() {
     actions: true,
   });
   const [rasterising, setRasterising] = useState(false);
+  const rasterLock = useRef(false);
   /** Set when an export was refused because redacted words survived. */
   const [blocked, setBlocked] = useState<string[] | null>(null);
   /** True when a redaction could not be checked because the page had no text. */
@@ -874,8 +903,9 @@ export default function StudioPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [original, undo, redo, pendingImage, pageCountShown]);
 
-  const addEdit = useCallback((edit: Edit) => {
-    setScript((current) => append(current.edits, current.cursor, edit));
+  const addEdit = useCallback((edit: Edit, expected?: { edits: Edit[]; cursor: number }) => {
+    setScript((current) => expected && current !== expected
+      ? current : append(current.edits, current.cursor, edit));
     setTextSelection(null);
     setParagraphSelection(null);
     setSearchHits([]);
@@ -1055,9 +1085,7 @@ export default function StudioPage() {
     if (tool === 'redact' && action.kind === 'rect') {
       // Added to whatever was already painted out on this page, so a second
       // stroke does not undo the first.
-      const existing = viewPages[pageIndex]?.raster?.boxes ?? [];
       void rasterisePage([
-        ...existing,
         { x: action.x, y: action.y, width: action.width, height: action.height },
       ]);
       return;
@@ -1098,9 +1126,7 @@ export default function StudioPage() {
       // picture that never held what was under the box, so it is really gone —
       // and it costs the same as redacting: that page stops having selectable
       // text. Anything cheaper would only cover it.
-      const existing = viewPages[pageIndex]?.raster?.boxes ?? [];
       void rasterisePage([
-        ...existing,
         {
           x: action.x,
           y: action.y,
@@ -1484,25 +1510,42 @@ export default function StudioPage() {
    * file, and anyone can lift it off. So the page is rendered, the regions are
    * filled on the canvas, and only then does the canvas become the page.
    *
-   * It renders from a version of the document WITHOUT this page's existing
-   * picture, so redacting twice does not photograph a photograph.
+   * It snapshots the visible page, consumes its live marks atomically, and
+   * retains strict redaction targets even across later erasures.
    */
   const rasterisePage = useCallback(
     async (boxes: readonly PaintedBox[]) => {
       const engine = engineRef.current;
       const pageId = pageIdAt(pageIndex);
-      if (!engine || !pageId || !original) return;
+      if (!engine || !pageId || !original || rasterLock.current) return;
 
+      rasterLock.current = true;
       setRasterising(true);
       setError(null);
       try {
-        const bare: ScriptState = {
-          ...state,
-          pages: state.pages.map((page) =>
-            page.id === pageId ? { ...page, raster: null } : page
-          ),
-        };
-        const { bytes, placed } = await engine.render(bare);
+        const previous = state.pages.find((page) => page.id === pageId)?.raster;
+        // Retain strict redaction proof before consuming the live marks. Legacy
+        // sessions derive their targets once; new sessions remember them.
+        const priorTargets = await collectRedactionTargets(
+          engine, state, redactedPages(state).filter((entry) => entry.page === pageId)
+        );
+        const redactedWords = priorTargets.flatMap((entry) => entry.words);
+        let priorText: PageRaster['sourceText'] = previous?.sourceText;
+        if (previous && priorText === undefined) {
+          // Upgrade old raster sessions before their remaining live marks are
+          // consumed. Normalized visual coordinates also cover crop/rotation.
+          const bare = { ...state, pages: state.pages.map(page =>
+            page.id === pageId ? { ...page, raster: null } : page) };
+          const legacy = await engine.render(bare);
+          const source = await openPdf(legacy.bytes);
+          try {
+            const index = legacy.placed.indexOf(pageId);
+            if (index !== -1) priorText = await rasterTextRegions(await source.document.getPage(index + 1));
+          } finally { await source.destroy().catch(() => {}); }
+        }
+        // Start from the visible page, including earlier erasures and marks.
+        // Rebuilding from the original would resurrect content on a second stroke.
+        const { bytes, placed } = await engine.render(state);
         // Same reason as in findSurvivors: the page to photograph is the one
         // the produced document holds under this id, not the one the script
         // counted to.
@@ -1513,6 +1556,21 @@ export default function StudioPage() {
         try {
           const target = await opened.document.getPage(at + 1);
           const viewport = target.getViewport({ scale: RASTER_SCALE });
+          const sourceText = [...(priorText ?? []), ...await rasterTextRegions(target)];
+          const strictBoxes = boxes.filter((box) => box.fill !== 'white');
+          if (strictBoxes.length > 0) {
+            const normalized = strictBoxes.map(box => {
+              const a = viewport.convertToViewportPoint(box.x, box.y);
+              const b = viewport.convertToViewportPoint(box.x + box.width, box.y + box.height);
+              return { x: Math.min(a[0], b[0]) / viewport.width,
+                y: Math.min(a[1], b[1]) / viewport.height,
+                width: Math.abs(b[0] - a[0]) / viewport.width,
+                height: Math.abs(b[1] - a[1]) / viewport.height };
+            });
+            for (const item of sourceText) {
+              if (insideAny(item.box, normalized, 1 / viewport.width)) redactedWords.push(item.text);
+            }
+          }
 
           const canvas = document.createElement('canvas');
           canvas.width = Math.max(1, Math.floor(viewport.width));
@@ -1525,9 +1583,8 @@ export default function StudioPage() {
 
           // The regions, in the same pixels the page was just drawn in. Each in
           // its own colour: black says something was here, white says nothing.
-          // Both are equally gone from the bytes — the page is rebuilt as a
-          // bitmap that never held the content — so both are checked the same
-          // way at export.
+          // Only black regions request document-wide redaction verification;
+          // white regions remove locally, allowing duplicates elsewhere.
           for (const box of boxes) {
             context.fillStyle = box.fill === 'white' ? '#ffffff' : '#000000';
             const a = pdfToViewportPoint(viewport, { x: box.x, y: box.y });
@@ -1553,17 +1610,29 @@ export default function StudioPage() {
           const id = newId();
           engine.putAsset(id, raster);
           setAssets((current) => ({ ...current, [id]: raster }));
-          addEdit({ kind: 'raster', page: pageId, raster: { asset: id, boxes } });
+          addEdit({ kind: 'rewritePages', pages: [{
+            page: pageId,
+            raster: {
+              asset: id,
+              boxes: [...(previous?.boxes ?? []), ...boxes],
+              redactedWords: [...new Set(redactedWords)],
+              sourceText,
+            },
+            // Every mark is already in the bitmap. Drawing it again would
+            // resurrect erased marks and darken surviving translucent marks.
+            marks: [],
+          }] }, script);
         } finally {
           await opened.destroy().catch(() => {});
         }
       } catch (caught) {
         setError(describeStudioError(caught));
       } finally {
+        rasterLock.current = false;
         setRasterising(false);
       }
     },
-    [addEdit, describeStudioError, original, pageIndex, state, pageIdAt]
+    [addEdit, describeStudioError, original, pageIndex, state, pageIdAt, script]
   );
 
   /**
@@ -2484,7 +2553,7 @@ export default function StudioPage() {
               pageIndex={pageIndex}
               zoom={zoom}
               tool={tool}
-              busy={building || replacingText || paragraphBusy || bulkTextBusy}
+              busy={building || rasterising || replacingText || paragraphBusy || bulkTextBusy}
               current={!live || built?.state === state}
               onAction={onStageAction}
               selectedTextId={textSelection?.page === pageIdAt(pageIndex) ? textSelection.selected.id : null}
@@ -3395,7 +3464,7 @@ export default function StudioPage() {
             <div className="space-y-2 border-t pt-4">
               <button
                 type="button"
-                onClick={() => void rasterisePage(viewPages[pageIndex]?.raster?.boxes ?? [])}
+                onClick={() => void rasterisePage([])}
                 disabled={rasterising || building}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50"
               >

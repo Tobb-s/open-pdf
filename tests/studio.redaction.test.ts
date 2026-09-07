@@ -1,9 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { PDFDocument, PDFName, StandardFonts, rgb } from 'pdf-lib';
 import { materialize } from '@/lib/studio/materialize';
-import { stateAt, type Edit } from '@/lib/studio/script';
+import { stateAt, type Edit, type PaintedBox } from '@/lib/studio/script';
 import {
   insideAny,
+  allTextIn,
   judgeRedaction,
   redactedPages,
   worthChecking,
@@ -145,7 +146,7 @@ describe('judgeRedaction', () => {
 });
 
 describe('a redacted page in the produced document', () => {
-  const rasterEdit = (page: string, boxes: Array<{ x: number; y: number; width: number; height: number }>): Edit => ({
+  const rasterEdit = (page: string, boxes: PaintedBox[]): Edit => ({
     kind: 'raster',
     page,
     raster: { asset: 'bitmap', boxes },
@@ -282,6 +283,47 @@ describe('a redacted page in the produced document', () => {
     // prove, so it is not something the export needs to check.
     expect(redactedPages(state).map((entry) => entry.page)).toEqual(['o0']);
   });
+  it('does not demand global removal for a white-only local erasure', () => {
+    const state = stateAt(1, [rasterEdit('o0', [{ x: 1, y: 1, width: 2, height: 2, fill: 'white' }])], 1);
+    expect(redactedPages(state)).toEqual([]);
+  });
+
+  it('keeps black and legacy redactions strict in mixed eraser sessions', () => {
+    const white = { x: 1, y: 1, width: 2, height: 2, fill: 'white' as const };
+    const black = { x: 3, y: 3, width: 2, height: 2 };
+    const state = stateAt(1, [rasterEdit('o0', [white, black])], 1);
+    expect(redactedPages(state)[0]).toEqual({ page: 'o0', boxes: [black], words: [], wordsKnown: false });
+  });
+
+  it('retains captured proof and atomically consumes only the rewritten page marks', () => {
+    const mark = { kind: 'text' as const, id: 'mark', page: 'o0', x: 40, y: 120,
+      text: 'CONFIDENCIAL', size: 18, rotate: 0, font: { family: 'helvetica' as const, bold: false, italic: false }, color: { r: 0, g: 0, b: 0 } };
+    const edits: Edit[] = [
+      { kind: 'draw', mark },
+      { kind: 'draw', mark: { ...mark, id: 'other', page: 'o1' } },
+      { kind: 'rewritePages', pages: [{ page: 'o0', marks: [], raster: {
+        asset: 'bitmap', boxes: [{ x: 1, y: 1, width: 2, height: 2, fill: 'white' }],
+        redactedWords: ['CONFIDENCIAL'],
+      } }] },
+    ];
+    const state = stateAt(2, edits, 3);
+    expect(state.marks.map(mark => mark.id)).toEqual(['other']);
+    expect(stateAt(2, edits, 2).marks).toHaveLength(2);
+    expect(redactedPages(state)[0].words).toEqual(['CONFIDENCIAL']);
+    expect(redactedPages(state)[0].wordsKnown).toBe(true);
+    expect(judgeRedaction([{ page: 'o0', words: [...redactedPages(state)[0].words] }], 'CONFIDENCIAL').survivors).not.toHaveLength(0);
+  });
+
+  it('never exports session-only source text provenance into the PDF', async () => {
+    const state = stateAt(2, [{ kind: 'rewritePages', pages: [{ page: 'o0', marks: [], raster: {
+      asset: 'bitmap', boxes: [], sourceText: [{ text: 'SESSION_ONLY_SECRET',
+        box: { x: .1, y: .1, width: .3, height: .1 } }],
+    } }] }], 1);
+    const { bytes } = await materialize({ original: secret, assets: new Map([['bitmap', png]]), state });
+    const pdf = await PDFDocument.load(bytes);
+    expect(allTextIn(pdf)).not.toContain('SESSION_ONLY_SECRET');
+  });
+
 });
 
 describe('flattening a form', () => {
