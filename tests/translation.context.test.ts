@@ -53,6 +53,14 @@ describe('bounded translation context', () => {
     expect(buildTranslationContext(pages(), [{ id: 'unknown', text: 'x' }])).toEqual([]);
     expect(buildTranslationContext(pages(1), [{ id: 'p1_b1', text: 'Source 1' }])).toEqual([]);
   });
+  it('does not split a surrogate pair when clipping either end of an excerpt', () => {
+    const document = pages(3);
+    document[0].blocks[0].source = '😀' + 'a'.repeat(1199);
+    document[2].blocks[0].source = 'a'.repeat(1199) + '😀';
+    const context = buildTranslationContext(document, [{ id: 'p2_b1', text: 'Source 2' }]);
+    expect(context).toHaveLength(2);
+    expect(context.every(c => c.text.isWellFormed())).toBe(true);
+  });
   it('never uses a requested ID as context even in a sparse recovery batch', () => {
     const targets = [input.segments[0], { id: 'p7_b1', text: 'Source 7' }];
     expect(buildTranslationContext(pages(), targets).every(c => !targets.some(s => s.id === c.id))).toBe(true);

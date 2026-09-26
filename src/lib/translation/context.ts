@@ -25,7 +25,11 @@ export function buildTranslationContext(pages: TranslationPage[], targets: Segme
     const block = blocks[index], accepted = block.translated.trim();
     const limit = Math.min(MAX_CONTEXT_ITEM_CHARS, remaining);
     const sourceLimit = accepted ? Math.floor(limit / 2) : limit;
-    const excerpt = (text: string, count: number) => position === 'after' ? text.slice(0, count) : text.slice(-count);
+    const excerpt = (text: string, count: number) => {
+      const clipped = position === 'after' ? text.slice(0, count) : text.slice(-count);
+      // UTF-16 limits must not leave half a mathematical symbol or emoji at the cut.
+      return position === 'after' ? clipped.replace(/[\uD800-\uDBFF]$/, '') : clipped.replace(/^[\uDC00-\uDFFF]/, '');
+    };
     const text = excerpt(block.source.trim(), sourceLimit).trim();
     const translation = accepted ? excerpt(accepted, limit - text.length).trim() : undefined;
     if (!text) continue;
