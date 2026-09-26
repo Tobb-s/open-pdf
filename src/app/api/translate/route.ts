@@ -25,7 +25,9 @@ export async function POST(request: Request) {
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(100_000)]);
     const translations = await translateWithProvider(input, auth.slice(7), signal,
       { allowedEndpoints: process.env.TRANSLATION_COMPATIBLE_BASE_URLS });
-    return Response.json({ translations }, { headers });
+    const received = new Set(translations.map(s => s.id));
+    const missingIds = input.segments.filter(s => !received.has(s.id)).map(s => s.id);
+    return Response.json({ translations, ...(missingIds.length ? { missingIds } : {}) }, { headers });
   } catch (error) {
     // Never return or log provider bodies, key material, source text or arbitrary exception messages.
     const safe = error instanceof TranslationError ? error : new TranslationError('translation_failed', 500);

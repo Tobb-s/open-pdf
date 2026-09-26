@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { batches, validateRequest, validateTranslations, type TranslationRequest } from '@/lib/translation/contracts';
+import { batches, validateRequest, validateTranslations, validateTranslationResult, type TranslationRequest } from '@/lib/translation/contracts';
 import { fitBlock, groupRuns, isVerticalOcrRun } from '@/lib/translation/layout';
 import { providerUrl, readBounded, translateWithProvider } from '@/lib/translation/provider';
 import { POST } from '@/app/api/translate/route';
@@ -23,6 +23,40 @@ describe('translation contract', () => {
   });
   it('restores source order', () => {
     expect(validateTranslations({ translations: [{ id: 'b', text: 'B' }, { id: 'a', text: 'A' }] }, [{ id: 'a', text: 'a' }, { id: 'b', text: 'b' }]).map(s => s.id)).toEqual(['a', 'b']);
+  });
+  it('recovers 68 of 80 completed segments and reports exactly the missing IDs', () => {
+    const source = Array.from({ length: 80 }, (_, i) => ({ id: `b${i}`, text: `Source ${i}` }));
+    const translated = source.slice(0, 68).map(s => ({ id: s.id, text: `ES ${s.id}` })).reverse();
+    const partial = validateTranslationResult({ translations: translated }, source);
+    expect(partial.translations.map(s => s.id)).toEqual(source.slice(0, 68).map(s => s.id));
+    expect(partial.missingIds).toEqual(source.slice(68).map(s => s.id));
+    expect(() => validateTranslations({ translations: translated }, source)).toThrow('invalid_response');
+  });
+  it('leaves empty translations pending while preserving other valid entries', () => {
+    const source = [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }];
+    expect(validateTranslationResult({ translations: [{ id: 'b', text: '  ' }, { id: 'a', text: ' Hola ' }] }, source))
+      .toEqual({ translations: [{ id: 'a', text: 'Hola' }], missingIds: ['b'] });
+  });
+  it.each([
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'foreign', text: 'extra' }],
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b1', text: '' }],
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b2', text: null }],
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b2', text: 'x'.repeat(48_001) }],
+    [null], [], [{ id: 'p1_b1', text: ' ' }],
+  ].map(translations => ({ translations })))('rejects ambiguous or unusable partial output %#', ({ translations }) => {
+    expect(() => validateTranslationResult({ translations }, [...input.segments, { id: 'p1_b2', text: 'More source' }]))
+      .toThrow('invalid_response');
+  });
+  it('computes missing IDs independently of untrusted completion metadata', () => {
+    expect(validateTranslationResult({ ...result, missingIds: ['p1_b1'] }, input.segments).missingIds).toEqual([]);
+  });
+  it.each([1, 2, 20, 80])('splits recovery batches at %i blocks without loss', limit => {
+    const source = Array.from({ length: 85 }, (_, i) => ({ id: `b${i}`, text: 'text' }));
+    const groups = batches(source, limit);
+    expect(groups.flat()).toEqual(source); expect(groups.every(g => g.length <= limit)).toBe(true);
+  });
+  it.each([0, 81, 1.5, NaN])('rejects invalid recovery limit %s', limit => {
+    expect(() => batches(input.segments, limit)).toThrow('invalid_request');
   });
   it('bounds batches without dropping blocks', () => {
     const source = Array.from({ length: 201 }, (_, i) => ({ id: `${i}`, text: 'a'.repeat(310) }));
@@ -55,6 +89,25 @@ describe('provider and route security', () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ status: 'incomplete', output: [] }));
     await expect(translateWithProvider(input, 'key', new AbortController().signal, { fetch: fetcher })).rejects.toThrow('invalid_response');
   });
+  it('salvages a completed partial provider response without another billable request', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response());
+    expect(await translateWithProvider({ ...input, segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] },
+      'key', new AbortController().signal, { fetch: fetcher })).toEqual(result.translations);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(['gemini', 'compatible'] as const)('rejects parseable but token-truncated %s output', async provider => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify(result) } }] }));
+    await expect(translateWithProvider({ ...input, provider, baseUrl: 'https://openrouter.ai/api/v1' }, 'key',
+      new AbortController().signal, { fetch: fetcher })).rejects.toThrow('invalid_response');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(['gemini', 'compatible'] as const)('recovers completed partial %s output', async provider => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(result) } }] }));
+    expect(await translateWithProvider({ ...input, provider, baseUrl: 'https://openrouter.ai/api/v1',
+      segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] }, 'key', new AbortController().signal,
+    { fetch: fetcher })).toEqual(result.translations);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it('limits bodies without content-length', async () => {
     await expect(readBounded(new Response('abcdef').body, 5)).rejects.toThrow('payload_too_large');
   });
@@ -80,6 +133,12 @@ describe('provider and route security', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response()));
     const r = await POST(request()); expect(r.status).toBe(200); expect(await r.json()).toEqual(result);
     expect(r.headers.get('cache-control')).toBe('no-store');
+  });
+  it('returns valid partial entries and missing IDs without retrying at the proxy', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response()); vi.stubGlobal('fetch', fetcher);
+    const r = await POST(request({}, { ...input, segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] }));
+    expect(r.status).toBe(200); expect(await r.json()).toEqual({ ...result, missingIds: ['p1_b2'] });
+    expect(r.headers.get('cache-control')).toBe('no-store'); expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
 describe('layout safety', () => {

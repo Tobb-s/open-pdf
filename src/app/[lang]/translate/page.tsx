@@ -5,7 +5,7 @@ import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import TranslationPreview from '@/components/TranslationPreview';
 import { useI18n } from '@/lib/i18n/context';
 import { downloadBlob, derivedFileName } from '@/lib/files';
-import { batches, TranslationError, validateTranslations, type TranslationProvider } from '@/lib/translation/contracts';
+import { batches, MAX_SEGMENTS, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
 import { pendingSegments, type TranslationBlock, type TranslationPage } from '@/lib/translation/layout';
 import { translationCopy } from '@/lib/translation/copy';
 import { analyzeTranslation, checkTranslationLayout, exportTranslation, type LayoutIssue } from '@/lib/translation/document';
@@ -24,6 +24,7 @@ export default function TranslatePage() {
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState('');
   const [pageIndex, setPageIndex] = useState(0), [issues, setIssues] = useState<LayoutIssue[]>([]);
   const [output, setOutput] = useState<Uint8Array>();
+  const [batchLimit, setBatchLimit] = useState(MAX_SEGMENTS);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const current = pages[pageIndex], pending = pendingSegments(pages).length;
@@ -45,7 +46,7 @@ export default function TranslatePage() {
   function analyze() {
     if (!file) return;
     void run(async signal => {
-      invalidate(); setPages([]); setComplete(false); setPageIndex(0);
+      invalidate(); setPages([]); setComplete(false); setPageIndex(0); setBatchLimit(MAX_SEGMENTS);
       if (file.size > 50 * 1024 * 1024) throw new TranslationError('file_too_large');
       const bytes = new Uint8Array(await file.arrayBuffer()); setSource(bytes);
       await analyzeTranslation(bytes, { forceOcr, signal,
@@ -58,21 +59,34 @@ export default function TranslatePage() {
   function translate() {
     void run(async signal => {
       invalidate();
-      const groups = batches(pendingSegments(pages));
+      const groups = batches(pendingSegments(pages), batchLimit);
       for (let i = 0; i < groups.length; i++) {
         signal.throwIfAborted(); setProgress(`${c.translateProgress} ${i + 1}/${groups.length}`);
-        const response = await fetch('/api/translate', { method: 'POST', cache: 'no-store',
-          signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}` },
-          body: JSON.stringify({ provider, model: model.trim(), baseUrl: provider === 'compatible' ? baseUrl.trim() : undefined,
-            glossary, consent, segments: groups[i] }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new TranslationError(typeof data.error === 'string' ? data.error : 'translation_failed');
-        const translations = new Map(validateTranslations(data, groups[i]).map(s => [s.id, s.text]));
-        signal.throwIfAborted();
-        setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => translations.has(b.id)
-          ? { ...b, translated: translations.get(b.id)! } : b) })));
+        try {
+          const response = await fetch('/api/translate', { method: 'POST', cache: 'no-store',
+            signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}` },
+            body: JSON.stringify({ provider, model: model.trim(), baseUrl: provider === 'compatible' ? baseUrl.trim() : undefined,
+              glossary, consent, segments: groups[i] }),
+          });
+          let data;
+          try { data = await response.json(); }
+          catch { throw new TranslationError('invalid_response'); }
+          if (!response.ok) throw new TranslationError(typeof data?.error === 'string' ? data.error : 'translation_failed');
+          // Recompute missing IDs locally; never trust provider-supplied completion metadata.
+          const result = validateTranslationResult(data, groups[i]);
+          const translations = new Map(result.translations.map(s => [s.id, s.text]));
+          signal.throwIfAborted();
+          setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => translations.has(b.id) && !b.translated.trim()
+            ? { ...b, translated: translations.get(b.id)! } : b) })));
+          if (result.missingIds.length) throw new TranslationError('partial_response');
+        } catch (e) {
+          if (!signal.aborted && e instanceof TranslationError &&
+              ['invalid_response', 'partial_response'].includes(e.code)) {
+            setBatchLimit(old => Math.min(old, Math.max(1, Math.floor(groups[i].length / 2))));
+          }
+          throw e;
+        }
       }
     });
   }
@@ -94,7 +108,7 @@ export default function TranslatePage() {
     </details>
     <section className="space-y-3 rounded-xl border p-4">
       <FileDropzone inputId="translate-file-input" kind={PDF_FILES} disabled={busy} className="rounded-lg border-2 border-dashed p-6 text-center" onFilesSelected={files => {
-        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); invalidate();
+        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); setBatchLimit(MAX_SEGMENTS); invalidate();
       }}>{file?.name ?? t.common.choosePdf}</FileDropzone>
       <p className="text-sm text-gray-600">{c.analyzeHelp}</p>
       <label className="flex gap-2 text-sm"><input type="checkbox" checked={forceOcr} disabled={busy} onChange={e => setForceOcr(e.target.checked)} />{c.force}</label>
@@ -119,6 +133,7 @@ export default function TranslatePage() {
       {busy && <button className="rounded-lg border px-4 py-2" onClick={() => controller.current?.abort()}>{c.cancel}</button>}
     </div>
     <p role="status" className="text-sm">{progress || (pages.length ? `${pending} ${c.pending}` : '')}</p>
+    {batchLimit < MAX_SEGMENTS && <p className="text-sm text-amber-800">{c.recovery} {batchLimit} {c.recoveryLimit}</p>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">{error}<p>{c.kept}</p></div>}
     {current && <section className="space-y-4">
       <div className="flex gap-3"><h2 className="text-xl font-medium">{c.review}</h2>

@@ -44,31 +44,43 @@ export function validateRequest(value: unknown): TranslationRequest {
     baseUrl: v.baseUrl as string | undefined, consent: true, segments };
 }
 
-/** Fail closed on missing/duplicate/foreign IDs, empty, truncated or enormous output. */
-export function validateTranslations(value: unknown, source: Segment[]): Segment[] {
+/** Salvage only unambiguous entries in a completed, parsed response. Never guess IDs. */
+export function validateTranslationResult(value: unknown, source: Segment[]) {
   const raw = (value as { translations?: unknown })?.translations;
-  if (!Array.isArray(raw) || raw.length !== source.length) throw new TranslationError('invalid_response', 502);
+  if (!Array.isArray(raw) || raw.length > source.length) throw new TranslationError('invalid_response', 502);
+  const expected = new Set(source.map(s => s.id)), seen = new Set<string>();
   const map = new Map<string, string>();
   for (const item of raw) {
     if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' ||
-        !item.text.trim() || item.text.length > MAX_BATCH_CHARS * 4 || map.has(item.id)) {
+        !expected.has(item.id) || item.text.length > MAX_BATCH_CHARS * 4 || seen.has(item.id)) {
       throw new TranslationError('invalid_response', 502);
     }
-    map.set(item.id, item.text.trim());
+    seen.add(item.id);
+    if (item.text.trim()) map.set(item.id, item.text.trim());
   }
-  return source.map(s => {
-    const text = map.get(s.id);
-    if (!text) throw new TranslationError('invalid_response', 502);
-    return { id: s.id, text };
-  });
+  if (!map.size) throw new TranslationError('invalid_response', 502);
+  return {
+    translations: source.filter(s => map.has(s.id)).map(s => ({ id: s.id, text: map.get(s.id)! })),
+    missingIds: source.filter(s => !map.has(s.id)).map(s => s.id),
+  };
 }
 
-export function batches(segments: Segment[]): Segment[][] {
+/** Strict validation remains available for callers requiring complete output. */
+export function validateTranslations(value: unknown, source: Segment[]): Segment[] {
+  const result = validateTranslationResult(value, source);
+  if (result.missingIds.length) throw new TranslationError('invalid_response', 502);
+  return result.translations;
+}
+
+export function batches(segments: Segment[], maxSegments = MAX_SEGMENTS): Segment[][] {
+  if (!Number.isInteger(maxSegments) || maxSegments < 1 || maxSegments > MAX_SEGMENTS) {
+    throw new TranslationError('invalid_request');
+  }
   const result: Segment[][] = [];
   let current: Segment[] = [], count = 0;
   for (const segment of segments) {
     if (!segment.text.trim() || segment.text.length > MAX_BATCH_CHARS) throw new TranslationError('batch_too_large');
-    if (current.length && (count + segment.text.length > MAX_BATCH_CHARS || current.length >= MAX_SEGMENTS)) {
+    if (current.length && (count + segment.text.length > MAX_BATCH_CHARS || current.length >= maxSegments)) {
       result.push(current); current = []; count = 0;
     }
     current.push(segment); count += segment.text.length;

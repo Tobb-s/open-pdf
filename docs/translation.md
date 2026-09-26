@@ -5,7 +5,11 @@
 1. Abrir `/es/translate`, elegir un PDF en inglés y analizarlo localmente.
 2. Revisar el texto detectado por página. Corregir errores de OCR antes de enviar.
 3. Elegir proveedor/modelo, ingresar una clave propia y aceptar el envío y los costos.
-4. Traducir pendientes. Si falla un lote, los anteriores quedan en memoria; no hay reintentos automáticos cobrables.
+4. Traducir pendientes. Se conservan los bloques válidos de respuestas terminadas, incluso si
+   faltan otros o llegan vacíos. Se informa la falla y se detiene el proceso; no hay reintentos automáticos cobrables.
+   Volver a pulsar «Traducir pendientes» envía sólo lo que falta, sin pisar las traducciones ya recibidas
+   ni las correcciones del usuario. Ante salida incompleta o inválida, el próximo intento manual usa
+   lotes con hasta la mitad de bloques del lote fallido (mínimo uno), manteniendo el límite de caracteres.
 5. Revisar y corregir el español, generar la vista previa y descargar un PDF nuevo.
 
 El original nunca se modifica. Una edición invalida la vista previa para no descargar una versión vieja.
@@ -38,6 +42,10 @@ al cambiar modelo o glosario: vaciar su traducción para volver a incluirlos en 
   de accesibilidad no se conservan. No usar esto como herramienta de censura o saneamiento.
 - La validación estructural detecta IDs faltantes/duplicados y respuestas truncadas; no demuestra
   fidelidad semántica. Revisión humana necesaria, especialmente en documentos sensibles.
+  Respuestas truncadas por tokens, JSON inválido e IDs duplicados o ajenos se rechazan sin aplicar
+  ese lote. Sólo se recuperan entradas no vacías de una respuesta JSON terminada y sin IDs ambiguos.
+  Un bloque individual demasiado largo no se divide automáticamente; la recuperación no garantiza
+  que el proveedor complete todos los pendientes. El límite reducido se reinicia al cargar o analizar un PDF.
 
 ## Proveedores y privacidad
 

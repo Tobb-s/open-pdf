@@ -1,5 +1,5 @@
 // Server-only by architecture: imported by the route and Node tests, never by client components.
-import { TranslationError, TRANSLATION_SCHEMA, validateTranslations, type TranslationRequest } from './contracts';
+import { TranslationError, TRANSLATION_SCHEMA, validateTranslationResult, type TranslationRequest } from './contracts';
 
 const SYSTEM = `You are a professional English-to-Argentine-Spanish translator (es-AR).
 Translate ALL supplied segments faithfully without summarizing, omitting or inventing content.
@@ -86,6 +86,6 @@ export async function translateWithProvider(request: TranslationRequest, key: st
       if (choice?.finish_reason !== 'stop' || choice.message?.refusal) throw new Error();
       text = choice.message.content;
     }
-    return validateTranslations(JSON.parse(text), request.segments);
+    return validateTranslationResult(JSON.parse(text), request.segments).translations;
   } catch { throw new TranslationError('invalid_response', 502); }
 }

@@ -65,6 +65,95 @@ test('bad provider response keeps original and permits retry', async ({ page }) 
   await page.getByRole('button', { name: 'Traducir pendientes' }).click();
   await expect(page.getByLabel('Español argentino p1_b1')).not.toHaveValue('');
 });
+
+test('partial completion keeps valid blocks and retries only pending blocks in smaller batches', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 4); await credentials(page);
+  const calls: string[][] = [];
+  await page.route('**/api/translate', route => {
+    const segments = route.request().postDataJSON().segments as { id: string }[];
+    calls.push(segments.map(s => s.id));
+    return route.fulfill({ json: { translations: (calls.length === 1 ? segments.slice(0, 1) : segments)
+      .map(s => ({ id: s.id, text: `Traducción ${s.id}` })), missingIds: [] } });
+  });
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Se conservaron los válidos' })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('3 bloques pendientes');
+  await expect(page.getByText(/Recuperación manual:/)).toContainText('hasta 2 bloques');
+  expect(calls).toEqual([['p1_b1', 'p2_b1', 'p3_b1', 'p4_b1']]);
+  await expect(page.getByRole('button', { name: 'Generar vista previa del PDF' })).toBeDisabled();
+  // A user's correction must survive recovery of other blocks.
+  await page.getByLabel('Español argentino p1_b1').fill('Traducción revisada por el usuario.');
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  expect(calls).toEqual([['p1_b1', 'p2_b1', 'p3_b1', 'p4_b1'], ['p2_b1', 'p3_b1'], ['p4_b1']]);
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('Traducción revisada por el usuario.');
+  await expect(page.getByRole('button', { name: 'Generar vista previa del PDF' })).toBeEnabled();
+  await page.getByLabel('Página', { exact: true }).selectOption('3');
+  await expect(page.getByLabel('Español argentino p4_b1')).toHaveValue('Traducción p4_b1');
+  // New analysis clears recovery limits and stale errors.
+  await native(page);
+  await expect(page.getByText(/Recuperación manual:/)).not.toBeVisible();
+});
+
+test('ambiguous IDs apply nothing and manual recovery splits the rejected batch', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 3); await credentials(page);
+  const calls: string[][] = [];
+  await page.route('**/api/translate', route => {
+    const segments = route.request().postDataJSON().segments as { id: string }[];
+    calls.push(segments.map(s => s.id));
+    return route.fulfill({ json: { translations: (calls.length === 1 ? [segments[0], segments[0]] : segments)
+      .map(s => ({ id: s.id, text: 'Texto válido pero ambiguo.' })) } });
+  });
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'No se aplicó ese lote' })).toBeVisible();
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('');
+  await expect(page.getByRole('status')).toHaveText('3 bloques pendientes');
+  expect(calls).toHaveLength(1);
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  expect(calls).toEqual([['p1_b1', 'p2_b1', 'p3_b1'], ['p1_b1'], ['p2_b1'], ['p3_b1']]);
+});
+
+test('cancelling recovery retains earlier accepted blocks and sends only the remainder next time', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 3); await credentials(page);
+  const calls: string[][] = [];
+  let delayed = false;
+  await page.route('**/api/translate', async route => {
+    const segments = route.request().postDataJSON().segments as { id: string }[];
+    calls.push(segments.map(s => s.id));
+    if (calls.length === 3) {
+      delayed = true; await new Promise(resolve => setTimeout(resolve, 2000));
+      await route.abort().catch(() => {}); return;
+    }
+    await route.fulfill({ json: { translations: (calls.length === 1 ? segments.slice(0, 1) : segments)
+      .map(s => ({ id: s.id, text: `Aceptado ${s.id}` })) } });
+  });
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('2 bloques pendientes');
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect.poll(() => delayed).toBe(true);
+  await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Traducir pendientes' })).toBeEnabled();
+  await expect(page.getByRole('status')).toHaveText('1 bloques pendientes');
+  await page.getByLabel('Página', { exact: true }).selectOption('1');
+  await expect(page.getByLabel('Español argentino p2_b1')).toHaveValue('Aceptado p2_b1');
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  expect(calls).toEqual([['p1_b1', 'p2_b1', 'p3_b1'], ['p2_b1'], ['p3_b1'], ['p3_b1']]);
+});
+
+test('quota errors do not schedule automatic recovery requests', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 2); await credentials(page);
+  let calls = 0;
+  await page.route('**/api/translate', route => {
+    calls++; return route.fulfill({ status: 502, json: { error: 'provider_quota' } });
+  });
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'No se reintentó automáticamente' })).toBeVisible();
+  await expect(page.getByRole('status')).toHaveText('2 bloques pendientes');
+  await expect(page.getByText(/Recuperación manual:/)).not.toBeVisible();
+  expect(calls).toBe(1);
+});
 test('overflow and unsupported glyphs cannot produce a clipped PDF', async ({ page }) => {
   await page.goto('/es/translate'); await native(page);
   await page.getByLabel('Español argentino p1_b1').fill('Texto '.repeat(200));
