@@ -66,6 +66,78 @@ test('bad provider response keeps original and permits retry', async ({ page }) 
   await expect(page.getByLabel('Español argentino p1_b1')).not.toHaveValue('');
 });
 
+test('readable export keeps complete text, images, minimum body size and source/output navigation', async ({ page }, testInfo) => {
+  await page.goto('/es/translate'); await native(page, 2);
+  const translation = 'La inversión y la educación mejoran la productividad económica. '.repeat(140) + 'MARCAFINAL';
+  await page.getByLabel('Español argentino p1_b1').fill(translation);
+  await page.getByLabel('Página', { exact: true }).selectOption('1');
+  await page.getByLabel('Español argentino p2_b1').fill('Segunda página.');
+  await page.getByLabel('Formato de salida').selectOption('readable');
+  await page.getByRole('button', { name: 'Generar vista previa del PDF' }).click();
+  const downloadButton = page.getByRole('button', { name: 'Descargar PDF traducido' });
+  await expect(downloadButton).toBeVisible({ timeout: 30_000 });
+  const download = page.waitForEvent('download'); await downloadButton.click();
+  const file = testInfo.outputPath('readable.pdf'); await (await download).saveAs(file);
+  const bytes = await readFile(file), doc = await PDFDocument.load(bytes);
+  const count = doc.getPageCount(); expect(count).toBeGreaterThan(3);
+  expect(doc.getPage(0).getSize()).toEqual({ width: 400, height: 436 });
+  expect(doc.getPage(count - 1).getSize()).toEqual({ width: 400, height: 400 });
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const loading = pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
+  const pdf = await loading.promise; const body: string[] = [];
+  try {
+    for (let n = 2; n < count; n++) {
+      const items = (await (await pdf.getPage(n)).getTextContent()).items;
+      for (const item of items) if ('str' in item && item.str && !/^(Traducción -|p1_b1|OpenPDF -)/.test(item.str)) {
+        expect(Math.hypot(item.transform[0], item.transform[1])).toBeGreaterThanOrEqual(11);
+        expect(item.transform[4]).toBeGreaterThanOrEqual(36);
+        expect(item.transform[4] + item.width).toBeLessThanOrEqual(364.1);
+        body.push(item.str);
+      }
+    }
+    expect(body.join(' ').replace(/\s+/g, ' ').trim()).toBe(translation.trim());
+  } finally { await loading.destroy(); }
+  const selector = page.getByLabel('Página del PDF generado');
+  await expect(selector.locator('option')).toHaveCount(count);
+  await expect(selector).toHaveValue(String(count));
+  await page.getByLabel('Página', { exact: true }).selectOption('0');
+  await expect(selector).toHaveValue('1');
+  const canvas = page.getByLabel('Resultado generado', { exact: true });
+  await expect(canvas).toHaveAttribute('data-rendered-page', '1');
+  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.height / c.width)).toBeCloseTo(436 / 400, 2);
+  const pixel = await canvas.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(c.width * .375, c.height * (436 - 130) / 436, 1, 1).data]);
+  expect(pixel[2]).toBeGreaterThan(200); expect(pixel[0]).toBeLessThan(20);
+  await canvas.screenshot({ path: testInfo.outputPath('readable-source.png') });
+  await selector.selectOption('2');
+  await expect(canvas).toHaveAttribute('data-rendered-page', '2');
+  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.height / c.width)).toBeCloseTo(1, 2);
+  await canvas.screenshot({ path: testInfo.outputPath('readable-continuation.png') });
+  await selector.selectOption(String(count - 1));
+  await expect(canvas).toHaveAttribute('data-rendered-page', String(count - 1));
+  await canvas.screenshot({ path: testInfo.outputPath('readable-final-continuation.png') });
+  await page.getByLabel('Formato de salida').selectOption('preserve');
+  await expect(downloadButton).not.toBeVisible();
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue(translation);
+});
+
+test('readable mode keeps short text in place and still rejects unsupported characters', async ({ page }, testInfo) => {
+  await page.goto('/es/translate'); await native(page);
+  await page.getByLabel('Formato de salida').selectOption('readable');
+  await expect(page.getByRole('button', { name: 'Generar vista previa del PDF' })).toBeDisabled();
+  await page.getByLabel('Español argentino p1_b1').fill('Texto 漢');
+  await page.getByRole('button', { name: 'Generar vista previa del PDF' }).click();
+  await expect(page.getByText(/Hay caracteres que la fuente/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Descargar PDF traducido' })).not.toBeVisible();
+  await page.getByLabel('Español argentino p1_b1').fill('Crecimiento económico.');
+  await page.getByRole('button', { name: 'Generar vista previa del PDF' }).click();
+  const button = page.getByRole('button', { name: 'Descargar PDF traducido' });
+  await expect(button).toBeVisible();
+  const download = page.waitForEvent('download'); await button.click();
+  const file = testInfo.outputPath('readable-short.pdf'); await (await download).saveAs(file);
+  const doc = await PDFDocument.load(await readFile(file));
+  expect(doc.getPageCount()).toBe(1); expect(doc.getPage(0).getSize()).toEqual({ width: 400, height: 400 });
+});
+
 test('partial completion keeps valid blocks and retries only pending blocks in smaller batches', async ({ page }) => {
   await page.goto('/es/translate'); await native(page, 4); await credentials(page);
   const calls: string[][] = [];

@@ -12,7 +12,7 @@
    Volver a pulsar «Traducir pendientes» envía sólo lo que falta, sin pisar las traducciones ya recibidas
    ni las correcciones del usuario. Ante salida incompleta o inválida, el próximo intento manual usa
    lotes con hasta la mitad de bloques del lote fallido (mínimo uno), manteniendo el límite de caracteres.
-5. Revisar y corregir el español, generar la vista previa y descargar un PDF nuevo.
+5. Revisar y corregir el español, elegir formato de salida, generar la vista previa y descargar un PDF nuevo.
 
 El original nunca se modifica. Una edición invalida la vista previa para no descargar una versión vieja.
 Los resultados y la clave viven sólo en memoria: cerrar/recargar la pestaña los pierde.
@@ -40,6 +40,25 @@ semántica ni garantiza que no repita texto de contexto con un ID solicitado. Re
 
 ## Alcance y límites
 
+### Formatos de salida
+
+«Conservar distribución original» mantiene el tamaño de página y las cajas detectadas: si el
+texto no entra a 7 pt o más, informa desborde y no exporta. Sigue siendo el modo predeterminado.
+
+«Lectura cómoda con continuaciones» mantiene el texto que entra en sus cajas a 11 pt o más.
+Si cualquier bloque incluido desborda, mueve **todos los bloques incluidos de esa página** a
+páginas adicionales, respetando su orden detectado. El cuerpo usa entre 11 y 18 pt, márgenes
+de 36 pt y la familia/estilo estándar aproximados. No abrevia ni recorta contenido; los tokens
+largos se dividen por caracteres Unicode sin insertar guiones. Los IDs indican el bloque de origen.
+
+La página de origen queda como lámina visual, con imágenes y texto excluido/no detectado, y una
+banda superior de 36 pt que indica dónde leer su traducción. Las figuras no se redistribuyen entre
+párrafos. Las páginas de lectura usan como mínimo 300 × 400 pt. El selector de resultado recorre
+todas las páginas generadas; cambiar la página de origen salta a su lámina correspondiente.
+Cambiar de modo invalida la vista previa, sin perder traducciones. Máximo: 500 páginas generadas.
+Las traducciones faltantes o los caracteres incompatibles siguen bloqueando la exportación.
+Este reflujo no reconstruye columnas, tablas o fórmulas ni corrige el OCR o el orden de lectura.
+
 - Destino: español argentino; registro fiel al original, sin regionalismos forzados.
 - Texto nativo con coordenadas o Tesseract local en inglés, modo profundo. Forzar OCR permite
   inspeccionar páginas mixtas y rótulos en imágenes. La confianza OCR no mide exactitud.
@@ -47,7 +66,7 @@ semántica ni garantiza que no repita texto de contexto con un ID solicitado. Re
   El tamaño se estima con varias palabras de cada línea; es una aproximación, no detección
   de la fuente original. Los huecos grandes siguen separados; no se garantiza el orden entre columnas.
 - Hasta 50 MB y 100 páginas. Lotes de hasta 12.000 caracteres y 80 bloques.
-- Tamaño de página y posición visual de imágenes conservados mediante fondo PNG (hasta 144 dpi,
+- Posición visual de imágenes conservada en la lámina de origen mediante fondo PNG (hasta 144 dpi,
   limitado a 8 MP/página). No se conservan imágenes como objetos independientes/vectoriales.
 - Traducción seleccionable en fuentes PDF estándar, aproximando serif/sans/mono, negrita y cursiva.
   No se conserva la fuente incrustada exacta, color ni estilos internos mixtos.
@@ -57,7 +76,7 @@ semántica ni garantiza que no repita texto de contexto con un ID solicitado. Re
   orientarlo primero en Studio. Las páginas sin texto se mantienen visualmente.
   Los rótulos OCR estrechos y altos se detectan mediante una heurística geométrica: revisar
   los avisos, porque no es un reconocimiento completo de orientación por región.
-- No se recorta ni abrevia una traducción para que entre. Por debajo de 7 pt se informa desborde.
+- No se recorta ni abrevia una traducción para que entre. En el modo original, por debajo de 7 pt se informa desborde.
   Corregir el texto sin perder contenido o desmarcar el bloque (conserva el original).
 - Firmas digitales, formularios, anotaciones interactivas, vínculos, marcadores, capas y estructura
   de accesibilidad no se conservan. No usar esto como herramienta de censura o saneamiento.
@@ -104,6 +123,6 @@ Fuentes de contrato consultadas:
 
 ## Evolución recomendada
 
-Preservación vectorial y reutilización de fuentes completas, reflujo con páginas de continuación,
+Preservación vectorial y reutilización de fuentes completas, reflujo integrado con figuras,
 OCR regional y clasificación de fórmulas/tablas, evaluación de coherencia del glosario entre lotes, evaluación humana
 de traducción técnica y checkpoints descargables sin incluir credenciales.

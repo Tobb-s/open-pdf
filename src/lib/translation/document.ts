@@ -7,6 +7,7 @@ import { detectPdfFonts } from '@/lib/studio/fonts';
 import { savePdf } from '@/lib/pdfio';
 import { fitBlock, groupRuns, isVerticalOcrRun, type TranslationPage, type TextRun, type TranslationBlock } from './layout';
 import { TranslationError } from './contracts';
+import { MAX_TRANSLATION_PAGES, READING_HEADER_HEIGHT, planReadingSheets, type ReadingSheet, type TranslationExportMode } from './reading';
 
 export async function analyzeTranslation(source: Uint8Array, options: {
   forceOcr: boolean; signal: AbortSignal; progress: (page: number, total: number) => void;
@@ -92,25 +93,47 @@ function standardFace(name: string): StandardFonts {
 }
 
 export interface LayoutIssue { id: string; page: number; reason: 'overflow' | 'unsupported_characters' | 'missing_translation' }
-async function plansFor(pages: TranslationPage[], document: PDFDocument) {
+async function plansFor(pages: TranslationPage[], document: PDFDocument, mode: TranslationExportMode = 'preserve') {
+  if (!['preserve', 'readable'].includes(mode)) throw new TranslationError('invalid_request');
   const fonts = new Map<string, PDFFont>();
   const plans = new Map<string, { font: PDFFont; fit: NonNullable<ReturnType<typeof fitBlock>> }>();
   const issues: LayoutIssue[] = [];
-  for (const page of pages) for (const block of page.blocks.filter(b => b.included)) {
-    if (!block.translated.trim()) { issues.push({ id: block.id, page: page.number, reason: 'missing_translation' }); continue; }
-    const face = standardFace(block.font);
-    let font = fonts.get(face);
-    if (!font) { font = await document.embedFont(face); fonts.set(face, font); }
-    try {
-      const fit = fitBlock(block.translated, block, block.size, (text, size) => font.widthOfTextAtSize(text, size));
-      if (fit) plans.set(block.id, { font, fit });
-      else issues.push({ id: block.id, page: page.number, reason: 'overflow' });
-    } catch { issues.push({ id: block.id, page: page.number, reason: 'unsupported_characters' }); }
+  const reading = new Map<number, ReadingSheet[]>();
+  let totalPages = pages.length;
+  for (const page of pages) {
+    let needsReading = false;
+    const startIssues = issues.length;
+    for (const block of page.blocks.filter(b => b.included)) {
+      if (!block.translated.trim()) { issues.push({ id: block.id, page: page.number, reason: 'missing_translation' }); continue; }
+      const face = standardFace(block.font);
+      let font = fonts.get(face);
+      if (!font) { font = await document.embedFont(face); fonts.set(face, font); }
+      try {
+        // Validate the whole block even if its original box is too small to attempt wrapping.
+        font.encodeText(block.translated.replace(/\s/g, ' '));
+        const preferred = mode === 'readable' ? Math.max(11, Math.min(18, block.size)) : block.size;
+        const fit = fitBlock(block.translated, block, preferred, (text, size) => font.widthOfTextAtSize(text, size), mode === 'readable' ? 11 : 7);
+        if (fit) plans.set(block.id, { font, fit });
+        else if (mode === 'readable') needsReading = true;
+        else issues.push({ id: block.id, page: page.number, reason: 'overflow' });
+      } catch { issues.push({ id: block.id, page: page.number, reason: 'unsupported_characters' }); }
+    }
+    if (needsReading && issues.length === startIssues) {
+      try {
+        const sheets = planReadingSheets(page, (text, size, name) => fonts.get(standardFace(name))!.widthOfTextAtSize(text, size));
+        totalPages += sheets.length;
+        if (totalPages > MAX_TRANSLATION_PAGES) throw new TranslationError('output_too_large');
+        reading.set(page.number, sheets);
+      } catch (error) {
+        if (error instanceof TranslationError) throw error;
+        issues.push({ id: page.blocks.find(b => b.included)!.id, page: page.number, reason: 'unsupported_characters' });
+      }
+    }
   }
-  return { plans, issues };
+  return { plans, issues, reading, fonts };
 }
-export async function checkTranslationLayout(pages: TranslationPage[]) {
-  return (await plansFor(pages, await PDFDocument.create())).issues;
+export async function checkTranslationLayout(pages: TranslationPage[], mode: TranslationExportMode = 'preserve') {
+  return (await plansFor(pages, await PDFDocument.create(), mode)).issues;
 }
 
 /** Sample the line border; use median to avoid a single dark glyph skewing the fill. */
@@ -127,9 +150,10 @@ function background(ctx: CanvasRenderingContext2D, b: TranslationBlock, sx: numb
 
 /** New PDF only. Original remains untouched. Raster backgrounds retain visual image placement. */
 export async function exportTranslation(source: Uint8Array, pages: TranslationPage[], signal: AbortSignal,
-  progress: (page: number) => void) {
+  progress: (page: number) => void, options: { mode?: TranslationExportMode;
+    complete?: (layout: { pageCount: number; sourcePages: number[] }) => void } = {}) {
   const output = await PDFDocument.create();
-  const { plans, issues } = await plansFor(pages, output);
+  const { plans, issues, reading, fonts } = await plansFor(pages, output, options.mode);
   if (issues.length) throw new TranslationError('layout_issues');
   const pdf = await openPdf(source);
   try {
@@ -137,6 +161,9 @@ export async function exportTranslation(source: Uint8Array, pages: TranslationPa
       throw new TranslationError('analysis_incomplete');
     }
     let totalImageBytes = 0;
+    const sourcePages: number[] = [];
+    const navigationFont = await output.embedFont(StandardFonts.Helvetica);
+    const labelFont = await output.embedFont(StandardFonts.HelveticaBold);
     for (const info of pages) {
       signal.throwIfAborted(); progress(info.number);
       const page = await pdf.document.getPage(info.number);
@@ -156,9 +183,37 @@ export async function exportTranslation(source: Uint8Array, pages: TranslationPa
         totalImageBytes += blob.size;
         if (totalImageBytes > 150 * 1024 * 1024) throw new TranslationError('output_too_large');
         const image = await output.embedPng(await blob.arrayBuffer());
-        const target = output.addPage([info.width, info.height]);
+        sourcePages.push(output.getPageCount() + 1);
+        const sheets = reading.get(info.number);
+        const target = output.addPage([info.width, info.height + (sheets ? READING_HEADER_HEIGHT : 0)]);
         target.drawImage(image, { x: 0, y: 0, width: info.width, height: info.height });
-        for (const block of info.blocks.filter(b => b.included)) {
+        if (sheets) {
+          const first = output.getPageCount() + 1, last = first + sheets.length - 1;
+          const label = `Origen ${info.number}. Traducción: ${first}-${last}.`;
+          const headerBox = { x: 8, y: 0, width: info.width - 16, height: 28 };
+          const fit = fitBlock(label, headerBox, 10, (text, size) => navigationFont.widthOfTextAtSize(text, size))
+            ?? fitBlock(`${info.number}: ${first}-${last}`, headerBox, 9, (text, size) => navigationFont.widthOfTextAtSize(text, size));
+          if (!fit) throw new TranslationError('layout_issues');
+          fit.lines.forEach((line, i) => target.drawText(line, { x: 8,
+            y: info.height + 24 - i * fit.lineHeight, size: fit.size, font: navigationFont }));
+          for (let i = 0; i < sheets.length; i++) {
+            signal.throwIfAborted();
+            const sheet = sheets[i], continuation = output.addPage([sheet.width, sheet.height]);
+            const heading = `Traducción - origen ${info.number} - continuación ${i + 1}/${sheets.length}`;
+            const header = fitBlock(heading, { x: 36, y: 0, width: sheet.width - 72, height: 24 }, 10,
+              (text, size) => navigationFont.widthOfTextAtSize(text, size), 8);
+            if (!header) throw new TranslationError('layout_issues');
+            header.lines.forEach((line, j) => continuation.drawText(line,
+              { x: 36, y: sheet.height - 36 - j * header.lineHeight, size: header.size, font: navigationFont }));
+            for (const line of sheet.lines) {
+              const font = line.font === 'Helvetica-Bold' && line.size === 9 ? labelFont
+                : fonts.get(standardFace(line.font))!;
+              if (line.text) continuation.drawText(line.text, { x: line.x,
+                y: sheet.height - line.y - line.size * 0.9, size: line.size, font });
+            }
+            continuation.drawText(`OpenPDF - ${output.getPageCount()}`, { x: 36, y: 16, size: 9, font: navigationFont });
+          }
+        } else for (const block of info.blocks.filter(b => b.included)) {
           const { font, fit } = plans.get(block.id)!;
           fit.lines.forEach((line, i) => target.drawText(line, { x: block.x,
             y: info.height - block.y - fit.size * 0.9 - i * fit.lineHeight, size: fit.size, font, color: rgb(0, 0, 0) }));
@@ -168,6 +223,9 @@ export async function exportTranslation(source: Uint8Array, pages: TranslationPa
     output.setTitle('Traducción al español argentino'); output.setLanguage('es-AR');
     output.setProducer('OpenPDF Translation (review required)');
     signal.throwIfAborted();
-    return (await savePdf(output)).slice();
+    const bytes = (await savePdf(output)).slice();
+    signal.throwIfAborted();
+    options.complete?.({ pageCount: output.getPageCount(), sourcePages });
+    return bytes;
   } finally { await pdf.destroy(); }
 }

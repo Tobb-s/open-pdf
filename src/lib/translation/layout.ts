@@ -93,9 +93,9 @@ export function pendingSegments(pages: TranslationPage[]): Segment[] {
 }
 
 /** Fit without horizontal distortion, silent clipping, ellipses or shrinking below 7pt. */
-export function fitBlock(text: string, box: Box, preferred: number, measure: (s: string, size: number) => number) {
-  const max = Math.max(7, Math.min(48, preferred));
-  for (let size = max; size >= 7 - 0.01; size -= 0.25) {
+export function fitBlock(text: string, box: Box, preferred: number, measure: (s: string, size: number) => number, minimum = 7) {
+  const max = Math.max(minimum, Math.min(48, preferred));
+  for (let size = max; size >= minimum - 0.01; size -= 0.25) {
     const lines: string[] = [];
     let failed = false;
     for (const paragraph of text.replace(/\r/g, '').split('\n')) {

@@ -9,6 +9,7 @@ import { batches, MAX_SEGMENTS, TranslationError, validateTranslationResult, typ
 import { pendingSegments, type TranslationBlock, type TranslationPage } from '@/lib/translation/layout';
 import { translationCopy } from '@/lib/translation/copy';
 import { buildTranslationContext } from '@/lib/translation/context';
+import type { TranslationExportMode } from '@/lib/translation/reading';
 import { analyzeTranslation, checkTranslationLayout, exportTranslation, type LayoutIssue } from '@/lib/translation/document';
 
 const field = 'block w-full rounded-lg border border-gray-300 bg-white p-2 text-sm disabled:opacity-50';
@@ -27,10 +28,13 @@ export default function TranslatePage() {
   const [output, setOutput] = useState<Uint8Array>();
   const [batchLimit, setBatchLimit] = useState(MAX_SEGMENTS);
   const [useContext, setUseContext] = useState(true);
+  const [exportMode, setExportMode] = useState<TranslationExportMode>('preserve');
+  const [outputLayout, setOutputLayout] = useState<{ pageCount: number; sourcePages: number[] }>();
+  const [outputPage, setOutputPage] = useState(1);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const current = pages[pageIndex], pending = pendingSegments(pages).length;
-  const invalidate = () => { setOutput(undefined); setIssues([]); };
+  const invalidate = () => { setOutput(undefined); setOutputLayout(undefined); setOutputPage(1); setIssues([]); };
   function updateBlock(id: string, patch: Partial<TranslationBlock>) {
     invalidate();
     setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => b.id === id ? { ...b, ...patch } : b) })));
@@ -98,10 +102,11 @@ export default function TranslatePage() {
   function preview() {
     if (!source) return;
     void run(async signal => {
-      setOutput(undefined);
-      const found = await checkTranslationLayout(pages); setIssues(found);
+      setOutput(undefined); setOutputLayout(undefined); setOutputPage(1);
+      const found = await checkTranslationLayout(pages, exportMode); setIssues(found);
       if (found.length) { setPageIndex(found[0].page - 1); throw new TranslationError('layout_issues'); }
-      const result = await exportTranslation(source, pages, signal, n => setProgress(`${c.exportProgress} ${n}/${pages.length}`));
+      const result = await exportTranslation(source, pages, signal, n => setProgress(`${c.exportProgress} ${n}/${pages.length}`),
+        { mode: exportMode, complete: layout => { setOutputLayout(layout); setOutputPage(layout.sourcePages[pageIndex] ?? 1); } });
       setOutput(result);
     });
   }
@@ -133,6 +138,10 @@ export default function TranslatePage() {
       <p className="text-xs text-gray-600 sm:col-span-2">{c.contextHelp}</p>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />{c.consent}</label>
     </fieldset>
+    <label className="block text-sm">{c.exportMode}<select className={field} disabled={busy} value={exportMode} onChange={e => {
+      setExportMode(e.target.value as TranslationExportMode); invalidate();
+    }}><option value="preserve">{c.preserveMode}</option><option value="readable">{c.readableMode}</option></select></label>
+    {exportMode === 'readable' && <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">{c.readableHelp}</p>}
     <div className="flex flex-wrap items-center gap-3">
       <button className={button} disabled={busy || !complete || !pending || !consent || !key.trim() || !model.trim()} onClick={translate}>{c.translate}</button>
       <button className={button} disabled={busy || !complete || pending > 0 || !pages.some(p => p.blocks.some(b => b.included))} onClick={preview}>{c.preview}</button>
@@ -144,13 +153,21 @@ export default function TranslatePage() {
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">{error}<p>{c.kept}</p></div>}
     {current && <section className="space-y-4">
       <div className="flex gap-3"><h2 className="text-xl font-medium">{c.review}</h2>
-        <label>{c.page} <select aria-label={c.page} value={pageIndex} onChange={e => setPageIndex(Number(e.target.value))}>
+        <label>{c.page} <select aria-label={c.page} disabled={busy} value={pageIndex} onChange={e => {
+          const index = Number(e.target.value); setPageIndex(index); setOutputPage(outputLayout?.sourcePages[index] ?? index + 1);
+        }}>
           {pages.map((p, i) => <option value={i} key={p.number}>{p.number} ({p.method.toUpperCase()})</option>)}
         </select></label></div>
       <p className="text-sm text-amber-800">{c.excluded}</p>
       {current.warnings.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">{c.warnings}: {current.warnings.map(w => c[w as 'no_text' | 'rotated_text' | 'outside_page']).join(' ')}</div>}
       {source && <div className="grid gap-4 md:grid-cols-2"><TranslationPreview bytes={source} page={current.number} label={c.original} />
-        {output && <TranslationPreview bytes={output} page={current.number} label={c.result} />}</div>}
+        {output && <div>
+          {outputLayout && <label className="block text-sm">{c.outputPage}<select aria-label={c.outputPage} value={outputPage}
+            onChange={e => setOutputPage(Number(e.target.value))}>
+            {Array.from({ length: outputLayout.pageCount }, (_, i) => <option key={i} value={i + 1}>{i + 1} / {outputLayout.pageCount}</option>)}
+          </select></label>}
+          <TranslationPreview bytes={output} page={outputPage} label={c.result} />
+        </div>}</div>}
       {current.blocks.map(b => <fieldset key={b.id} disabled={busy} className="space-y-2 rounded-xl border p-4">
         <label className="flex gap-2 text-sm font-medium"><input type="checkbox" checked={b.included} onChange={e => updateBlock(b.id, { included: e.target.checked })} />{b.id} · {c.include}</label>
         <p className="text-xs text-gray-500">{b.font} · {b.size.toFixed(1)} pt{b.confidence !== undefined ? ` · OCR ${Math.round(b.confidence)}/100` : ''}</p>
