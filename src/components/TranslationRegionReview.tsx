@@ -3,10 +3,10 @@ import { useState } from 'react';
 import Image from 'next/image';
 import type { TranslationPage, TranslationBlock } from '@/lib/translation/layout';
 import { prepareTranslationRegion, rereadTranslationRegion } from '@/lib/translation/region';
-import { TranslationError, type TranslationProvider } from '@/lib/translation/contracts';
+import type { TranslationProvider } from '@/lib/translation/contracts';
 import { validateRegionResult, type RegionReviewResult } from '@/lib/translation/review-contract';
 import { translationCopy } from '@/lib/translation/copy';
-import { credentialHeaders } from '@/lib/account/contracts';
+import { requestRegionReview } from '@/lib/translation/review-client';
 
 interface Reading { image: string; width: number; height: number; sourceText: string;
   candidates: { text: string; confidence: number; mode: string }[]; vision?: RegionReviewResult }
@@ -39,15 +39,8 @@ export default function TranslationRegionReview({ source, page, block, busy, pro
     if (!current || !consent || provider !== 'openai') return;
     void run(async signal => {
       // Each click sends exactly one crop. No automatic retry or translated/context text.
-      const response = await fetch('/api/translation-review', { method: 'POST', cache: 'no-store',
-        signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
-        headers: { 'Content-Type': 'application/json', ...credentialHeaders(apiKey, savedProviderId) },
-        body: JSON.stringify({ model: model.trim(), image: current.image, sourceText: current.sourceText, consent: true }),
-      });
-      let data;
-      try { data = await response.json(); } catch { throw new TranslationError('invalid_response'); }
-      if (!response.ok) throw new TranslationError(typeof data?.error === 'string' ? data.error : 'review_failed');
-      const result = validateRegionResult(data); signal.throwIfAborted();
+      const result = await requestRegionReview({ model, image: current.image, sourceText: current.sourceText },
+        { apiKey, savedProviderId }, signal);
       setReading({ ...current, vision: result });
     });
   }

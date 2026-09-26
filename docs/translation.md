@@ -3,7 +3,7 @@
 ## Uso
 
 1. Abrir `/es/translate`, elegir un PDF en inglés y analizarlo localmente.
-2. Revisar el texto detectado por página. Corregir errores de OCR antes de enviar.
+2. Revisar la extracción o delegar a la IA la lectura de los bloques dudosos (opcional).
 3. Elegir proveedor/modelo, ingresar una clave propia y aceptar el envío y los costos.
    El contexto entre páginas y lotes está desactivado por defecto. Activarlo puede ayudar con
    terminología, pero también causar repeticiones o completar fragmentos con texto vecino.
@@ -40,6 +40,34 @@ ignorar una preferencia o perpetuar un error previo: la validación estructural 
 semántica ni garantiza que no repita texto de contexto con un ID solicitado. Revisar el resultado.
 
 ## Alcance y límites
+
+### Revisión automática de lecturas dudosas (beta)
+
+Después del análisis, «Revisar bloques dudosos con IA» procesa los bloques incluidos sin
+traducción con OCR menor a 80/100 o marcas `[illegible]`, `[ilegible]`, `[unreadable]` o el
+carácter de sustitución Unicode. No detecta todos los errores ni encuentra texto ausente.
+Utiliza el modelo OpenAI seleccionado y la clave propia (temporal o guardada). Gemini y
+compatibles mantienen su traducción habitual; esta revisión requiere OpenAI con visión/JSON.
+
+Requiere autorización visual separada: hasta **20 solicitudes secuenciales por clic**, una
+por recorte, sin enviar el PDF completo, glosario, contexto ni traducciones. Los otros bloques
+detectados se enmascaran; puede quedar información no detectada, por lo que NO es saneamiento.
+No hay reintentos automáticos. Otro clic procesa los siguientes bloques no revisados; un botón
+separado reintenta sólo fallos del mismo modelo/lectura, nunca propuestas ambiguas automáticamente.
+Una falla de clave, cuota, modelo o conexión detiene el lote para no seguir consumiendo.
+
+La IA transcribe contra la imagen, no traduce todavía. Se aplica sin confirmación por bloque
+sólo si declara ausencia de ambigüedad y supera filtros de longitud, marcas ilegibles, cifras
+y operadores matemáticos. Estos filtros **no prueban exactitud**: no verifican nombres ni toda
+la semántica, y pueden conservar errores o rechazar una corrección legítima de un número.
+Las propuestas dudosas permanecen visibles sin reemplazar el original; no bloquean traducir
+el texto conservado. La edición manual y revisión regional siguen disponibles como alternativa.
+
+La lectura anterior, propuesta, estado y modelo quedan sólo en memoria del navegador, no en
+los payloads de traducción/contexto. «Restaurar lectura anterior» revierte la corrección y borra
+su traducción/vista previa. La geometría, bloques excluidos y traducciones existentes se conservan.
+Cambiar archivo, clave, proveedor o modelo revoca la autorización; no inicia llamadas por sí solo.
+Reanalizar revoca la autorización visual. Cerrar o recargar pierde este historial, como el análisis.
 
 ### Segunda lectura regional (beta)
 
