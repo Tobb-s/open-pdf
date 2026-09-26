@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+import { readFile } from 'node:fs/promises';
+import { vi } from 'vitest';
 import { wrapReadingText, planReadingSheets } from '@/lib/translation/reading';
 import { checkTranslationLayout } from '@/lib/translation/document';
 import type { TranslationPage } from '@/lib/translation/layout';
@@ -73,5 +75,17 @@ describe('readable translation layout', () => {
     expect(await checkTranslationLayout([source], 'readable')).toEqual([
       { id: 'p1_b2', page: 1, reason: 'unsupported_characters' },
     ]);
+  });
+  it('uses bundled font coverage for Greek/math without silently accepting missing Chinese glyphs', async () => {
+    const bytes = await readFile('node_modules/pdfjs-dist/standard_fonts/LiberationSans-Regular.ttf');
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(bytes)));
+    try {
+      const source = page(); source.blocks[0].translated = 'Y = φ K; ∫ x';
+      expect(await checkTranslationLayout([source], 'readable')).toEqual([]);
+      source.blocks[0].translated = '漢';
+      expect(await checkTranslationLayout([source], 'readable')).toEqual([
+        { id: 'p1_b1', page: 1, reason: 'unsupported_characters' },
+      ]);
+    } finally { vi.unstubAllGlobals(); }
   });
 });

@@ -145,6 +145,22 @@ async function prepareRegion(page: Page) {
   await expect(page.getByRole('button', { name: 'Preparar recorte y releer OCR p1_b1', exact: true })).toBeEnabled({ timeout: 90_000 });
 }
 
+test('Greek symbols recovered by visual review survive readable PDF export', async ({ page }, testInfo) => {
+  await page.goto('/es/translate'); await native(page);
+  await page.getByLabel('Español argentino p1_b1').fill('Producción: Y(t) = φ K(t-1). '.repeat(15));
+  await page.getByLabel('Formato de salida').selectOption('readable');
+  await page.getByRole('button', { name: 'Generar vista previa del PDF' }).click();
+  const button = page.getByRole('button', { name: 'Descargar PDF traducido' }); await expect(button).toBeVisible();
+  const event = page.waitForEvent('download'); await button.click();
+  const file = testInfo.outputPath('greek-readable.pdf'); await (await event).saveAs(file);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const loading = pdfjs.getDocument({ data: new Uint8Array(await readFile(file)), useSystemFonts: true });
+  const pdf = await loading.promise; let text = '';
+  try { for (let i = 1; i <= pdf.numPages; i++) text += (await (await pdf.getPage(i)).getTextContent()).items.map(i => 'str' in i ? i.str : '').join(' '); }
+  finally { await loading.destroy(); }
+  expect(text.match(/φ/g)).toHaveLength(15);
+});
+
 test('regional local OCR and vision produce proposals, applying changes only one block and clears its translation', async ({ page }, testInfo) => {
   await page.goto('/es/translate'); await native(page, 2); await credentials(page); await fakeProvider(page);
   await page.getByRole('button', { name: 'Traducir pendientes' }).click();

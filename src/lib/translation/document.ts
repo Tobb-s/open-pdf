@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 import { openPdf, renderPageToCanvas } from '@/lib/pdfjs';
 import { createOcrEngine } from '@/lib/ocrEngine';
@@ -7,6 +8,7 @@ import { detectPdfFonts } from '@/lib/studio/fonts';
 import { savePdf } from '@/lib/pdfio';
 import { fitBlock, groupRuns, isVerticalOcrRun, type TranslationPage, type TextRun, type TranslationBlock } from './layout';
 import { TranslationError } from './contracts';
+import { orderTranslationBlocks } from './order';
 import { MAX_TRANSLATION_PAGES, READING_HEADER_HEIGHT, planReadingSheets, type ReadingSheet, type TranslationExportMode } from './reading';
 
 export async function analyzeTranslation(source: Uint8Array, options: {
@@ -75,7 +77,7 @@ export async function analyzeTranslation(source: Uint8Array, options: {
         if (!blocks.length) warnings.push('no_text');
         options.signal.throwIfAborted();
         options.checkpoint({ number: n, width: viewport.width, height: viewport.height,
-          method: useOcr ? 'ocr' : 'native', blocks, warnings: [...new Set(warnings)] });
+          method: useOcr ? 'ocr' : 'native', blocks: orderTranslationBlocks(blocks, viewport.width), warnings: [...new Set(warnings)] });
       } finally { page.cleanup(); }
     }
   } finally { await ocr?.close(); await pdf.destroy(); }
@@ -96,6 +98,27 @@ export interface LayoutIssue { id: string; page: number; reason: 'overflow' | 'u
 async function plansFor(pages: TranslationPage[], document: PDFDocument, mode: TranslationExportMode = 'preserve') {
   if (!['preserve', 'readable'].includes(mode)) throw new TranslationError('invalid_request');
   const fonts = new Map<string, PDFFont>();
+  // Select one font per face BEFORE measuring: continuation metrics must match the exported font.
+  for (const page of pages) for (const block of page.blocks.filter(b => b.included)) {
+    const face = standardFace(block.font);
+    if (!fonts.has(face)) fonts.set(face, await document.embedFont(face));
+  }
+  for (const face of fonts.keys()) {
+    const texts = pages.flatMap(p => p.blocks.filter(b => b.included && standardFace(b.font) === face)
+      .map(b => b.translated.replace(/\s/g, ' ')));
+    if (texts.every(text => { try { fonts.get(face)!.encodeText(text); return true; } catch { return false; } })) continue;
+    // Same-origin bundled PDF.js Liberation fonts; no document/font upload or third-party fetch.
+    const bold = /Bold/.test(face), italic = /Italic|Oblique/.test(face);
+    const style = bold ? (italic ? 'BoldItalic' : 'Bold') : italic ? 'Italic' : 'Regular';
+    try {
+      const response = await fetch(`/vendor/pdfjs/standard_fonts/LiberationSans-${style}.ttf`);
+      if (!response.ok) throw new Error();
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength > 2_000_000) throw new Error();
+      document.registerFontkit(fontkit);
+      fonts.set(face, await document.embedFont(bytes, { subset: true }));
+    } catch { /* Remain fail-closed with the standard font; the affected blocks report incompatibility. */ }
+  }
   const plans = new Map<string, { font: PDFFont; fit: NonNullable<ReturnType<typeof fitBlock>> }>();
   const issues: LayoutIssue[] = [];
   const reading = new Map<number, ReadingSheet[]>();
@@ -110,7 +133,10 @@ async function plansFor(pages: TranslationPage[], document: PDFDocument, mode: T
       if (!font) { font = await document.embedFont(face); fonts.set(face, font); }
       try {
         // Validate the whole block even if its original box is too small to attempt wrapping.
-        font.encodeText(block.translated.replace(/\s/g, ' '));
+        const text = block.translated.replace(/\s/g, ' '), glyphs = new Set(font.getCharacterSet());
+        if (!text.isWellFormed() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ||
+            [...text].some(c => !glyphs.has(c.codePointAt(0)!))) throw new Error();
+        font.encodeText(text);
         const preferred = mode === 'readable' ? Math.max(11, Math.min(18, block.size)) : block.size;
         const fit = fitBlock(block.translated, block, preferred, (text, size) => font.widthOfTextAtSize(text, size), mode === 'readable' ? 11 : 7);
         if (fit) plans.set(block.id, { font, fit });

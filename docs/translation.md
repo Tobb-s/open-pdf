@@ -83,6 +83,13 @@ Cambiar de modo invalida la vista previa, sin perder traducciones. Máximo: 500 
 Las traducciones faltantes o los caracteres incompatibles siguen bloqueando la exportación.
 Este reflujo no reconstruye columnas, tablas o fórmulas ni corrige el OCR o el orden de lectura.
 
+El análisis ordena dos columnas cuando encuentra al menos tres bloques a cada lado de un
+corredor central claro; los bloques de ancho completo separan bandas. Es una heurística
+conservadora, no un detector universal de maquetación. Los IDs y el contenido no cambian.
+Si una fuente estándar no puede escribir un símbolo, intenta incrustar una fuente Liberation Sans
+local con el mismo estilo. Aproxima menos la familia original, pero admite griego y símbolos comunes.
+Se comprueba la cobertura: los glifos ausentes siguen bloqueando, sin sustitución por cuadrados.
+
 - Destino: español argentino; registro fiel al original, sin regionalismos forzados.
 - Texto nativo con coordenadas o Tesseract local en inglés, modo profundo. Forzar OCR permite
   inspeccionar páginas mixtas y rótulos en imágenes. La confianza OCR no mide exactitud.
