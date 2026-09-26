@@ -16,6 +16,7 @@ export const accountCopy = {
     select: 'Clave para esta traducción', temporary: 'Ingresar una clave sólo para esta sesión',
     connect: 'Entrá a Mi cuenta para guardar y reutilizar tus proveedores.',
     manage: 'Administrar mis proveedores', using: 'Usando tu proveedor guardado',
+    identity: 'ID de mi cuenta',
     billing: 'Guardar una clave no confirma que tenga saldo ni que el modelo esté disponible. El proveedor cobra las solicitudes que hagas.',
   },
   en: {
@@ -35,6 +36,7 @@ export const accountCopy = {
     select: 'Key for this translation', temporary: 'Enter a key for this session only',
     connect: 'Sign in to My account to save and reuse your providers.',
     manage: 'Manage my providers', using: 'Using your saved provider',
+    identity: 'My account ID',
     billing: 'Saving a key does not confirm its balance or model availability. Your provider charges for requests you make.',
   },
 } as const;

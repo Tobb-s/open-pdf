@@ -13,7 +13,8 @@ test('saved provider selection never puts a stored key in browser input or stora
   await page.goto('/es/translate');
   await page.getByLabel('Clave para esta traducción').selectOption(provider.id);
   await expect(page.getByText('Usando tu proveedor guardado: Mi OpenAI')).toBeVisible();
-  await expect(page.getByLabel('Modelo', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Modelo', { exact: true })).toBeEnabled();
+  await page.getByLabel('Modelo', { exact: true }).fill('gpt-6-luna');
   await expect(page.locator('input[type=password]')).toHaveCount(0);
   expect(await page.evaluate(() => ({ local: Object.keys(localStorage), session: Object.keys(sessionStorage) })))
     .toEqual({ local: [], session: [] });

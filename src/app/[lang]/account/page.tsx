@@ -6,6 +6,8 @@ import { useI18n } from '@/lib/i18n/context';
 import { useAccount } from '@/lib/account/use-account';
 import { accountCopy } from '@/lib/account/copy';
 import type { TranslationProvider } from '@/lib/translation/contracts';
+import OpenAIModelPicker from '@/components/OpenAIModelPicker';
+import { DEFAULT_OPENAI_MODEL } from '@/lib/openai/models';
 
 const field = 'mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2 text-sm';
 const button = 'inline-block rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40';
@@ -13,7 +15,7 @@ export default function AccountPage() {
   const { locale } = useI18n(), c = accountCopy[locale];
   const { account, failed, refresh } = useAccount();
   const [label, setLabel] = useState(''), [provider, setProvider] = useState<TranslationProvider>('openai');
-  const [model, setModel] = useState('gpt-4.1-mini'), [baseUrl, setBaseUrl] = useState('https://openrouter.ai/api/v1');
+  const [model, setModel] = useState<string>(DEFAULT_OPENAI_MODEL), [baseUrl, setBaseUrl] = useState('https://openrouter.ai/api/v1');
   const [apiKey, setApiKey] = useState(''), [busy, setBusy] = useState(false), [message, setMessage] = useState('');
   async function change(removeId?: string) {
     if (busy) return;
@@ -55,6 +57,8 @@ export default function AccountPage() {
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
           <a className="rounded-lg border px-4 py-2 text-sm" href="/auth/logout">{c.logout}</a>
         </div>
+        {account.user.id && <details className="text-xs text-gray-600"><summary>{c.identity}</summary>
+          <code className="mt-2 block break-all">{account.user.id}</code></details>}
         <section className="space-y-3"><h2 className="text-xl font-medium">{c.providers}</h2>
           {!account.providers.length && <p className="text-sm text-gray-600">{c.empty}</p>}
           {account.providers.map(p => <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
@@ -68,9 +72,10 @@ export default function AccountPage() {
             <label className="text-sm">{c.label}<input required className={field} value={label} maxLength={80} onChange={e => setLabel(e.target.value)} /></label>
             <label className="text-sm">{c.provider}<select className={field} value={provider} onChange={e => {
               const p = e.target.value as TranslationProvider; setProvider(p); setApiKey('');
-              setModel(p === 'openai' ? 'gpt-4.1-mini' : p === 'gemini' ? 'gemini-2.5-flash' : '');
+              setModel(p === 'openai' ? DEFAULT_OPENAI_MODEL : p === 'gemini' ? 'gemini-2.5-flash' : '');
             }}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="compatible">OpenAI-compatible / OpenRouter</option></select></label>
-            <label className="text-sm">{c.model}<input required className={field} value={model} maxLength={120} onChange={e => setModel(e.target.value)} /></label>
+            {provider === 'openai' ? <OpenAIModelPicker value={model} onChange={setModel} apiKey={apiKey} locale={locale} disabled={busy} />
+              : <label className="text-sm">{c.model}<input required className={field} value={model} maxLength={120} onChange={e => setModel(e.target.value)} /></label>}
             <label className="text-sm">{c.key}<input required className={field} type="password" autoComplete="off" spellCheck={false} value={apiKey} maxLength={2048} onChange={e => setApiKey(e.target.value)} /></label>
             {provider === 'compatible' && <label className="text-sm sm:col-span-2">{c.endpoint}<input required className={field} value={baseUrl} maxLength={500} onChange={e => { setBaseUrl(e.target.value); setApiKey(''); }} /></label>}
             <p className="text-sm text-gray-600 sm:col-span-2">{c.billing}</p>

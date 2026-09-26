@@ -9,7 +9,9 @@ export async function resolveCredential(request: Request, settings: Pick<Transla
     const { requireAccount } = await import('./auth');
     const { loadProvider } = await import('./store');
     const user = await requireAccount(), saved = await loadProvider(user.ownerId, id);
-    if (saved.provider !== settings.provider || saved.model !== settings.model ||
+    // The stored model is a default, not a restriction. Owners may choose another
+    // model with the same key, but never change the credential's destination.
+    if (saved.provider !== settings.provider ||
         (saved.baseUrl ?? '') !== (settings.baseUrl ?? '')) throw new TranslationError('provider_mismatch', 409);
     return saved.apiKey;
   }

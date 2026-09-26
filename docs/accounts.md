@@ -10,6 +10,9 @@
 - Las claves se cifran con AES-256-GCM, nonce aleatorio y datos autenticados que vinculan dueño, registro, proveedor, modelo y URL. La clave del cifrado permanece únicamente en el servidor.
 - El listado sólo devuelve nombre, proveedor, modelo, URL, identificador y los últimos cuatro caracteres de la clave.
 - Para traducir con un proveedor guardado, el navegador manda su identificador. El servidor autentica la sesión, busca el registro de ese dueño y comprueba la configuración antes de descifrar y usar la clave.
+- El modelo guardado es el predeterminado, no una restricción: su dueño puede elegir otro modelo sin volver a guardar la clave. Proveedor y destino siguen comprobándose; cambiar el modelo reinicia el consentimiento.
+- «Consultar modelos de mi API» obtiene el catálogo actual de OpenAI con la clave temporal o el registro del usuario autenticado. No envía documentos, no genera respuestas y no usa una clave global. Se muestran todos los IDs; los modelos especializados y legacy incompatibles con el adaptador Responses/JSON se identifican por separado. El listado no garantiza saldo ni permiso para generar con cada ID. Se conserva entrada manual y reintento explícito.
+- Nuevas configuraciones OpenAI usan `gpt-6-luna` como valor inicial. Los registros existentes mantienen su modelo. El ID de cuenta visible identifica al propio usuario; no es una credencial ni otorga acceso a otra cuenta.
 - El borrado exige dueño e identificador. Un identificador ajeno da el mismo 404 que uno inexistente.
 - Se conserva la alternativa de usar una clave temporal en memoria. Nunca se usa `OPENAI_API_KEY` del operador como reemplazo de una clave ausente.
 - La API de revisión visual también admite el proveedor guardado de OpenAI y mantiene el consentimiento independiente para cada recorte.

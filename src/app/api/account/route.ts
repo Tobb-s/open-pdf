@@ -9,7 +9,7 @@ export async function GET() {
     const session = await getAuth().getSession();
     if (!session?.user?.sub) return Response.json({ available: true, user: null, providers: [] }, { headers });
     const { sub, name, email } = session.user;
-    return Response.json({ available: true, user: { name: name ?? email ?? 'OpenPDF', email },
+    return Response.json({ available: true, user: { name: name ?? email ?? 'OpenPDF', email, id: accountOwnerId(sub) },
       providers: await listProviders(accountOwnerId(sub)) }, { headers });
   } catch {
     return Response.json({ error: 'account_unavailable' }, { status: 503, headers });

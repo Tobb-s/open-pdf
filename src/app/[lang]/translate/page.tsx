@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useAccount } from '@/lib/account/use-account';
 import { accountCopy } from '@/lib/account/copy';
 import { credentialHeaders } from '@/lib/account/contracts';
+import OpenAIModelPicker from '@/components/OpenAIModelPicker';
+import { DEFAULT_OPENAI_MODEL } from '@/lib/openai/models';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import TranslationPreview from '@/components/TranslationPreview';
 import TranslationRegionReview from '@/components/TranslationRegionReview';
@@ -27,7 +29,7 @@ export default function TranslatePage() {
   const [pages, setPages] = useState<TranslationPage[]>([]);
   const [complete, setComplete] = useState(false), [forceOcr, setForceOcr] = useState(false);
   const [provider, setProvider] = useState<TranslationProvider>('openai');
-  const [model, setModel] = useState('gpt-4.1-mini'), [baseUrl, setBaseUrl] = useState('https://openrouter.ai/api/v1');
+  const [model, setModel] = useState<string>(DEFAULT_OPENAI_MODEL), [baseUrl, setBaseUrl] = useState('https://openrouter.ai/api/v1');
   const [key, setKey] = useState(''), [glossary, setGlossary] = useState(''), [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState('');
   const [pageIndex, setPageIndex] = useState(0), [issues, setIssues] = useState<LayoutIssue[]>([]);
@@ -143,9 +145,10 @@ export default function TranslatePage() {
       </label> : <Link className="text-sm text-violet-700 underline sm:col-span-2" href={`/${locale}/account`}>{a.connect}</Link>}
       <label className="text-sm">{c.provider}<select disabled={!!savedProviderId} className={field} value={provider} onChange={e => {
         const value = e.target.value as TranslationProvider; setProvider(value); setKey(''); setConsent(false);
-        setModel(value === 'openai' ? 'gpt-4.1-mini' : value === 'gemini' ? 'gemini-2.5-flash' : '');
+        setModel(value === 'openai' ? DEFAULT_OPENAI_MODEL : value === 'gemini' ? 'gemini-2.5-flash' : '');
       }}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="compatible">OpenAI-compatible / OpenRouter</option></select></label>
-      <label className="text-sm">{c.model}<input disabled={!!savedProviderId} className={field} value={model} onChange={e => { setModel(e.target.value); setConsent(false); }} maxLength={120} /></label>
+      {provider === 'openai' ? <OpenAIModelPicker value={model} onChange={value => { setModel(value); setConsent(false); }} apiKey={key} savedProviderId={savedProviderId} locale={locale} disabled={busy} />
+        : <label className="text-sm">{c.model}<input className={field} value={model} onChange={e => { setModel(e.target.value); setConsent(false); }} maxLength={120} /></label>}
       {provider === 'compatible' && <label className="text-sm sm:col-span-2">{c.endpoint}<input disabled={!!savedProviderId} className={field} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConsent(false); setKey(''); }} /><span>{c.custom}</span></label>}
       {savedProviderId ? <p className="text-sm sm:col-span-2">{a.using}: {account?.providers.find(p => p.id === savedProviderId)?.label}</p> : <>
         <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} maxLength={2048} /></label>
