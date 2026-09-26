@@ -74,6 +74,7 @@ export function validateTranslationResult(value: unknown, source: Segment[]) {
   const raw = (value as { translations?: unknown })?.translations;
   if (!Array.isArray(raw) || raw.length > source.length) throw new TranslationError('invalid_response', 502);
   const expected = new Set(source.map(s => s.id)), seen = new Set<string>();
+  const originals = new Map(source.map(s => [s.id, s.text.replace(/\s+/g, ' ').trim()]));
   const map = new Map<string, string>();
   for (const item of raw) {
     if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' ||
@@ -81,7 +82,15 @@ export function validateTranslationResult(value: unknown, source: Segment[]) {
       throw new TranslationError('invalid_response', 502);
     }
     seen.add(item.id);
-    if (item.text.trim()) map.set(item.id, item.text.trim());
+    if (item.text.trim()) {
+      const original = originals.get(item.id)!, target = item.text.replace(/\s+/g, ' ').trim();
+      // es-AR prose should not become a summary or absorb neighboring paragraphs.
+      // This is a coarse alarm, NOT proof of semantic fidelity. Leave suspicious
+      // items pending for explicit retry or human correction; retain valid peers.
+      const suspicious = (original.length >= 200 && target.length < original.length * 0.6) ||
+        target.length > original.length * 3 + 120;
+      if (!suspicious) map.set(item.id, item.text.trim());
+    }
   }
   if (!map.size) throw new TranslationError('invalid_response', 502);
   return {

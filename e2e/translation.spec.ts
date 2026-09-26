@@ -271,6 +271,27 @@ test('partial completion keeps valid blocks and retries only pending blocks in s
   await expect(page.getByText(/Recuperación manual:/)).not.toBeVisible();
 });
 
+test('suspiciously shortened prose remains pending while valid peers survive manual recovery', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 2);
+  await page.getByLabel('Texto original / OCR p1_b1').fill('Economic growth depends on investment. '.repeat(15));
+  await credentials(page); let calls = 0;
+  await page.route('**/api/translate', route => {
+    calls++;
+    const body = route.request().postDataJSON();
+    return route.fulfill({ json: { translations: body.segments.map((s: { id: string }) => ({ id: s.id,
+      text: s.id === 'p1_b1' ? (calls === 1 ? 'Un resumen.' : 'El crecimiento económico depende de la inversión. '.repeat(15))
+        : 'El crecimiento económico depende de la inversión.',
+    })) } });
+  });
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('1 bloques pendientes');
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('');
+  await expect(page.getByRole('alert').filter({ hasText: 'longitud sospechosa' })).toBeVisible();
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  expect(calls).toBe(2);
+});
+
 test('context excludes unchecked blocks and disabling it resets consent', async ({ page }) => {
   await page.goto('/es/translate'); await native(page, 4);
   await page.getByLabel('Español argentino p1_b1').fill('Referencia corregida.');

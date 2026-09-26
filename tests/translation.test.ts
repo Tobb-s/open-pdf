@@ -59,6 +59,21 @@ describe('translation contract', () => {
     expect(validateTranslationResult({ translations: [{ id: 'b', text: '  ' }, { id: 'a', text: ' Hola ' }] }, source))
       .toEqual({ translations: [{ id: 'a', text: 'Hola' }], missingIds: ['b'] });
   });
+  it('leaves large omissions and expansions pending without losing valid peers', () => {
+    const source = [{ id: 'shortened', text: 'Source text. '.repeat(40) },
+      { id: 'expanded', text: 'A title.' }, { id: 'valid', text: 'Economic growth.' }];
+    const result = validateTranslationResult({ translations: [
+      { id: 'shortened', text: 'Un resumen.' }, { id: 'expanded', text: 'Texto vecino. '.repeat(30) },
+      { id: 'valid', text: 'Crecimiento económico.' },
+    ] }, source);
+    expect(result.translations).toEqual([{ id: 'valid', text: 'Crecimiento económico.' }]);
+    expect(result.missingIds).toEqual(['shortened', 'expanded']);
+  });
+  it('normalizes whitespace before length alarms and permits normal translation expansion', () => {
+    const source = [{ id: 'a', text: 'Economic      growth.\n'.repeat(25) }];
+    expect(validateTranslations({ translations: [{ id: 'a', text: 'Crecimiento económico. '.repeat(25) }] }, source))
+      .toHaveLength(1);
+  });
   it.each([
     [{ id: 'p1_b1', text: 'Hola' }, { id: 'foreign', text: 'extra' }],
     [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b1', text: '' }],

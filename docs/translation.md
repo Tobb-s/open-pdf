@@ -117,6 +117,10 @@ Se comprueba la cobertura: los glifos ausentes siguen bloqueando, sin sustituci�
   de accesibilidad no se conservan. No usar esto como herramienta de censura o saneamiento.
 - La validación estructural detecta IDs faltantes/duplicados y respuestas truncadas; no demuestra
   fidelidad semántica. Revisión humana necesaria, especialmente en documentos sensibles.
+  También deja pendientes respuestas con menos del 60% de la longitud de un original de al menos
+  200 caracteres, o más de tres veces su longitud más 120 caracteres (normalizando espacios).
+  Es una alarma heurística para omisiones/expansiones grandes; puede dar falsos positivos y no
+  detecta cambios de sentido, cifras incorrectas ni omisiones pequeñas. Se puede corregir manualmente.
   Respuestas truncadas por tokens, JSON inválido e IDs duplicados o ajenos se rechazan sin aplicar
   ese lote. Sólo se recuperan entradas no vacías de una respuesta JSON terminada y sin IDs ambiguos.
   Un bloque individual demasiado largo no se divide automáticamente; la recuperación no garantiza
