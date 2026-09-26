@@ -10,7 +10,7 @@ export interface SavedProvider {
 }
 export interface AccountState {
   available: boolean;
-  user: { name: string; email?: string } | null;
+  user: { name: string; email?: string; id?: string } | null;
   providers: SavedProvider[];
 }
 export function isSavedProviderId(value: unknown): value is string {

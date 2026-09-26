@@ -11,5 +11,5 @@ export async function proxy(request: NextRequest) {
   return getAuth().middleware(request);
 }
 export const config = {
-  matcher: ['/auth/:path*', '/api/account/:path*', '/api/translate', '/api/translation-review', '/es/account', '/en/account'],
+  matcher: ['/auth/:path*', '/api/account/:path*', '/api/models', '/api/translate', '/api/translation-review', '/es/account', '/en/account'],
 };

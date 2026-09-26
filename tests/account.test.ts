@@ -79,7 +79,7 @@ describe('private account credentials', () => {
     const req = request({}, { 'X-OpenPDF-Provider': id });
     expect(await resolveCredential(req, input)).toBe(input.apiKey);
     await expect(resolveCredential(req, { ...input, provider: 'gemini' })).rejects.toThrow('provider_mismatch');
-    await expect(resolveCredential(req, { ...input, model: 'different' })).rejects.toThrow('provider_mismatch');
+    expect(await resolveCredential(req, { ...input, model: 'gpt-6-luna' })).toBe(input.apiKey);
     await expect(resolveCredential(req, { ...input, baseUrl: 'https://evil.example' })).rejects.toThrow('provider_mismatch');
   });
   it('keeps explicit guest keys independent and never falls back to the development key', async () => {
