@@ -8,6 +8,11 @@ export interface TextRun extends Box {
 export interface TranslationBlock extends Box {
   id: string; source: string; translated: string; size: number; font: string;
   confidence?: number; included: boolean;
+  /** Session-only provenance. Never part of a translation/context payload. */
+  aiReview?: {
+    original: string; source: string; proposal?: string; model: string;
+    status: 'applied' | 'unresolved' | 'failed'; reason?: string;
+  };
   /** Original line rectangles; erase only ink areas, not whole paragraph whitespace. */
   lines: Box[];
 }

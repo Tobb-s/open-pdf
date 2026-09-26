@@ -16,6 +16,9 @@ import { batches, TranslationError, validateTranslationResult, type TranslationP
 import { pendingSegments, type TranslationBlock, type TranslationPage } from '@/lib/translation/layout';
 import { translationCopy } from '@/lib/translation/copy';
 import { buildTranslationContext } from '@/lib/translation/context';
+import { autoReviewCandidates, reviewDoubtfulBlocks } from '@/lib/translation/auto-review';
+import { prepareTranslationRegion } from '@/lib/translation/region';
+import { requestRegionReview } from '@/lib/translation/review-client';
 import type { TranslationExportMode } from '@/lib/translation/reading';
 import { analyzeTranslation, checkTranslationLayout, exportTranslation, type LayoutIssue } from '@/lib/translation/document';
 
@@ -36,6 +39,7 @@ export default function TranslatePage() {
   const [output, setOutput] = useState<Uint8Array>();
   const [batchLimit, setBatchLimit] = useState(INITIAL_BATCH_LIMIT);
   const [useContext, setUseContext] = useState(false);
+  const [aiConsent, setAiConsent] = useState(false);
   const { account } = useAccount();
   const [savedProviderId, setSavedProviderId] = useState('');
   const a = accountCopy[locale];
@@ -45,10 +49,17 @@ export default function TranslatePage() {
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const current = pages[pageIndex], pending = pendingSegments(pages).length;
+  const aiPending = autoReviewCandidates(pages, model).length;
+  const aiFailed = pages.flatMap(p => p.blocks).filter(b => b.included && !b.translated.trim() &&
+    b.aiReview?.status === 'failed' && b.aiReview.source === b.source && b.aiReview.model === model.trim()).length;
+  const canReviewAi = !busy && complete && !!source && provider === 'openai' && aiConsent &&
+    (!!savedProviderId || !!key.trim()) && !!model.trim();
+  const revokeConsent = () => { setConsent(false); setAiConsent(false); };
   const invalidate = () => { setOutput(undefined); setOutputLayout(undefined); setOutputPage(1); setIssues([]); };
   function updateBlock(id: string, patch: Partial<TranslationBlock>) {
     invalidate();
-    setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => b.id === id ? { ...b, ...patch } : b) })));
+    setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => b.id === id
+      ? { ...b, ...(patch.source !== undefined ? { aiReview: undefined } : {}), ...patch } : b) })));
   }
   async function run(work: (signal: AbortSignal) => Promise<void>) {
     if (controller.current) return;
@@ -63,7 +74,7 @@ export default function TranslatePage() {
   function analyze() {
     if (!file) return;
     void run(async signal => {
-      invalidate(); setPages([]); setComplete(false); setPageIndex(0); setBatchLimit(INITIAL_BATCH_LIMIT);
+      invalidate(); setPages([]); setComplete(false); setPageIndex(0); setBatchLimit(INITIAL_BATCH_LIMIT); setAiConsent(false);
       if (file.size > 50 * 1024 * 1024) throw new TranslationError('file_too_large');
       const bytes = new Uint8Array(await file.arrayBuffer()); setSource(bytes);
       await analyzeTranslation(bytes, { forceOcr, signal,
@@ -110,6 +121,20 @@ export default function TranslatePage() {
       }
     });
   }
+  function reviewAi(retryFailed = false) {
+    if (!canReviewAi || !source) return;
+    void run(async signal => {
+      invalidate();
+      await reviewDoubtfulBlocks(pages, { provider, model, consent: aiConsent, signal, retryFailed }, {
+        prepare: (page, block, signal) => prepareTranslationRegion(source, page, block, signal),
+        request: (input, signal) => requestRegionReview(input, { apiKey: key, savedProviderId }, signal),
+        progress: (n, total) => setProgress(`${c.aiProgress} ${n}/${total}`),
+        checkpoint: (original, updated) => setPages(old => old.map(p => ({ ...p,
+          blocks: p.blocks.map(b => b.id === original.id && b.source === original.source && !b.translated.trim()
+            ? updated : b) }))),
+      });
+    });
+  }
   function preview() {
     if (!source) return;
     void run(async signal => {
@@ -129,7 +154,7 @@ export default function TranslatePage() {
     </details>
     <section className="space-y-3 rounded-xl border p-4">
       <FileDropzone inputId="translate-file-input" kind={PDF_FILES} disabled={busy} className="rounded-lg border-2 border-dashed p-6 text-center" onFilesSelected={files => {
-        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); setBatchLimit(INITIAL_BATCH_LIMIT); invalidate();
+        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); revokeConsent(); setBatchLimit(INITIAL_BATCH_LIMIT); invalidate();
       }}>{file?.name ?? t.common.choosePdf}</FileDropzone>
       <p className="text-sm text-gray-600">{c.analyzeHelp}</p>
       <label className="flex gap-2 text-sm"><input type="checkbox" checked={forceOcr} disabled={busy} onChange={e => setForceOcr(e.target.checked)} />{c.force}</label>
@@ -138,27 +163,38 @@ export default function TranslatePage() {
     <fieldset disabled={busy} className="grid gap-4 rounded-xl border p-4 sm:grid-cols-2">
       {account?.user ? <label className="text-sm sm:col-span-2">{a.select}<select className={field} value={savedProviderId} onChange={e => {
         const selected = account.providers.find(p => p.id === e.target.value);
-        setSavedProviderId(selected?.id ?? ''); setKey(''); setConsent(false);
+        setSavedProviderId(selected?.id ?? ''); setKey(''); revokeConsent();
         if (selected) { setProvider(selected.provider); setModel(selected.model); setBaseUrl(selected.baseUrl ?? ''); }
       }}><option value="">{a.temporary}</option>{account.providers.map(p => <option key={p.id} value={p.id}>{p.label} · {p.keyHint}</option>)}</select>
         <Link className="mt-1 inline-block text-violet-700 underline" href={`/${locale}/account`}>{a.manage}</Link>
       </label> : <Link className="text-sm text-violet-700 underline sm:col-span-2" href={`/${locale}/account`}>{a.connect}</Link>}
       <label className="text-sm">{c.provider}<select disabled={!!savedProviderId} className={field} value={provider} onChange={e => {
-        const value = e.target.value as TranslationProvider; setProvider(value); setKey(''); setConsent(false);
+        const value = e.target.value as TranslationProvider; setProvider(value); setKey(''); revokeConsent();
         setModel(value === 'openai' ? DEFAULT_OPENAI_MODEL : value === 'gemini' ? 'gemini-2.5-flash' : '');
       }}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="compatible">OpenAI-compatible / OpenRouter</option></select></label>
-      {provider === 'openai' ? <OpenAIModelPicker value={model} onChange={value => { setModel(value); setConsent(false); }} apiKey={key} savedProviderId={savedProviderId} locale={locale} disabled={busy} />
-        : <label className="text-sm">{c.model}<input className={field} value={model} onChange={e => { setModel(e.target.value); setConsent(false); }} maxLength={120} /></label>}
-      {provider === 'compatible' && <label className="text-sm sm:col-span-2">{c.endpoint}<input disabled={!!savedProviderId} className={field} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConsent(false); setKey(''); }} /><span>{c.custom}</span></label>}
+      {provider === 'openai' ? <OpenAIModelPicker value={model} onChange={value => { setModel(value); revokeConsent(); }} apiKey={key} savedProviderId={savedProviderId} locale={locale} disabled={busy} />
+        : <label className="text-sm">{c.model}<input className={field} value={model} onChange={e => { setModel(e.target.value); revokeConsent(); }} maxLength={120} /></label>}
+      {provider === 'compatible' && <label className="text-sm sm:col-span-2">{c.endpoint}<input disabled={!!savedProviderId} className={field} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); revokeConsent(); setKey(''); }} /><span>{c.custom}</span></label>}
       {savedProviderId ? <p className="text-sm sm:col-span-2">{a.using}: {account?.providers.find(p => p.id === savedProviderId)?.label}</p> : <>
-        <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} maxLength={2048} /></label>
-        <button className="self-end rounded-lg border p-2 text-sm" onClick={() => { setKey(''); setConsent(false); }}>{c.clear}</button>
+        <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => { setKey(e.target.value); revokeConsent(); }} maxLength={2048} /></label>
+        <button className="self-end rounded-lg border p-2 text-sm" onClick={() => { setKey(''); revokeConsent(); }}>{c.clear}</button>
       </>}
       <label className="text-sm sm:col-span-2">{c.glossary}<textarea className={field} value={glossary} maxLength={3000} onChange={e => { setGlossary(e.target.value); setConsent(false); }} /></label>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={useContext} onChange={e => { setUseContext(e.target.checked); setConsent(false); }} />{c.context}</label>
       <p className="text-xs text-gray-600 sm:col-span-2">{c.contextHelp}</p>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />{c.consent}</label>
     </fieldset>
+    {complete && <section aria-labelledby="ai-review-title" className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm">
+      <h2 id="ai-review-title" className="font-semibold">{c.aiTitle}</h2>
+      <p>{c.aiHelp}</p><p>{aiPending} {c.aiPending}</p>
+      <p>{c.aiRemaining}</p>
+      <label className="flex items-start gap-2"><input type="checkbox" checked={aiConsent} disabled={busy || provider !== 'openai'}
+        onChange={e => setAiConsent(e.target.checked)} />{c.aiConsent}</label>
+      <div className="flex flex-wrap gap-3">
+        <button className={button} disabled={!canReviewAi || !aiPending} onClick={() => reviewAi()}>{c.aiRun}</button>
+        {aiFailed > 0 && <button className={button} disabled={!canReviewAi} onClick={() => reviewAi(true)}>{c.aiRetry} ({aiFailed})</button>}
+      </div>
+    </section>}
     <label className="block text-sm">{c.exportMode}<select className={field} disabled={busy} value={exportMode} onChange={e => {
       setExportMode(e.target.value as TranslationExportMode); invalidate();
     }}><option value="preserve">{c.preserveMode}</option><option value="readable">{c.readableMode}</option></select></label>
@@ -193,6 +229,15 @@ export default function TranslatePage() {
         <label className="flex gap-2 text-sm font-medium"><input type="checkbox" checked={b.included} onChange={e => updateBlock(b.id, { included: e.target.checked })} />{b.id} · {c.include}</label>
         <p className="text-xs text-gray-500">{b.font} · {b.size.toFixed(1)} pt{b.confidence !== undefined ? ` · OCR ${Math.round(b.confidence)}/100` : ''}</p>
         {b.confidence !== undefined && b.confidence < 60 && <p className="text-sm text-amber-800">{c.low}</p>}
+        {b.aiReview && <details className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">
+          <summary>{b.aiReview.status === 'applied' ? c.aiApplied : b.aiReview.status === 'unresolved' ? c.aiUnresolved : c.aiFailed} · {c.aiProvenance}</summary>
+          <p className="mt-2">{b.aiReview.model}</p>
+          {b.aiReview.reason && <p>{c.aiReasons[b.aiReview.reason] ?? c.errors[b.aiReview.reason] ?? c.aiUnresolved}</p>}
+          <p className="mt-2 font-medium">{c.aiOriginal}</p><p className="whitespace-pre-wrap">{b.aiReview.original}</p>
+          {b.aiReview.proposal && <><p className="mt-2 font-medium">{c.aiProposal}</p><p className="whitespace-pre-wrap">{b.aiReview.proposal}</p></>}
+          {b.aiReview.status === 'applied' && <button type="button" className="mt-2 rounded border px-3 py-2"
+            onClick={() => updateBlock(b.id, { source: b.aiReview!.original, translated: '' })}>{c.aiRestore}</button>}
+        </details>}
         <div className="grid gap-3 md:grid-cols-2">
           <label className="text-sm">{c.source}<textarea aria-label={`${c.source} ${b.id}`} rows={4} className={field} value={b.source} maxLength={12_000} onChange={e => updateBlock(b.id, { source: e.target.value, translated: '' })} /></label>
           <label className="text-sm">{c.target}<textarea aria-label={`${c.target} ${b.id}`} rows={4} className={field} value={b.translated} maxLength={48_000} onChange={e => updateBlock(b.id, { translated: e.target.value })} /></label>
