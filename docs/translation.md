@@ -5,7 +5,8 @@
 1. Abrir `/es/translate`, elegir un PDF en inglés y analizarlo localmente.
 2. Revisar el texto detectado por página. Corregir errores de OCR antes de enviar.
 3. Elegir proveedor/modelo, ingresar una clave propia y aceptar el envío y los costos.
-   El contexto entre páginas y lotes está activado por defecto y se puede desactivar.
+   El contexto entre páginas y lotes está desactivado por defecto. Activarlo puede ayudar con
+   terminología, pero también causar repeticiones o completar fragmentos con texto vecino.
    Cambiar esa opción requiere renovar el consentimiento.
 4. Traducir pendientes. Se conservan los bloques válidos de respuestas terminadas, incluso si
    faltan otros o llegan vacíos. Se informa la falla y se detiene el proceso; no hay reintentos automáticos cobrables.
@@ -96,7 +97,10 @@ Se comprueba la cobertura: los glifos ausentes siguen bloqueando, sin sustituci�
 - El OCR conserva las líneas reconocidas y ordena sus palabras antes de formar bloques.
   El tamaño se estima con varias palabras de cada línea; es una aproximación, no detección
   de la fuente original. Los huecos grandes siguen separados; no se garantiza el orden entre columnas.
-- Hasta 50 MB y 100 páginas. Lotes de hasta 12.000 caracteres y 80 bloques.
+- Hasta 50 MB y 100 páginas. La interfaz usa lotes iniciales de hasta 12 bloques y 12.000 caracteres;
+  el contrato del servidor admite hasta 80 bloques. Ante fallas se reduce el lote manualmente.
+- El OCR agrupa líneas de prosa con sangría inicial y espaciado amplio en párrafos conservando
+  sus cajas originales. Es heurístico: revisar columnas, listas, tablas y límites de párrafo.
 - Posición visual de imágenes conservada en la lámina de origen mediante fondo PNG (hasta 144 dpi,
   limitado a 8 MP/página). No se conservan imágenes como objetos independientes/vectoriales.
 - Traducción seleccionable en fuentes PDF estándar, aproximando serif/sans/mono, negrita y cursiva.

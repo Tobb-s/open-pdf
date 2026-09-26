@@ -68,21 +68,35 @@ export function groupRuns(runs: TextRun[], pageNumber: number): TranslationBlock
     }
   }
   const blocks: TranslationBlock[] = [];
+  const ocrBlocks = new Set<string>();
   for (const line of lines.sort((a, b) => a.y - b.y || a.x - b.x)) {
-    const candidate = blocks.findLast(b =>
-      Math.abs(b.x - line.x) < line.size * 0.7 && Math.abs(b.size - line.size) < 1.5 && b.font === line.font &&
-      line.y >= bottom(b) - 1 && line.y - bottom(b) < line.size * 0.65 &&
+    const candidate = blocks.findLast(b => {
+      const ocr = line.line !== undefined && ocrBlocks.has(b.id);
+      // Scanned double-spaced prose often has an indented first line and
+      // variable ink heights. Translate paragraphs, not disconnected lines.
+      // Positive indentation starts a new paragraph; large gutters stay split.
+      const aligned = ocr ? line.x - b.x > -Math.max(b.size, line.size) * 3.5 &&
+        line.x - b.x < line.size * 0.7 : Math.abs(b.x - line.x) < line.size * 0.7;
+      const sameSize = ocr ? Math.abs(b.size - line.size) <= Math.min(b.size, line.size) * 0.3
+        : Math.abs(b.size - line.size) < 1.5;
+      return aligned && sameSize && b.font === line.font &&
+      line.y >= bottom(b) - 1 && line.y - bottom(b) < line.size * (ocr ? 1.3 : 0.65) &&
       // A very short previous line is often a heading/caption/paragraph ending.
       b.lines[b.lines.length - 1].width > Math.max(b.width, line.width) * 0.65 &&
-      b.source.length + line.text.length < 10_000);
+      b.source.length + line.text.length < 10_000;
+    });
     const box = { x: line.x, y: line.y, width: line.width, height: line.height };
     if (candidate) {
       candidate.source += (candidate.source.endsWith('-') ? '\n' : ' ') + line.text.trim();
       candidate.lines.push(box);
       Object.assign(candidate, union(candidate, line));
       if (line.confidence !== undefined) candidate.confidence = Math.min(candidate.confidence ?? 100, line.confidence);
-    } else blocks.push({ ...box, id: `p${pageNumber}_b${blocks.length + 1}`, source: line.text.trim(),
-      translated: '', size: line.size, font: line.font, confidence: line.confidence, included: true, lines: [box] });
+    } else {
+      const id = `p${pageNumber}_b${blocks.length + 1}`;
+      blocks.push({ ...box, id, source: line.text.trim(), translated: '', size: line.size,
+        font: line.font, confidence: line.confidence, included: true, lines: [box] });
+      if (line.line !== undefined) ocrBlocks.add(id);
+    }
   }
   return blocks;
 }

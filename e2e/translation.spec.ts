@@ -236,7 +236,8 @@ test('cancelling regional vision preserves source and OCR proposals for a manual
 });
 
 test('partial completion keeps valid blocks and retries only pending blocks in smaller batches', async ({ page }) => {
-  await page.goto('/es/translate'); await native(page, 4); await credentials(page);
+  await page.goto('/es/translate'); await native(page, 4);
+  await page.getByLabel('Usar contexto entre páginas y lotes').check(); await credentials(page);
   const calls: string[][] = [];
   const contexts: { id: string; translation?: string }[][] = [];
   await page.route('**/api/translate', route => {
@@ -276,6 +277,8 @@ test('context excludes unchecked blocks and disabling it resets consent', async 
   await page.getByLabel('Página', { exact: true }).selectOption('1');
   await page.getByLabel(/p2_b1 · Traducir este bloque/).uncheck();
   await page.getByLabel('Glosario opcional (término = traducción)').fill('growth = crecimiento');
+  await expect(page.getByLabel('Usar contexto entre páginas y lotes')).not.toBeChecked();
+  await page.getByLabel('Usar contexto entre páginas y lotes').check();
   await credentials(page);
   let body: { segments: { id: string }[]; context: { id: string; translation?: string }[]; glossary: string } | undefined;
   await page.route('**/api/translate', route => {
@@ -302,6 +305,7 @@ test('context excludes unchecked blocks and disabling it resets consent', async 
 test('a returned context ID cannot overwrite its reference or apply a target translation', async ({ page }) => {
   await page.goto('/es/translate'); await native(page, 3);
   await page.getByLabel('Español argentino p1_b1').fill('Referencia intacta.');
+  await page.getByLabel('Usar contexto entre páginas y lotes').check();
   await credentials(page);
   await page.route('**/api/translate', route => route.fulfill({ json: { translations: [
     { id: 'p2_b1', text: 'Traducción solicitada.' }, { id: 'p1_b1', text: 'Referencia sobrescrita.' },

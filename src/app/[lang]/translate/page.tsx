@@ -6,7 +6,7 @@ import TranslationPreview from '@/components/TranslationPreview';
 import TranslationRegionReview from '@/components/TranslationRegionReview';
 import { useI18n } from '@/lib/i18n/context';
 import { downloadBlob, derivedFileName } from '@/lib/files';
-import { batches, MAX_SEGMENTS, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
+import { batches, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
 import { pendingSegments, type TranslationBlock, type TranslationPage } from '@/lib/translation/layout';
 import { translationCopy } from '@/lib/translation/copy';
 import { buildTranslationContext } from '@/lib/translation/context';
@@ -15,6 +15,7 @@ import { analyzeTranslation, checkTranslationLayout, exportTranslation, type Lay
 
 const field = 'block w-full rounded-lg border border-gray-300 bg-white p-2 text-sm disabled:opacity-50';
 const button = 'rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40';
+const INITIAL_BATCH_LIMIT = 12;
 export default function TranslatePage() {
   const { locale, t } = useI18n(), c = translationCopy[locale];
   const [file, setFile] = useState<File>();
@@ -27,8 +28,8 @@ export default function TranslatePage() {
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState('');
   const [pageIndex, setPageIndex] = useState(0), [issues, setIssues] = useState<LayoutIssue[]>([]);
   const [output, setOutput] = useState<Uint8Array>();
-  const [batchLimit, setBatchLimit] = useState(MAX_SEGMENTS);
-  const [useContext, setUseContext] = useState(true);
+  const [batchLimit, setBatchLimit] = useState(INITIAL_BATCH_LIMIT);
+  const [useContext, setUseContext] = useState(false);
   const [exportMode, setExportMode] = useState<TranslationExportMode>('preserve');
   const [outputLayout, setOutputLayout] = useState<{ pageCount: number; sourcePages: number[] }>();
   const [outputPage, setOutputPage] = useState(1);
@@ -53,7 +54,7 @@ export default function TranslatePage() {
   function analyze() {
     if (!file) return;
     void run(async signal => {
-      invalidate(); setPages([]); setComplete(false); setPageIndex(0); setBatchLimit(MAX_SEGMENTS);
+      invalidate(); setPages([]); setComplete(false); setPageIndex(0); setBatchLimit(INITIAL_BATCH_LIMIT);
       if (file.size > 50 * 1024 * 1024) throw new TranslationError('file_too_large');
       const bytes = new Uint8Array(await file.arrayBuffer()); setSource(bytes);
       await analyzeTranslation(bytes, { forceOcr, signal,
@@ -119,7 +120,7 @@ export default function TranslatePage() {
     </details>
     <section className="space-y-3 rounded-xl border p-4">
       <FileDropzone inputId="translate-file-input" kind={PDF_FILES} disabled={busy} className="rounded-lg border-2 border-dashed p-6 text-center" onFilesSelected={files => {
-        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); setBatchLimit(MAX_SEGMENTS); invalidate();
+        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); setBatchLimit(INITIAL_BATCH_LIMIT); invalidate();
       }}>{file?.name ?? t.common.choosePdf}</FileDropzone>
       <p className="text-sm text-gray-600">{c.analyzeHelp}</p>
       <label className="flex gap-2 text-sm"><input type="checkbox" checked={forceOcr} disabled={busy} onChange={e => setForceOcr(e.target.checked)} />{c.force}</label>
@@ -150,7 +151,7 @@ export default function TranslatePage() {
       {busy && <button className="rounded-lg border px-4 py-2" onClick={() => controller.current?.abort()}>{c.cancel}</button>}
     </div>
     <p role="status" className="text-sm">{progress || (pages.length ? `${pending} ${c.pending}` : '')}</p>
-    {batchLimit < MAX_SEGMENTS && <p className="text-sm text-amber-800">{c.recovery} {batchLimit} {c.recoveryLimit}</p>}
+    {batchLimit < INITIAL_BATCH_LIMIT && <p className="text-sm text-amber-800">{c.recovery} {batchLimit} {c.recoveryLimit}</p>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">{error}<p>{c.kept}</p></div>}
     {current && <section className="space-y-4">
       <div className="flex gap-3"><h2 className="text-xl font-medium">{c.review}</h2>

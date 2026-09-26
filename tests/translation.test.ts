@@ -9,6 +9,28 @@ const result = { translations: [{ id: 'p1_b1', text: 'Crecimiento económico y c
 const response = () => Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
 afterEach(() => vi.unstubAllGlobals());
 describe('translation contract', () => {
+  it('groups double-spaced OCR prose with initial indentation without crossing paragraph boundaries', () => {
+    const line = (text: string, x: number, y: number, width: number, n: number) => ({
+      text, x, y, width, height: 13, size: 10, font: 'Helvetica', line: n,
+    });
+    const blocks = groupRuns([
+      line('Indented first line', 138, 80, 377, 1),
+      line('second line', 101, 106, 420, 2),
+      line('last short line', 101, 132, 130, 3),
+      line('New paragraph', 138, 158, 390, 4),
+      line('continued paragraph', 101, 184, 420, 5),
+    ], 1);
+    expect(blocks.map(b => b.source)).toEqual(['Indented first line second line last short line',
+      'New paragraph continued paragraph']);
+    expect(blocks[0].lines).toHaveLength(3);
+    expect(blocks[0].x).toBe(101);
+  });
+  it('keeps widely separated OCR columns independent while grouping their prose', () => {
+    const lines = [0, 1].flatMap(col => [0, 1, 2].map(n => ({ text: `C${col}L${n}`,
+      x: 40 + col * 300, y: 80 + n * 26, width: 200, height: 13, size: 10,
+      font: 'Helvetica', line: col * 3 + n })));
+    expect(groupRuns(lines, 1).map(b => b.source)).toEqual(['C0L0 C0L1 C0L2', 'C1L0 C1L1 C1L2']);
+  });
   it('keeps only allowed fields and never carries a credential', () => {
     expect(validateRequest({ ...input, key: 'secret', pdf: 'bytes' })).toEqual(input);
   });

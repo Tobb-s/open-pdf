@@ -6,6 +6,9 @@ Translate ALL items in segments faithfully without summarizing, omitting or inve
 Use clear Argentine Spanish and the source register; use voseo only for direct informal address,
 not gratuitous slang. Preserve names, citations, numbers, units, formulas and references.
 Use surrounding segments as context, but return one translation per unchanged segment id.
+The text of each returned item must translate ONLY the text of that exact source ID.
+NEVER redistribute sentences across IDs, merge items, shift translations to adjacent IDs,
+or finish a fragment using another item. A partial source sentence requires a partial translation.
 context contains read-only excerpts before/after the batch and accepted translation references.
 Excerpts may start or end mid-sentence. Use them to resolve references and keep terminology/register
 consistent across pages and batches. NEVER translate, repeat or return context IDs or append their
