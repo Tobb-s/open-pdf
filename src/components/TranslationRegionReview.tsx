@@ -6,21 +6,23 @@ import { prepareTranslationRegion, rereadTranslationRegion } from '@/lib/transla
 import { TranslationError, type TranslationProvider } from '@/lib/translation/contracts';
 import { validateRegionResult, type RegionReviewResult } from '@/lib/translation/review-contract';
 import { translationCopy } from '@/lib/translation/copy';
+import { credentialHeaders } from '@/lib/account/contracts';
 
 interface Reading { image: string; width: number; height: number; sourceText: string;
   candidates: { text: string; confidence: number; mode: string }[]; vision?: RegionReviewResult }
-export default function TranslationRegionReview({ source, page, block, busy, provider, model, apiKey, locale, run, apply }: {
+export default function TranslationRegionReview({ source, page, block, busy, provider, model, apiKey, savedProviderId, locale, run, apply }: {
   source: Uint8Array; page: TranslationPage; block: TranslationBlock; busy: boolean;
   provider: TranslationProvider; model: string; apiKey: string; locale: 'es' | 'en';
+  savedProviderId?: string;
   run: (work: (signal: AbortSignal) => Promise<void>) => Promise<void>;
   apply: (text: string) => void;
 }) {
   const c = translationCopy[locale];
   const [reading, setReading] = useState<Reading>();
-  const [approval, setApproval] = useState<{ reading: Reading; model: string; apiKey: string }>();
+  const [approval, setApproval] = useState<{ reading: Reading; model: string; apiKey: string; savedProviderId?: string }>();
   const [proposal, setProposal] = useState('');
   const current = reading?.sourceText === block.source ? reading : undefined;
-  const consent = !!current && approval?.reading === current && approval.model === model && approval.apiKey === apiKey;
+  const consent = !!current && approval?.reading === current && approval.model === model && approval.apiKey === apiKey && approval.savedProviderId === savedProviderId;
   const enabled = !busy && block.included;
   function prepare() {
     void run(async signal => {
@@ -39,7 +41,7 @@ export default function TranslationRegionReview({ source, page, block, busy, pro
       // Each click sends exactly one crop. No automatic retry or translated/context text.
       const response = await fetch('/api/translation-review', { method: 'POST', cache: 'no-store',
         signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey.trim()}` },
+        headers: { 'Content-Type': 'application/json', ...credentialHeaders(apiKey, savedProviderId) },
         body: JSON.stringify({ model: model.trim(), image: current.image, sourceText: current.sourceText, consent: true }),
       });
       let data;
@@ -67,8 +69,8 @@ export default function TranslationRegionReview({ source, page, block, busy, pro
       </div>)}
       <p className="text-amber-800">{c.regionVisionHelp}</p>
       <label className="flex gap-2"><input type="checkbox" checked={consent} disabled={!enabled || provider !== 'openai'}
-        onChange={e => setApproval(e.target.checked ? { reading: current, model, apiKey } : undefined)} />{c.regionConsent}</label>
-      <button type="button" disabled={!enabled || provider !== 'openai' || !consent || !apiKey.trim() || !model.trim()}
+        onChange={e => setApproval(e.target.checked ? { reading: current, model, apiKey, savedProviderId } : undefined)} />{c.regionConsent}</label>
+      <button type="button" disabled={!enabled || provider !== 'openai' || !consent || (!savedProviderId && !apiKey.trim()) || !model.trim()}
         className="rounded border px-3 py-2 disabled:opacity-40" aria-label={`${c.regionVision} ${block.id}`}
         onClick={vision}>{c.regionVision}</button>
       {current.vision && <div className="rounded border p-2">

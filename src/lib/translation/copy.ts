@@ -40,6 +40,10 @@ export const translationCopy = {
     unsupported_characters: 'Hay caracteres que la fuente de exportación no puede representar. Corregí el bloque o conservá el original.',
     missing_translation: 'Falta la traducción.',
     errors: {
+      login_required: 'Tu sesión venció. Volvé a entrar a Mi cuenta.',
+      provider_not_found: 'Este proveedor ya no está disponible en tu cuenta. Elegí otro.',
+      provider_mismatch: 'Volvé a elegir tu proveedor guardado para cargar su configuración.',
+      account_unavailable: 'No pudimos acceder a tu cuenta. Reintentá en unos momentos.',
       invalid_region: 'El recorte no es válido o supera los límites. Revisá la región o dividí el documento.',
       review_failed: 'No se pudo revisar la región. El texto original no fue reemplazado.',
       invalid_request: 'La solicitud no es válida. Revisá modelo y bloques.', consent_required: 'Falta autorizar el envío.',
@@ -95,6 +99,10 @@ export const translationCopy = {
     overflow: 'Text does not fit at 7 pt or above. Review wording without losing content, or keep the original block.',
     unsupported_characters: 'The export font cannot represent some characters. Edit the block or keep the original.', missing_translation: 'Translation missing.',
     errors: {
+      login_required: 'Your session expired. Sign in to My account again.',
+      provider_not_found: 'This provider is no longer available in your account. Select another.',
+      provider_mismatch: 'Select your saved provider again to reload its settings.',
+      account_unavailable: 'Your account could not be accessed. Please try again shortly.',
       invalid_region: 'The crop is invalid or exceeds limits. Review the region or split the document.',
       review_failed: 'Could not review the region. Source text was not replaced.',
       invalid_request: 'Invalid request. Check model and blocks.', consent_required: 'Consent is required.', key_required: 'Enter a key for the selected provider.',

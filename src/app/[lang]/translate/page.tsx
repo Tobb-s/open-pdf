@@ -1,6 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Navbar from '@/components/Navbar';
+import Link from 'next/link';
+import { useAccount } from '@/lib/account/use-account';
+import { accountCopy } from '@/lib/account/copy';
+import { credentialHeaders } from '@/lib/account/contracts';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import TranslationPreview from '@/components/TranslationPreview';
 import TranslationRegionReview from '@/components/TranslationRegionReview';
@@ -30,6 +34,9 @@ export default function TranslatePage() {
   const [output, setOutput] = useState<Uint8Array>();
   const [batchLimit, setBatchLimit] = useState(INITIAL_BATCH_LIMIT);
   const [useContext, setUseContext] = useState(false);
+  const { account } = useAccount();
+  const [savedProviderId, setSavedProviderId] = useState('');
+  const a = accountCopy[locale];
   const [exportMode, setExportMode] = useState<TranslationExportMode>('preserve');
   const [outputLayout, setOutputLayout] = useState<{ pageCount: number; sourcePages: number[] }>();
   const [outputPage, setOutputPage] = useState(1);
@@ -74,7 +81,7 @@ export default function TranslatePage() {
         try {
           const response = await fetch('/api/translate', { method: 'POST', cache: 'no-store',
             signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}` },
+            headers: { 'Content-Type': 'application/json', ...credentialHeaders(key, savedProviderId) },
             body: JSON.stringify({ provider, model: model.trim(), baseUrl: provider === 'compatible' ? baseUrl.trim() : undefined,
               glossary, consent, segments: groups[i], context: useContext ? buildTranslationContext(workingPages, groups[i]) : [] }),
           });
@@ -127,14 +134,23 @@ export default function TranslatePage() {
       <button className={button} disabled={!file || busy} onClick={analyze}>{c.analyze}</button>
     </section>
     <fieldset disabled={busy} className="grid gap-4 rounded-xl border p-4 sm:grid-cols-2">
-      <label className="text-sm">{c.provider}<select className={field} value={provider} onChange={e => {
+      {account?.user ? <label className="text-sm sm:col-span-2">{a.select}<select className={field} value={savedProviderId} onChange={e => {
+        const selected = account.providers.find(p => p.id === e.target.value);
+        setSavedProviderId(selected?.id ?? ''); setKey(''); setConsent(false);
+        if (selected) { setProvider(selected.provider); setModel(selected.model); setBaseUrl(selected.baseUrl ?? ''); }
+      }}><option value="">{a.temporary}</option>{account.providers.map(p => <option key={p.id} value={p.id}>{p.label} · {p.keyHint}</option>)}</select>
+        <Link className="mt-1 inline-block text-violet-700 underline" href={`/${locale}/account`}>{a.manage}</Link>
+      </label> : <Link className="text-sm text-violet-700 underline sm:col-span-2" href={`/${locale}/account`}>{a.connect}</Link>}
+      <label className="text-sm">{c.provider}<select disabled={!!savedProviderId} className={field} value={provider} onChange={e => {
         const value = e.target.value as TranslationProvider; setProvider(value); setKey(''); setConsent(false);
         setModel(value === 'openai' ? 'gpt-4.1-mini' : value === 'gemini' ? 'gemini-2.5-flash' : '');
       }}><option value="openai">OpenAI</option><option value="gemini">Gemini</option><option value="compatible">OpenAI-compatible / OpenRouter</option></select></label>
-      <label className="text-sm">{c.model}<input className={field} value={model} onChange={e => { setModel(e.target.value); setConsent(false); }} maxLength={120} /></label>
-      {provider === 'compatible' && <label className="text-sm sm:col-span-2">{c.endpoint}<input className={field} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConsent(false); setKey(''); }} /><span>{c.custom}</span></label>}
-      <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} maxLength={2048} /></label>
-      <button className="self-end rounded-lg border p-2 text-sm" onClick={() => { setKey(''); setConsent(false); }}>{c.clear}</button>
+      <label className="text-sm">{c.model}<input disabled={!!savedProviderId} className={field} value={model} onChange={e => { setModel(e.target.value); setConsent(false); }} maxLength={120} /></label>
+      {provider === 'compatible' && <label className="text-sm sm:col-span-2">{c.endpoint}<input disabled={!!savedProviderId} className={field} value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setConsent(false); setKey(''); }} /><span>{c.custom}</span></label>}
+      {savedProviderId ? <p className="text-sm sm:col-span-2">{a.using}: {account?.providers.find(p => p.id === savedProviderId)?.label}</p> : <>
+        <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} maxLength={2048} /></label>
+        <button className="self-end rounded-lg border p-2 text-sm" onClick={() => { setKey(''); setConsent(false); }}>{c.clear}</button>
+      </>}
       <label className="text-sm sm:col-span-2">{c.glossary}<textarea className={field} value={glossary} maxLength={3000} onChange={e => { setGlossary(e.target.value); setConsent(false); }} /></label>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={useContext} onChange={e => { setUseContext(e.target.checked); setConsent(false); }} />{c.context}</label>
       <p className="text-xs text-gray-600 sm:col-span-2">{c.contextHelp}</p>
@@ -145,7 +161,7 @@ export default function TranslatePage() {
     }}><option value="preserve">{c.preserveMode}</option><option value="readable">{c.readableMode}</option></select></label>
     {exportMode === 'readable' && <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">{c.readableHelp}</p>}
     <div className="flex flex-wrap items-center gap-3">
-      <button className={button} disabled={busy || !complete || !pending || !consent || !key.trim() || !model.trim()} onClick={translate}>{c.translate}</button>
+      <button className={button} disabled={busy || !complete || !pending || !consent || (!savedProviderId && !key.trim()) || !model.trim()} onClick={translate}>{c.translate}</button>
       <button className={button} disabled={busy || !complete || pending > 0 || !pages.some(p => p.blocks.some(b => b.included))} onClick={preview}>{c.preview}</button>
       {output && <button className={button} onClick={() => downloadBlob(new Blob([output.slice().buffer as ArrayBuffer], { type: 'application/pdf' }), derivedFileName(file!.name, '_es-AR.pdf'))}>{c.download}</button>}
       {busy && <button className="rounded-lg border px-4 py-2" onClick={() => controller.current?.abort()}>{c.cancel}</button>}
@@ -178,8 +194,8 @@ export default function TranslatePage() {
           <label className="text-sm">{c.source}<textarea aria-label={`${c.source} ${b.id}`} rows={4} className={field} value={b.source} maxLength={12_000} onChange={e => updateBlock(b.id, { source: e.target.value, translated: '' })} /></label>
           <label className="text-sm">{c.target}<textarea aria-label={`${c.target} ${b.id}`} rows={4} className={field} value={b.translated} maxLength={48_000} onChange={e => updateBlock(b.id, { translated: e.target.value })} /></label>
         </div>
-        {source && <TranslationRegionReview key={`${b.id}:${provider}:${model}`} source={source} page={current} block={b}
-          busy={busy} provider={provider} model={model} apiKey={key} locale={locale} run={run}
+        {source && <TranslationRegionReview key={`${b.id}:${provider}:${model}:${savedProviderId}`} source={source} page={current} block={b}
+          busy={busy} provider={provider} model={model} apiKey={key} savedProviderId={savedProviderId} locale={locale} run={run}
           apply={text => updateBlock(b.id, { source: text, translated: '' })} />}
         {issues.filter(issue => issue.id === b.id).map(issue => <p className="text-sm text-red-700" key={issue.reason}>{c[issue.reason]}</p>)}
       </fieldset>)}

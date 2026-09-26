@@ -27,6 +27,7 @@ usando la clave del usuario (BYOK), sin subir el PDF completo.
 ## Idiomas
 
 La traducción y sus límites están documentados en [docs/translation.md](docs/translation.md).
+Las cuentas personales y el almacenamiento privado de claves están documentados en [docs/accounts.md](docs/accounts.md). Cada usuario conecta su propio proveedor; compartir el enlace no comparte la clave del operador.
 
 El sitio está en **español por defecto** y en inglés. Cada idioma tiene sus propias
 URLs — `/es/merge` y `/en/merge` — y las dos versiones se prerenderizan estáticamente,
