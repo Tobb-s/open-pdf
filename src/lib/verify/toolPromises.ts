@@ -32,6 +32,7 @@ export type StructurePromise =
   | 'not-applicable';
 
 export const TOOL_STRUCTURES: Record<ToolSlug, StructurePromise> = {
+  translate: 'rebuilds',
   // Load, change, save. The document that comes out is the one that went in.
   organize: 'preserves',
   edit: 'preserves',

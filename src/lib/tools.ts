@@ -5,6 +5,7 @@
  */
 
 export type ToolSlug =
+  | 'translate'
   | 'compress'
   | 'ocr'
   | 'merge'
@@ -37,6 +38,7 @@ export interface Tool {
 }
 
 export const TOOLS: Tool[] = [
+  { slug: 'translate', color: 'text-violet-600', bgColor: 'bg-violet-50' },
   { slug: 'compress', color: 'text-amber-600', bgColor: 'bg-amber-50' },
   { slug: 'ocr', color: 'text-orange-500', bgColor: 'bg-orange-50' },
   { slug: 'merge', color: 'text-blue-600', bgColor: 'bg-blue-50' },
