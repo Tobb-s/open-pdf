@@ -10,6 +10,7 @@ import ToolsMenu from '@/components/ToolsMenu';
 import { useI18n } from '@/lib/i18n/context';
 import { STUDIO, TOOLBOX } from '@/lib/tools';
 import { cn } from '@/lib/utils';
+import { accountCopy } from '@/lib/account/copy';
 
 /**
  * The bar at the top of every page.
@@ -190,6 +191,9 @@ export default function Navbar() {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            <Link href={`/${locale}/account`} onClick={closeAll} className="rounded-full px-2 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+              {accountCopy[locale].title}
+            </Link>
             <a
               href={REPO_URL}
               target="_blank"

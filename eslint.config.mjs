@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Third-party bundles copied in by scripts/vendor-assets.mjs.
     "public/vendor/**",
+    // Private local audit artifacts and previous generated builds.
+    ".codex/**",
   ]),
 ]);
 
