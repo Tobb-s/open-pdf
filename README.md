@@ -1,13 +1,14 @@
 # OpenPDF
 
-Herramientas de PDF que se ejecutan enteras en el navegador. Sin subir archivos, sin
-servidor al que subirlos: la aplicación son ficheros estáticos y el motor de PDF corre
-en la propia página.
+Herramientas de PDF con motor PDF y OCR locales. La traducción con IA es una excepción
+explícita: envía texto autorizado al proveedor elegido a través del servidor de OpenPDF,
+usando la clave del usuario (BYOK), sin subir el PDF completo.
 
 ## Herramientas
 
 | Herramienta | Qué hace |
 | --- | --- |
+| **Traducir (beta)** | Inglés a español argentino con OpenAI, Gemini o Chat Completions compatible. OCR local, revisión editable, lotes reanudables y nuevo PDF con fondo rasterizado e imágenes en su ubicación. Requiere API propia y consentimiento; puede tener costo. |
 | **Comprimir** | Reduce el tamaño reconvirtiendo cada página a imagen. Avisa cuando el documento tiene texto real, porque en ese caso suele crecer en vez de encoger. |
 | **OCR** | Reconoce el texto de un PDF escaneado y devuelve una copia con capa de texto buscable, más el texto plano. Seis idiomas. |
 | **Unir** | Combina varios PDF en uno, en el orden que elijas. |
@@ -25,6 +26,8 @@ en la propia página.
 
 ## Idiomas
 
+La traducción y sus límites están documentados en [docs/translation.md](docs/translation.md).
+
 El sitio está en **español por defecto** y en inglés. Cada idioma tiene sus propias
 URLs — `/es/merge` y `/en/merge` — y las dos versiones se prerenderizan estáticamente,
 declarando sus traducciones con `hreflang`. Los slugs no se traducen a propósito: así
@@ -33,8 +36,8 @@ los enlaces existentes siguen funcionando y hay una sola ruta por herramienta.
 El selector está siempre a la vista en la barra superior y te deja en la misma
 herramienta al cambiar. `/` y `/merge` redirigen a `/es` y `/es/merge`.
 
-Todo el texto visible vive en `src/lib/i18n/dictionaries.ts`, tipado con una única
-interfaz `Dictionary`: si a un idioma le falta una clave, no compila.
+El catálogo vive en `src/lib/i18n/dictionaries.ts`; la herramienta de traducción tiene
+su copia bilingüe en `src/lib/translation/copy.ts`.
 
 ## El conversor de Office
 
@@ -60,8 +63,10 @@ Dos concesiones que conviene conocer, ambas **acotadas a esa ruta**:
 
 La promesa es verificable, no declarativa:
 
-- **No hay rutas de servidor.** El build produce sólo páginas estáticas. No existe ningún
-  endpoint al que se pueda enviar un archivo.
+- **Las herramientas locales no suben documentos.** La excepción es `POST /api/translate`:
+  recibe exclusivamente lotes de texto, glosario y la clave BYOK con consentimiento.
+  No guarda claves ni texto deliberadamente ni registra cuerpos en la aplicación.
+  El proveedor y la infraestructura tienen sus propias políticas de retención.
 - **No se carga código de terceros en tiempo de ejecución.** El worker de pdf.js y el
   motor de OCR se copian desde `node_modules` a `public/vendor/` durante el build, y el
   motor de LibreOffice —que no está en npm— se baja en el build desde el CDN de
@@ -72,7 +77,7 @@ La promesa es verificable, no declarativa:
   además cabeceras de aislamiento de origen cruzado. El `'unsafe-inline'` está porque
   Next inyecta scripts en línea; el navegador rechaza igual cualquier script de otro
   origen.
-- **Después de cargar una herramienta, no vuelve a pedir nada al servidor** para
+- **Después de cargar una herramienta local, no vuelve a pedir nada al servidor** para
   procesar tu archivo. No hay service worker, así que la primera visita a cada
   herramienta sí baja lo suyo: sin conexión no arranca de cero.
 

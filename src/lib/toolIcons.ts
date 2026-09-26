@@ -1,5 +1,6 @@
 import {
   Combine,
+  Languages,
   FileCode2,
   FileStack,
   FileType,
@@ -24,6 +25,7 @@ import type { ToolSlug } from '@/lib/tools';
  * tool without an icon fails to compile rather than rendering a hole.
  */
 export const TOOL_ICONS: Record<ToolSlug, LucideIcon> = {
+  translate: Languages,
   compress: Minimize2,
   ocr: ScanText,
   merge: Combine,

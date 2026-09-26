@@ -873,14 +873,14 @@ export const es: Dictionary = {
   meta: {
     siteTitle: 'OpenPDF — herramientas de PDF que corren en tu navegador',
     siteDescription:
-      'Herramientas de PDF libres y de código abierto. Une, divide, comprime, aplica OCR, edita y rellena formularios sin subir nada: todo corre en tu navegador.',
-    titleSuffix: 'gratis, en tu navegador | OpenPDF',
+      'Herramientas de PDF de código abierto con procesamiento local. Traducción opcional con tu propia API y consentimiento de envío de texto.',
+    titleSuffix: 'herramientas de PDF | OpenPDF',
   },
   nav: {
     switchLanguage: 'Cambiar idioma',
     github: 'GitHub',
     tools: 'Herramientas',
-    toolsHint: 'una por tarea, todas en tu navegador',
+    toolsHint: 'una por tarea, con privacidad explícita',
     allTools: 'Ver todas las herramientas',
     menu: 'Abrir el menú',
     closeMenu: 'Cerrar el menú',
@@ -922,7 +922,7 @@ export const es: Dictionary = {
     headingLine1: 'Herramientas de PDF,',
     headingLine2: 'dentro de tu navegador',
     intro:
-      'Tus archivos no salen de tu dispositivo. No hay subida, ni servidor al que subirlos: todo corre en la página que estás leyendo.',
+      'Editá y procesá tus PDF localmente. Si elegís traducir con IA, sólo se envía el texto que autorices al proveedor elegido, a través de OpenPDF.',
     searchPlaceholder: 'Buscar herramientas…',
     searchLabel: 'Buscar herramientas',
     noMatches: (query) => `No hay nada que coincida con «${query}».`,
@@ -932,7 +932,7 @@ export const es: Dictionary = {
     openSource: 'Código abierto',
     whyTitle: '¿Por qué OpenPDF?',
     whyBody:
-      'La mayoría de las herramientas de PDF en línea te piden subir el documento al servidor de otra persona. OpenPDF no tiene servidor al que subirlo: la aplicación entera son archivos estáticos, y el motor de PDF corre en tu navegador. Nada de lo que abras acá se transmite a ningún lado.',
+      'El motor PDF y el OCR corren en tu navegador. Las herramientas locales no suben tus documentos. La traducción con IA es opcional: usa tu propia clave y envía el texto y el glosario al proveedor seleccionado a través de nuestro servidor, con tu consentimiento.',
     footer: 'OpenPDF — libre y de código abierto.',
     readCode: 'Ver el código',
     studioName: 'OpenPDF Studio',
@@ -941,7 +941,7 @@ export const es: Dictionary = {
     openStudio: 'Abrir Studio',
     toolsName: 'OpenPDF Tools',
     toolsBody:
-      'Trece herramientas, una por tarea. Abrís, hacés lo tuyo y descargás; nada sale de tu dispositivo.',
+      'Una herramienta por tarea. Procesamiento local y traducción opcional con tu propia API.',
   },
   structures: {
     form: 'los campos de formulario',
@@ -960,6 +960,11 @@ export const es: Dictionary = {
     seeAll: 'Ver todas las herramientas',
   },
   tools: {
+    translate: {
+      title: 'Traducir PDF', navLabel: 'Traducir', tagline: 'Del inglés al español argentino con tu propia API.',
+      description: 'Traducí texto nativo o escaneado, revisá los bloques y exportá un PDF con las imágenes en su lugar. Beta con API propia y envío de texto autorizado.',
+      keywords: ['traducir', 'traducción', 'inglés', 'español', 'inteligencia artificial', 'API'],
+    },
     compress: {
       title: 'Comprimir PDF',
       navLabel: 'Comprimir',
@@ -1971,14 +1976,14 @@ export const en: Dictionary = {
   meta: {
     siteTitle: 'OpenPDF — PDF tools that run in your browser',
     siteDescription:
-      'Free, open-source PDF tools. Merge, split, compress, OCR, edit and fill PDF forms without uploading anything: every tool runs in your browser.',
-    titleSuffix: 'free, in your browser | OpenPDF',
+      'Open-source PDF tools with local processing. Optional translation with your own API and consent to send text.',
+    titleSuffix: 'PDF tools | OpenPDF',
   },
   nav: {
     switchLanguage: 'Change language',
     github: 'GitHub',
     tools: 'Tools',
-    toolsHint: 'one per task, all in your browser',
+    toolsHint: 'one per task, explicit privacy',
     allTools: 'See all tools',
     menu: 'Open menu',
     closeMenu: 'Close menu',
@@ -2020,7 +2025,7 @@ export const en: Dictionary = {
     headingLine1: 'PDF tools,',
     headingLine2: 'right in your browser',
     intro:
-      'Your files never leave your device. There is no upload, and no server to upload to — every tool here runs in the page you are reading.',
+      'Edit and process PDFs locally. Optional AI translation sends only authorized text to your chosen provider through OpenPDF.',
     searchPlaceholder: 'Search tools…',
     searchLabel: 'Search tools',
     noMatches: (query) => `Nothing matches “${query}”.`,
@@ -2030,7 +2035,7 @@ export const en: Dictionary = {
     openSource: 'Open source',
     whyTitle: 'Why OpenPDF?',
     whyBody:
-      'Most online PDF tools ask you to upload your document to someone else’s server. OpenPDF has no server to upload to: the whole application is static files, and the PDF engine runs in your browser. Nothing you open here is transmitted anywhere.',
+      'The PDF engine and OCR run in your browser. Local tools do not upload documents. Optional AI translation uses your own key and sends text and glossary through our server to your chosen provider, with your consent.',
     footer: 'OpenPDF — free and open source.',
     readCode: 'Read the code',
     studioName: 'OpenPDF Studio',
@@ -2039,7 +2044,7 @@ export const en: Dictionary = {
     openStudio: 'Open Studio',
     toolsName: 'OpenPDF Tools',
     toolsBody:
-      'Thirteen tools, one per task. Open, do the one thing, download; nothing leaves your device.',
+      'One tool per task. Local processing and optional translation with your own API.',
   },
   structures: {
     form: 'the form fields',
@@ -2058,6 +2063,11 @@ export const en: Dictionary = {
     seeAll: 'See all tools',
   },
   tools: {
+    translate: {
+      title: 'Translate PDF', navLabel: 'Translate', tagline: 'English to Argentine Spanish with your own API.',
+      description: 'Translate native or scanned text, review blocks and export a PDF with images in place. BYOK beta with consent-based text transmission.',
+      keywords: ['translate', 'translation', 'English', 'Spanish', 'AI', 'API'],
+    },
     compress: {
       title: 'Compress PDF',
       navLabel: 'Compress',

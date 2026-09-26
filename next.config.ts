@@ -13,14 +13,15 @@ import { TOOL_SLUGS } from './src/lib/tools';
  * `script-src` allows inline scripts, which is a deliberate trade. Next.js boots
  * React from inline bootstrap scripts; the alternatives are a per-request nonce,
  * which requires middleware and would turn every page into a server-rendered one,
- * or build-time hashes, which change with every build. Keeping the site a pile of
- * static files is the thing the privacy claim rests on, so it wins here.
+ * or build-time hashes, which change with every build. Tool pages remain static;
+ * optional translation has a same-origin, consent-based BYOK server endpoint.
  *
  * What that concession costs is small for this app: there is no `innerHTML`, no
  * `dangerouslySetInnerHTML` and no `eval` anywhere in the source, so there is no
  * sink to inject into. And the directives that would matter if there were one are
- * still shut: `connect-src`, `img-src` and `form-action` are all limited to this
- * origin, so injected code has nowhere to send a document.
+ * scoped: `connect-src`, `img-src` and `form-action` are limited to this origin.
+ * This alone does not prevent transmission through /api/translate, which requires
+ * a supplied key, consent and an allowed provider destination.
  */
 function contentSecurityPolicy({ allowOfficeEngine = false } = {}) {
   const scriptSrc = [
