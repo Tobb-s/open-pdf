@@ -7,8 +7,14 @@ export interface TranslationSettings {
   glossary: string;
 }
 export interface Segment { id: string; text: string }
+/** Read-only excerpts. These IDs must never appear in the translation output. */
+export interface ContextSegment extends Segment {
+  position: 'before' | 'after' | 'reference';
+  translation?: string;
+}
 export interface TranslationRequest extends TranslationSettings {
   segments: Segment[];
+  context?: ContextSegment[];
   consent: true;
 }
 export class TranslationError extends Error {
@@ -16,6 +22,9 @@ export class TranslationError extends Error {
 }
 export const MAX_BATCH_CHARS = 12_000;
 export const MAX_SEGMENTS = 80;
+export const MAX_CONTEXT_ITEMS = 6;
+export const MAX_CONTEXT_CHARS = 6_000;
+export const MAX_CONTEXT_ITEM_CHARS = 1_200;
 export function validateRequest(value: unknown): TranslationRequest {
   if (!value || typeof value !== 'object') throw new TranslationError('invalid_request');
   const v = value as Record<string, unknown>;
@@ -40,8 +49,24 @@ export function validateRequest(value: unknown): TranslationRequest {
     return { id, text };
   });
   if (chars > MAX_BATCH_CHARS) throw new TranslationError('batch_too_large', 413);
+  let context: ContextSegment[] | undefined;
+  if (v.context !== undefined) {
+    if (!Array.isArray(v.context) || v.context.length > MAX_CONTEXT_ITEMS) throw new TranslationError('invalid_context');
+    let contextChars = 0;
+    context = v.context.map((entry: unknown) => {
+      if (!entry || typeof entry !== 'object') throw new TranslationError('invalid_context');
+      const { id, text, position, translation } = entry as ContextSegment;
+      if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,60}$/.test(id) || ids.has(id) ||
+          typeof text !== 'string' || !text.trim() || !['before', 'after', 'reference'].includes(position) ||
+          (translation !== undefined && (typeof translation !== 'string' || !translation.trim())) ||
+          text.length + (translation?.length ?? 0) > MAX_CONTEXT_ITEM_CHARS) throw new TranslationError('invalid_context');
+      ids.add(id); contextChars += text.length + (translation?.length ?? 0);
+      return { id, text, position, ...(translation !== undefined ? { translation } : {}) };
+    });
+    if (contextChars > MAX_CONTEXT_CHARS) throw new TranslationError('invalid_context');
+  }
   return { provider: v.provider as TranslationProvider, model: v.model, glossary: v.glossary,
-    baseUrl: v.baseUrl as string | undefined, consent: true, segments };
+    baseUrl: v.baseUrl as string | undefined, consent: true, segments, ...(context !== undefined ? { context } : {}) };
 }
 
 /** Salvage only unambiguous entries in a completed, parsed response. Never guess IDs. */

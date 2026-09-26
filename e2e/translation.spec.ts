@@ -69,8 +69,11 @@ test('bad provider response keeps original and permits retry', async ({ page }) 
 test('partial completion keeps valid blocks and retries only pending blocks in smaller batches', async ({ page }) => {
   await page.goto('/es/translate'); await native(page, 4); await credentials(page);
   const calls: string[][] = [];
+  const contexts: { id: string; translation?: string }[][] = [];
   await page.route('**/api/translate', route => {
-    const segments = route.request().postDataJSON().segments as { id: string }[];
+    const body = route.request().postDataJSON();
+    const segments = body.segments as { id: string }[];
+    contexts.push(body.context);
     calls.push(segments.map(s => s.id));
     return route.fulfill({ json: { translations: (calls.length === 1 ? segments.slice(0, 1) : segments)
       .map(s => ({ id: s.id, text: `Traducción ${s.id}` })), missingIds: [] } });
@@ -86,6 +89,9 @@ test('partial completion keeps valid blocks and retries only pending blocks in s
   await page.getByRole('button', { name: 'Traducir pendientes' }).click();
   await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
   expect(calls).toEqual([['p1_b1', 'p2_b1', 'p3_b1', 'p4_b1'], ['p2_b1', 'p3_b1'], ['p4_b1']]);
+  expect(contexts[0]).toEqual([]);
+  expect(contexts[1]).toContainEqual(expect.objectContaining({ id: 'p1_b1', translation: 'Traducción revisada por el usuario.' }));
+  expect(contexts[2]).toContainEqual(expect.objectContaining({ id: 'p3_b1', translation: 'Traducción p3_b1' }));
   await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('Traducción revisada por el usuario.');
   await expect(page.getByRole('button', { name: 'Generar vista previa del PDF' })).toBeEnabled();
   await page.getByLabel('Página', { exact: true }).selectOption('3');
@@ -93,6 +99,50 @@ test('partial completion keeps valid blocks and retries only pending blocks in s
   // New analysis clears recovery limits and stale errors.
   await native(page);
   await expect(page.getByText(/Recuperación manual:/)).not.toBeVisible();
+});
+
+test('context excludes unchecked blocks and disabling it resets consent', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 4);
+  await page.getByLabel('Español argentino p1_b1').fill('Referencia corregida.');
+  await page.getByLabel('Página', { exact: true }).selectOption('1');
+  await page.getByLabel(/p2_b1 · Traducir este bloque/).uncheck();
+  await page.getByLabel('Glosario opcional (término = traducción)').fill('growth = crecimiento');
+  await credentials(page);
+  let body: { segments: { id: string }[]; context: { id: string; translation?: string }[]; glossary: string } | undefined;
+  await page.route('**/api/translate', route => {
+    body = route.request().postDataJSON();
+    return route.fulfill({ json: { translations: body!.segments.map(s => ({ id: s.id, text: 'Crecimiento económico.' })) } });
+  });
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  expect(body!.segments.map(s => s.id)).toEqual(['p3_b1', 'p4_b1']);
+  expect(body!.context).toEqual([expect.objectContaining({ id: 'p1_b1', translation: 'Referencia corregida.' })]);
+  expect(body!.glossary).toBe('growth = crecimiento');
+  expect(JSON.stringify(body)).not.toContain('p2_b1');
+  await page.getByLabel('Usar contexto entre páginas y lotes').uncheck();
+  await expect(page.getByLabel(/Autorizo enviar/)).not.toBeChecked();
+  // Retranslate a deliberately cleared target with context disabled.
+  await page.getByLabel('Página', { exact: true }).selectOption('2');
+  await page.getByLabel('Español argentino p3_b1').fill('');
+  await expect(page.getByRole('button', { name: 'Traducir pendientes' })).toBeDisabled();
+  await credentials(page); await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  expect(body!.context).toEqual([]);
+});
+
+test('a returned context ID cannot overwrite its reference or apply a target translation', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page, 3);
+  await page.getByLabel('Español argentino p1_b1').fill('Referencia intacta.');
+  await credentials(page);
+  await page.route('**/api/translate', route => route.fulfill({ json: { translations: [
+    { id: 'p2_b1', text: 'Traducción solicitada.' }, { id: 'p1_b1', text: 'Referencia sobrescrita.' },
+  ] } }));
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'No se aplicó ese lote' })).toBeVisible();
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('Referencia intacta.');
+  await page.getByLabel('Página', { exact: true }).selectOption('1');
+  await expect(page.getByLabel('Español argentino p2_b1')).toHaveValue('');
+  await expect(page.getByRole('status')).toHaveText('2 bloques pendientes');
 });
 
 test('ambiguous IDs apply nothing and manual recovery splits the rejected batch', async ({ page }) => {

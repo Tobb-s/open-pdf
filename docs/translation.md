@@ -5,6 +5,8 @@
 1. Abrir `/es/translate`, elegir un PDF en inglés y analizarlo localmente.
 2. Revisar el texto detectado por página. Corregir errores de OCR antes de enviar.
 3. Elegir proveedor/modelo, ingresar una clave propia y aceptar el envío y los costos.
+   El contexto entre páginas y lotes está activado por defecto y se puede desactivar.
+   Cambiar esa opción requiere renovar el consentimiento.
 4. Traducir pendientes. Se conservan los bloques válidos de respuestas terminadas, incluso si
    faltan otros o llegan vacíos. Se informa la falla y se detiene el proceso; no hay reintentos automáticos cobrables.
    Volver a pulsar «Traducir pendientes» envía sólo lo que falta, sin pisar las traducciones ya recibidas
@@ -16,6 +18,25 @@ El original nunca se modifica. Una edición invalida la vista previa para no des
 Los resultados y la clave viven sólo en memoria: cerrar/recargar la pestaña los pierde.
 Cambiar proveedor borra la clave y el consentimiento. Los bloques ya traducidos no se retraducen
 al cambiar modelo o glosario: vaciar su traducción para volver a incluirlos en pendientes.
+
+## Contexto y coherencia
+
+Cada lote puede incluir hasta seis fragmentos de referencia y 6.000 caracteres adicionales
+(máximo 1.200 por fragmento, contando original y traducción). Se toman vecinos anteriores y
+posteriores y hasta dos traducciones previas cercanas, siempre de bloques incluidos. Los fragmentos
+largos son extractos: finales para el contexto anterior e inicios para el posterior. Se mantiene
+el orden de bloques detectado; esto no corrige por sí solo el orden de lectura entre columnas.
+
+El contexto viaja separado de los bloques solicitados y nunca se aplica como traducción.
+Se reutilizan traducciones recibidas durante el mismo proceso y correcciones del usuario,
+sin retraducirlas ni sustituirlas. Los IDs de contexto en la respuesta se rechazan como ajenos.
+El glosario explícito tiene prioridad en las instrucciones del proveedor; no se hacen sustituciones
+automáticas de palabras ni se infiere un glosario como si fuese una verdad validada.
+
+El contexto aumenta el texto enviado y puede aumentar los costos de tokens, sin llamadas adicionales
+ni reintentos automáticos. Los bloques desmarcados no se envían como contexto. El proveedor puede
+ignorar una preferencia o perpetuar un error previo: la validación estructural no verifica coherencia
+semántica ni garantiza que no repita texto de contexto con un ID solicitado. Revisar el resultado.
 
 ## Alcance y límites
 
@@ -84,5 +105,5 @@ Fuentes de contrato consultadas:
 ## Evolución recomendada
 
 Preservación vectorial y reutilización de fuentes completas, reflujo con páginas de continuación,
-OCR regional y clasificación de fórmulas/tablas, glosario coherente entre lotes, evaluación humana
+OCR regional y clasificación de fórmulas/tablas, evaluación de coherencia del glosario entre lotes, evaluación humana
 de traducción técnica y checkpoints descargables sin incluir credenciales.

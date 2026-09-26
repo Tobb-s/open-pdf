@@ -8,6 +8,7 @@ import { downloadBlob, derivedFileName } from '@/lib/files';
 import { batches, MAX_SEGMENTS, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
 import { pendingSegments, type TranslationBlock, type TranslationPage } from '@/lib/translation/layout';
 import { translationCopy } from '@/lib/translation/copy';
+import { buildTranslationContext } from '@/lib/translation/context';
 import { analyzeTranslation, checkTranslationLayout, exportTranslation, type LayoutIssue } from '@/lib/translation/document';
 
 const field = 'block w-full rounded-lg border border-gray-300 bg-white p-2 text-sm disabled:opacity-50';
@@ -25,6 +26,7 @@ export default function TranslatePage() {
   const [pageIndex, setPageIndex] = useState(0), [issues, setIssues] = useState<LayoutIssue[]>([]);
   const [output, setOutput] = useState<Uint8Array>();
   const [batchLimit, setBatchLimit] = useState(MAX_SEGMENTS);
+  const [useContext, setUseContext] = useState(true);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const current = pages[pageIndex], pending = pendingSegments(pages).length;
@@ -59,6 +61,7 @@ export default function TranslatePage() {
   function translate() {
     void run(async signal => {
       invalidate();
+      let workingPages = pages;
       const groups = batches(pendingSegments(pages), batchLimit);
       for (let i = 0; i < groups.length; i++) {
         signal.throwIfAborted(); setProgress(`${c.translateProgress} ${i + 1}/${groups.length}`);
@@ -67,7 +70,7 @@ export default function TranslatePage() {
             signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}` },
             body: JSON.stringify({ provider, model: model.trim(), baseUrl: provider === 'compatible' ? baseUrl.trim() : undefined,
-              glossary, consent, segments: groups[i] }),
+              glossary, consent, segments: groups[i], context: useContext ? buildTranslationContext(workingPages, groups[i]) : [] }),
           });
           let data;
           try { data = await response.json(); }
@@ -77,8 +80,10 @@ export default function TranslatePage() {
           const result = validateTranslationResult(data, groups[i]);
           const translations = new Map(result.translations.map(s => [s.id, s.text]));
           signal.throwIfAborted();
-          setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => translations.has(b.id) && !b.translated.trim()
-            ? { ...b, translated: translations.get(b.id)! } : b) })));
+          const apply = (items: TranslationPage[]) => items.map(p => ({ ...p, blocks: p.blocks.map(b => translations.has(b.id) && !b.translated.trim()
+            ? { ...b, translated: translations.get(b.id)! } : b) }));
+          workingPages = apply(workingPages);
+          setPages(apply);
           if (result.missingIds.length) throw new TranslationError('partial_response');
         } catch (e) {
           if (!signal.aborted && e instanceof TranslationError &&
@@ -124,6 +129,8 @@ export default function TranslatePage() {
       <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} maxLength={2048} /></label>
       <button className="self-end rounded-lg border p-2 text-sm" onClick={() => { setKey(''); setConsent(false); }}>{c.clear}</button>
       <label className="text-sm sm:col-span-2">{c.glossary}<textarea className={field} value={glossary} maxLength={3000} onChange={e => { setGlossary(e.target.value); setConsent(false); }} /></label>
+      <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={useContext} onChange={e => { setUseContext(e.target.checked); setConsent(false); }} />{c.context}</label>
+      <p className="text-xs text-gray-600 sm:col-span-2">{c.contextHelp}</p>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />{c.consent}</label>
     </fieldset>
     <div className="flex flex-wrap items-center gap-3">

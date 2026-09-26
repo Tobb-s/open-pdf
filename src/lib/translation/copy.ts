@@ -1,11 +1,13 @@
 export const translationCopy = {
   es: {
     title: 'Traducir PDF', intro: 'Inglés → español argentino · Beta con tu propia API',
-    privacy: 'El PDF y el OCR se procesan en tu navegador. Al traducir, el texto de los bloques incluidos, el glosario y tu clave pasan por el servidor de OpenPDF al proveedor elegido. OpenPDF no los guarda deliberadamente ni los registra en la aplicación; se aplican las políticas de retención del proveedor y de la infraestructura. La API puede tener costo. Tu suscripción a ChatGPT no incluye crédito de API.',
+    privacy: 'El PDF y el OCR se procesan en tu navegador. Al traducir, los textos incluidos, el glosario y, si activás el contexto, fragmentos cercanos con traducciones ya aceptadas pasan con tu clave por OpenPDF al proveedor elegido. Los bloques desmarcados no se envían. OpenPDF no los guarda deliberadamente ni los registra en la aplicación; se aplican las políticas de retención del proveedor y de la infraestructura. La API puede tener costo. Tu suscripción a ChatGPT no incluye crédito de API.',
     limits: 'Primera versión: conserva el tamaño y la distribución mediante un fondo rasterizado, con texto traducido seleccionable. Aproxima la familia y el estilo de letra; no replica fuentes exactas, colores ni formato interno de cada párrafo. Puede alterar fondos detrás del texto. No conserva firmas válidas, formularios, enlaces, capas ni accesibilidad. Las imágenes quedan en su lugar; sus rótulos sólo se traducen si el OCR los detecta. Revisá siempre el resultado.',
     provider: 'Proveedor', model: 'Modelo', endpoint: 'URL base compatible', key: 'Clave API (sólo en memoria)',
     clear: 'Borrar clave', glossary: 'Glosario opcional (término = traducción)',
-    consent: 'Autorizo enviar los textos incluidos y el glosario al proveedor seleccionado, usando mi clave, y acepto los posibles costos.',
+    consent: 'Autorizo enviar los textos incluidos, el glosario y el contexto activado (incluidas traducciones aceptadas) al proveedor seleccionado, usando mi clave, y acepto los posibles costos.',
+    context: 'Usar contexto entre páginas y lotes',
+    contextHelp: 'Hasta 6 fragmentos y 6.000 caracteres adicionales por lote, sólo de bloques incluidos. Reutiliza traducciones y correcciones como referencia; el glosario explícito tiene prioridad. Puede aumentar el costo de tokens. No garantiza coherencia perfecta ni retraduce lo ya revisado.',
     analyze: 'Analizar PDF localmente', force: 'Forzar OCR en todas las páginas (escaneos y texto dentro de imágenes)',
     analyzeHelp: 'Hasta 100 páginas y 50 MB. OCR profundo en inglés si no hay texto suficiente. Corregí la extracción antes de traducir. El análisis no envía datos.',
     translate: 'Traducir pendientes', cancel: 'Cancelar', review: 'Revisión por bloques', source: 'Texto original / OCR',
@@ -26,6 +28,7 @@ export const translationCopy = {
     missing_translation: 'Falta la traducción.',
     errors: {
       invalid_request: 'La solicitud no es válida. Revisá modelo y bloques.', consent_required: 'Falta autorizar el envío.',
+      invalid_context: 'El contexto no es válido o supera los límites. Desactivá el contexto y reintentá.',
       key_required: 'Ingresá una clave API del proveedor seleccionado.', endpoint_not_allowed: 'La URL no está autorizada por este servidor.',
       provider_auth: 'El proveedor rechazó la clave o sus permisos.', provider_quota: 'El proveedor informó un límite de uso o saldo insuficiente. No se reintentó automáticamente.',
       provider_error: 'El proveedor rechazó la solicitud. Revisá el modelo y su compatibilidad con respuestas JSON.',
@@ -41,11 +44,13 @@ export const translationCopy = {
   },
   en: {
     title: 'Translate PDF', intro: 'English → Argentine Spanish · Bring your own API · Beta',
-    privacy: 'PDF processing and OCR run in your browser. Translation sends included text, glossary and your key through the OpenPDF server to your selected provider. OpenPDF does not deliberately persist or log them in the application; provider and infrastructure retention policies apply. API usage may cost money. A ChatGPT subscription does not include API credits.',
+    privacy: 'PDF processing and OCR run in your browser. Translation sends included text, glossary and, when context is enabled, nearby excerpts with accepted translations through OpenPDF to your selected provider using your key. Excluded blocks are not sent. OpenPDF does not deliberately persist or log them in the application; provider and infrastructure retention policies apply. API usage may cost money. A ChatGPT subscription does not include API credits.',
     limits: 'First version: retains page dimensions and layout with raster backgrounds and selectable translated text. Approximates font family and style, not exact fonts, colors or inline paragraph formatting. Text backgrounds may change. Valid signatures, forms, links, layers and accessibility are not preserved. Images stay in place; image labels are translated only when OCR detects them. Always review the output.',
     provider: 'Provider', model: 'Model', endpoint: 'Compatible base URL', key: 'API key (memory only)', clear: 'Clear key',
     glossary: 'Optional glossary (term = translation)',
-    consent: 'I authorize sending included text and glossary to the selected provider using my key and accept possible costs.',
+    consent: 'I authorize sending included text, glossary and enabled context (including accepted translations) to the selected provider using my key and accept possible costs.',
+    context: 'Use context across pages and batches',
+    contextHelp: 'Up to 6 excerpts and 6,000 additional characters per batch, only from included blocks. Reuses translations and corrections as references; the explicit glossary takes priority. May increase token costs. Does not guarantee perfect consistency or retranslate reviewed blocks.',
     analyze: 'Analyze PDF locally', force: 'Force OCR on every page (scans and text inside images)',
     analyzeHelp: 'Up to 100 pages and 50 MB. Deep English OCR when insufficient text is available. Correct extraction before translating. Analysis sends no data.',
     translate: 'Translate pending blocks', cancel: 'Cancel', review: 'Block review', source: 'Source text / OCR', target: 'Argentine Spanish',
@@ -63,6 +68,7 @@ export const translationCopy = {
     unsupported_characters: 'The export font cannot represent some characters. Edit the block or keep the original.', missing_translation: 'Translation missing.',
     errors: {
       invalid_request: 'Invalid request. Check model and blocks.', consent_required: 'Consent is required.', key_required: 'Enter a key for the selected provider.',
+      invalid_context: 'Context is invalid or exceeds limits. Disable context and try again.',
       endpoint_not_allowed: 'This endpoint is not authorized by the server.', provider_auth: 'The provider rejected the key or permissions.',
       provider_quota: 'The provider reported a usage limit or insufficient credit. No automatic retry was made.',
       provider_error: 'The provider rejected the request. Check the model and JSON compatibility.', provider_unreachable: 'The provider could not be reached.',

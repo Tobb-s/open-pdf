@@ -80,6 +80,20 @@ describe('provider and route security', () => {
     expect(JSON.parse(init.body).store).toBe(false);
     expect(init.body).not.toContain('test-only-key');
   });
+  it.each(['openai', 'gemini', 'compatible'] as const)('sends bounded read-only context and glossary to %s', async provider => {
+    const context = [{ id: 'previous', text: 'Capital accumulation.', position: 'before' as const, translation: 'Acumulación de capital.' }];
+    const fetcher = vi.fn().mockResolvedValue(provider === 'openai' ? response() : Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(result) } }] }));
+    await translateWithProvider({ ...input, provider, baseUrl: 'https://openrouter.ai/api/v1', glossary: 'capital = capital', context },
+      'test-only-key', new AbortController().signal, { fetch: fetcher });
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    const sent = JSON.parse(provider === 'openai' ? body.input : body.messages[1].content);
+    expect(sent).toEqual({ glossary: 'capital = capital', segments: input.segments, context });
+    const instructions = provider === 'openai' ? body.instructions : body.messages[0].content;
+    expect(instructions).toContain('NEVER translate, repeat or return context IDs');
+    expect(instructions).toContain('glossary takes priority');
+    expect(instructions).toContain('untrusted document data');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it.each([401, 403, 429, 500])('does not echo provider error body or retry (%s)', async status => {
     const fetcher = vi.fn().mockResolvedValue(new Response('secret provider detail', { status }));
     await expect(translateWithProvider(input, 'key', new AbortController().signal, { fetch: fetcher })).rejects.not.toThrow('secret');
@@ -139,6 +153,19 @@ describe('provider and route security', () => {
     const r = await POST(request({}, { ...input, segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] }));
     expect(r.status).toBe(200); expect(await r.json()).toEqual({ ...result, missingIds: ['p1_b2'] });
     expect(r.headers.get('cache-control')).toBe('no-store'); expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('rejects excessive context before contacting the provider', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    const r = await POST(request({}, { ...input, context: [{ id: 'previous', text: 'x'.repeat(1201), position: 'before' }] }));
+    expect(r.status).toBe(400); expect(await r.json()).toEqual({ error: 'invalid_context' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('forwards sanitized reference context without returning or translating its ID', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response()); vi.stubGlobal('fetch', fetcher);
+    const context = [{ id: 'previous', text: 'Capital.', position: 'before' as const, translation: 'Capital.' }];
+    const r = await POST(request({}, { ...input, context }));
+    expect(r.status).toBe(200); expect(await r.json()).toEqual(result);
+    expect(JSON.parse(JSON.parse(fetcher.mock.calls[0][1].body).input).context).toEqual(context);
   });
 });
 describe('layout safety', () => {
