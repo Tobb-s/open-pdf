@@ -5,7 +5,7 @@ import { createOcrEngine } from '@/lib/ocrEngine';
 import { DEFAULT_OCR_OPTIONS, transformPoint } from '@/lib/ocrAdvanced';
 import { detectPdfFonts } from '@/lib/studio/fonts';
 import { savePdf } from '@/lib/pdfio';
-import { fitBlock, groupRuns, type TranslationPage, type TextRun, type TranslationBlock } from './layout';
+import { fitBlock, groupRuns, isVerticalOcrRun, type TranslationPage, type TextRun, type TranslationBlock } from './layout';
 import { TranslationError } from './contracts';
 
 export async function analyzeTranslation(source: Uint8Array, options: {
@@ -43,8 +43,12 @@ export async function analyzeTranslation(source: Uint8Array, options: {
               });
               const x = Math.min(points[0][0], points[1][0]), y = Math.min(points[0][1], points[1][1]);
               const width = Math.abs(points[1][0] - points[0][0]), height = Math.abs(points[1][1] - points[0][1]);
-              runs.push({ text: word.text, x, y, width, height: height * 1.2, size: height,
-                font: 'Helvetica', confidence: word.confidence });
+              const run: TextRun = { text: word.text, x, y, width, height: height * 1.2, size: height,
+                font: 'Helvetica', confidence: word.confidence, line: word.line };
+              // Whole-page orientation does not identify sideways margin stamps.
+              // Keep them in the original bitmap rather than merging them into headings.
+              if (isVerticalOcrRun(run)) warnings.push('rotated_text');
+              else runs.push(run);
             }
           }
         } else {

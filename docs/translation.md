@@ -18,6 +18,9 @@ al cambiar modelo o glosario: vaciar su traducción para volver a incluirlos en 
 - Destino: español argentino; registro fiel al original, sin regionalismos forzados.
 - Texto nativo con coordenadas o Tesseract local en inglés, modo profundo. Forzar OCR permite
   inspeccionar páginas mixtas y rótulos en imágenes. La confianza OCR no mide exactitud.
+- El OCR conserva las líneas reconocidas y ordena sus palabras antes de formar bloques.
+  El tamaño se estima con varias palabras de cada línea; es una aproximación, no detección
+  de la fuente original. Los huecos grandes siguen separados; no se garantiza el orden entre columnas.
 - Hasta 50 MB y 100 páginas. Lotes de hasta 12.000 caracteres y 80 bloques.
 - Tamaño de página y posición visual de imágenes conservados mediante fondo PNG (hasta 144 dpi,
   limitado a 8 MP/página). No se conservan imágenes como objetos independientes/vectoriales.
@@ -27,6 +30,8 @@ al cambiar modelo o glosario: vaciar su traducción para volver a incluirlos en 
   complejos, gráficos atravesados por texto, tablas, fórmulas, columnas y escaneos inclinados.
 - No se traducen automáticamente rótulos no detectados. Texto girado se señala y queda original;
   orientarlo primero en Studio. Las páginas sin texto se mantienen visualmente.
+  Los rótulos OCR estrechos y altos se detectan mediante una heurística geométrica: revisar
+  los avisos, porque no es un reconocimiento completo de orientación por región.
 - No se recorta ni abrevia una traducción para que entre. Por debajo de 7 pt se informa desborde.
   Corregir el texto sin perder contenido o desmarcar el bloque (conserva el original).
 - Firmas digitales, formularios, anotaciones interactivas, vínculos, marcadores, capas y estructura

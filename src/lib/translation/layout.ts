@@ -1,6 +1,10 @@
 import type { Segment } from './contracts';
 export interface Box { x: number; y: number; width: number; height: number }
-export interface TextRun extends Box { text: string; size: number; font: string; confidence?: number }
+export interface TextRun extends Box {
+  text: string; size: number; font: string; confidence?: number;
+  /** Recognition-line identity. Native PDF spans have no OCR line identity. */
+  line?: number;
+}
 export interface TranslationBlock extends Box {
   id: string; source: string; translated: string; size: number; font: string;
   confidence?: number; included: boolean;
@@ -13,6 +17,11 @@ export interface TranslationPage {
 }
 const right = (b: Box) => b.x + b.width;
 const bottom = (b: Box) => b.y + b.height;
+/** Long words in narrow, tall boxes are sideways labels, not upright font metrics. */
+export function isVerticalOcrRun(run: TextRun) {
+  return run.line !== undefined && (run.text.match(/\p{L}/gu)?.length ?? 0) >= 3 &&
+    run.height > run.width * 1.4;
+}
 export function union(a: Box, b: Box): Box {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
   return { x, y, width: Math.max(right(a), right(b)) - x, height: Math.max(bottom(a), bottom(b)) - y };
@@ -24,21 +33,39 @@ export function groupRuns(runs: TextRun[], pageNumber: number): TranslationBlock
   // Cluster vertical bands first, then order words left-to-right. Sorting every
   // word by its top edge scrambles OCR words whose ascenders differ by 1-2px.
   const bands: TextRun[][] = [];
-  for (const run of [...runs].sort((a, b) => a.y - b.y || a.x - b.x)) {
+  const recognized = new Map<number, TextRun[]>();
+  const valid = runs.filter(run => run.text.trim() &&
+    [run.x, run.y, run.width, run.height, run.size].every(Number.isFinite) &&
+    run.width > 0 && run.height > 0 && run.size > 0);
+  for (const run of [...valid].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    if (run.line !== undefined) {
+      const band = recognized.get(run.line) ?? [];
+      band.push(run); recognized.set(run.line, band);
+      continue;
+    }
     const band = bands.findLast(items => Math.abs(items[0].y - run.y) < Math.min(items[0].height, run.height) * 0.4);
     if (band) band.push(run); else bands.push([run]);
   }
-  for (const run of bands.flatMap(band => band.sort((a, b) => a.x - b.x))) {
-    if (!run.text.trim() || ![run.x, run.y, run.width, run.height, run.size].every(Number.isFinite) ||
-        run.width <= 0 || run.height <= 0) continue;
-    const line = lines.findLast(l => Math.abs(l.y - run.y) < Math.min(l.height, run.height) * 0.4 &&
-      run.x >= right(l) - 1 && run.x - right(l) < Math.max(l.size, run.size) * 1.6);
-    if (line) {
-      const gap = run.x - right(line);
-      line.text += (gap > run.size * 0.15 && !line.text.endsWith(' ') ? ' ' : '') + run.text;
-      Object.assign(line, union(line, run));
-      if (run.confidence !== undefined) line.confidence = Math.min(line.confidence ?? 100, run.confidence);
-    } else lines.push({ ...run });
+  for (const band of recognized.values()) {
+    // A robust upper quartile ignores tiny punctuation/x-height-only words.
+    // `size` is ink height for OCR; ink usually occupies about 3/4 of an em.
+    const letters = band.filter(r => (r.text.match(/\p{L}/gu)?.length ?? 0) >= 2);
+    const heights = (letters.length ? letters : band).map(r => r.size).sort((a, b) => a - b);
+    const size = heights[Math.floor((heights.length - 1) * 0.75)] / 0.75;
+    bands.push(band.map(r => ({ ...r, size })));
+  }
+  for (const band of bands) {
+    let line: TextRun | undefined;
+    for (const run of band.sort((a, b) => a.x - b.x)) {
+      const gap = line ? run.x - right(line) : Infinity;
+      // A recognized line can still span a large table/column gap. Never bridge it.
+      if (line && gap >= -1 && gap < Math.max(line.size, run.size) * 1.6) {
+        const separated = run.line !== undefined || gap > run.size * 0.15;
+        line.text += (separated && !line.text.endsWith(' ') ? ' ' : '') + run.text;
+        Object.assign(line, union(line, run));
+        if (run.confidence !== undefined) line.confidence = Math.min(line.confidence ?? 100, run.confidence);
+      } else { line = { ...run }; lines.push(line); }
+    }
   }
   const blocks: TranslationBlock[] = [];
   for (const line of lines.sort((a, b) => a.y - b.y || a.x - b.x)) {

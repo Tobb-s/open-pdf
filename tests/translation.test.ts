@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { batches, validateRequest, validateTranslations, type TranslationRequest } from '@/lib/translation/contracts';
-import { fitBlock, groupRuns } from '@/lib/translation/layout';
+import { fitBlock, groupRuns, isVerticalOcrRun } from '@/lib/translation/layout';
 import { providerUrl, readBounded, translateWithProvider } from '@/lib/translation/provider';
 import { POST } from '@/app/api/translate/route';
 const input: TranslationRequest = { provider: 'openai', model: 'gpt-4.1-mini', glossary: '', consent: true,
@@ -91,6 +91,45 @@ describe('layout safety', () => {
   it('does not scramble OCR words with different ascender heights', () => {
     const blocks = groupRuns([run('growth', 60, 19, 40), run('Economic', 0, 21, 55), run('depends', 105, 20, 45)], 1);
     expect(blocks[0].source).toBe('Economic growth depends');
+  });
+  it('keeps recognized words and tiny punctuation in one reading line', () => {
+    const blocks = groupRuns([
+      { ...run('growth', 68, 21, 39), line: 1, height: 8, size: 7 },
+      { ...run('a', 58, 24, 5), line: 1, height: 5, size: 4 },
+      { ...run('Economic', 0, 20, 54), line: 1, height: 10, size: 9 },
+      { ...run('=', 111, 26, 8), line: 1, height: 2, size: 1.5 },
+    ], 1);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].source).toBe('Economic a growth =');
+    expect(blocks[0].size).toBeCloseTo(7 / 0.75);
+  });
+  it('does not merge different recognition lines despite overlapping ink boxes', () => {
+    const blocks = groupRuns([
+      { ...run('First', 0, 20, 40), line: 1 },
+      { ...run('Second', 45, 22, 50), line: 2 },
+    ], 1);
+    expect(blocks.map(b => b.source)).toEqual(['First', 'Second']);
+  });
+  it('retains column gaps even when OCR assigns both columns the same line', () => {
+    const blocks = groupRuns([
+      { ...run('Left', 0, 20, 40), line: 1 },
+      { ...run('Right', 300, 20, 40), line: 1 },
+    ], 1);
+    expect(blocks.map(b => b.source)).toEqual(['Left', 'Right']);
+  });
+  it('identifies sideways words without removing narrow upright letters or native text', () => {
+    expect(isVerticalOcrRun({ ...run('Authorized', 8, 20, 9), height: 47, line: 1 })).toBe(true);
+    expect(isVerticalOcrRun({ ...run('I', 8, 20, 2), line: 1 })).toBe(false);
+    expect(isVerticalOcrRun({ ...run('Authorized', 8, 20, 9), height: 47 })).toBe(false);
+    expect(isVerticalOcrRun({ ...run('Economics', 50, 20, 70), line: 1 })).toBe(false);
+  });
+  it('invalid boxes do not distort recognition-line font metrics', () => {
+    const blocks = groupRuns([
+      { ...run('Good', 0, 20, 40), line: 1 },
+      { ...run('bad', NaN, 20, 30), line: 1, size: 999 },
+    ], 1);
+    expect(blocks).toHaveLength(1); expect(blocks[0].source).toBe('Good');
+    expect(blocks[0].size).toBe(16);
   });
   it('keeps separated paragraphs apart and gives stable unique ids', () => {
     const blocks = groupRuns([run('First', 20, 20), run('Next', 20, 100)], 2);

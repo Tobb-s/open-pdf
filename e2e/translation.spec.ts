@@ -130,4 +130,9 @@ test('English scan uses deep local OCR before translation', async ({ page }) => 
   await expect(page.getByText('Revisión por bloques')).toBeVisible({ timeout: 150_000 });
   await expect(page.getByLabel('Página', { exact: true })).toContainText('OCR');
   await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue(/Economic growth/i);
+  const sources = page.locator('textarea[aria-label^="Texto original / OCR"]');
+  // Nearby complete lines may form a paragraph; verify content, not block count.
+  await expect.poll(async () => sources.evaluateAll(nodes => nodes.map(node =>
+    (node as HTMLTextAreaElement).value).join(' ').replace(/\s+/g, ' ').trim()))
+    .toBe('Economic growth depends on investment. Capital and education improve productivity.');
 });
