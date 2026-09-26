@@ -3,15 +3,19 @@ import { useEffect, useRef, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import TranslationPreview from '@/components/TranslationPreview';
+import TranslationRegionReview from '@/components/TranslationRegionReview';
 import { useI18n } from '@/lib/i18n/context';
 import { downloadBlob, derivedFileName } from '@/lib/files';
-import { batches, TranslationError, validateTranslations, type TranslationProvider } from '@/lib/translation/contracts';
+import { batches, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
 import { pendingSegments, type TranslationBlock, type TranslationPage } from '@/lib/translation/layout';
 import { translationCopy } from '@/lib/translation/copy';
+import { buildTranslationContext } from '@/lib/translation/context';
+import type { TranslationExportMode } from '@/lib/translation/reading';
 import { analyzeTranslation, checkTranslationLayout, exportTranslation, type LayoutIssue } from '@/lib/translation/document';
 
 const field = 'block w-full rounded-lg border border-gray-300 bg-white p-2 text-sm disabled:opacity-50';
 const button = 'rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40';
+const INITIAL_BATCH_LIMIT = 12;
 export default function TranslatePage() {
   const { locale, t } = useI18n(), c = translationCopy[locale];
   const [file, setFile] = useState<File>();
@@ -24,10 +28,15 @@ export default function TranslatePage() {
   const [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState('');
   const [pageIndex, setPageIndex] = useState(0), [issues, setIssues] = useState<LayoutIssue[]>([]);
   const [output, setOutput] = useState<Uint8Array>();
+  const [batchLimit, setBatchLimit] = useState(INITIAL_BATCH_LIMIT);
+  const [useContext, setUseContext] = useState(false);
+  const [exportMode, setExportMode] = useState<TranslationExportMode>('preserve');
+  const [outputLayout, setOutputLayout] = useState<{ pageCount: number; sourcePages: number[] }>();
+  const [outputPage, setOutputPage] = useState(1);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const current = pages[pageIndex], pending = pendingSegments(pages).length;
-  const invalidate = () => { setOutput(undefined); setIssues([]); };
+  const invalidate = () => { setOutput(undefined); setOutputLayout(undefined); setOutputPage(1); setIssues([]); };
   function updateBlock(id: string, patch: Partial<TranslationBlock>) {
     invalidate();
     setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => b.id === id ? { ...b, ...patch } : b) })));
@@ -45,7 +54,7 @@ export default function TranslatePage() {
   function analyze() {
     if (!file) return;
     void run(async signal => {
-      invalidate(); setPages([]); setComplete(false); setPageIndex(0);
+      invalidate(); setPages([]); setComplete(false); setPageIndex(0); setBatchLimit(INITIAL_BATCH_LIMIT);
       if (file.size > 50 * 1024 * 1024) throw new TranslationError('file_too_large');
       const bytes = new Uint8Array(await file.arrayBuffer()); setSource(bytes);
       await analyzeTranslation(bytes, { forceOcr, signal,
@@ -58,31 +67,48 @@ export default function TranslatePage() {
   function translate() {
     void run(async signal => {
       invalidate();
-      const groups = batches(pendingSegments(pages));
+      let workingPages = pages;
+      const groups = batches(pendingSegments(pages), batchLimit);
       for (let i = 0; i < groups.length; i++) {
         signal.throwIfAborted(); setProgress(`${c.translateProgress} ${i + 1}/${groups.length}`);
-        const response = await fetch('/api/translate', { method: 'POST', cache: 'no-store',
-          signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}` },
-          body: JSON.stringify({ provider, model: model.trim(), baseUrl: provider === 'compatible' ? baseUrl.trim() : undefined,
-            glossary, consent, segments: groups[i] }),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new TranslationError(typeof data.error === 'string' ? data.error : 'translation_failed');
-        const translations = new Map(validateTranslations(data, groups[i]).map(s => [s.id, s.text]));
-        signal.throwIfAborted();
-        setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => translations.has(b.id)
-          ? { ...b, translated: translations.get(b.id)! } : b) })));
+        try {
+          const response = await fetch('/api/translate', { method: 'POST', cache: 'no-store',
+            signal: AbortSignal.any([signal, AbortSignal.timeout(110_000)]),
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key.trim()}` },
+            body: JSON.stringify({ provider, model: model.trim(), baseUrl: provider === 'compatible' ? baseUrl.trim() : undefined,
+              glossary, consent, segments: groups[i], context: useContext ? buildTranslationContext(workingPages, groups[i]) : [] }),
+          });
+          let data;
+          try { data = await response.json(); }
+          catch { throw new TranslationError('invalid_response'); }
+          if (!response.ok) throw new TranslationError(typeof data?.error === 'string' ? data.error : 'translation_failed');
+          // Recompute missing IDs locally; never trust provider-supplied completion metadata.
+          const result = validateTranslationResult(data, groups[i]);
+          const translations = new Map(result.translations.map(s => [s.id, s.text]));
+          signal.throwIfAborted();
+          const apply = (items: TranslationPage[]) => items.map(p => ({ ...p, blocks: p.blocks.map(b => translations.has(b.id) && !b.translated.trim()
+            ? { ...b, translated: translations.get(b.id)! } : b) }));
+          workingPages = apply(workingPages);
+          setPages(apply);
+          if (result.missingIds.length) throw new TranslationError('partial_response');
+        } catch (e) {
+          if (!signal.aborted && e instanceof TranslationError &&
+              ['invalid_response', 'partial_response'].includes(e.code)) {
+            setBatchLimit(old => Math.min(old, Math.max(1, Math.floor(groups[i].length / 2))));
+          }
+          throw e;
+        }
       }
     });
   }
   function preview() {
     if (!source) return;
     void run(async signal => {
-      setOutput(undefined);
-      const found = await checkTranslationLayout(pages); setIssues(found);
+      setOutput(undefined); setOutputLayout(undefined); setOutputPage(1);
+      const found = await checkTranslationLayout(pages, exportMode); setIssues(found);
       if (found.length) { setPageIndex(found[0].page - 1); throw new TranslationError('layout_issues'); }
-      const result = await exportTranslation(source, pages, signal, n => setProgress(`${c.exportProgress} ${n}/${pages.length}`));
+      const result = await exportTranslation(source, pages, signal, n => setProgress(`${c.exportProgress} ${n}/${pages.length}`),
+        { mode: exportMode, complete: layout => { setOutputLayout(layout); setOutputPage(layout.sourcePages[pageIndex] ?? 1); } });
       setOutput(result);
     });
   }
@@ -94,7 +120,7 @@ export default function TranslatePage() {
     </details>
     <section className="space-y-3 rounded-xl border p-4">
       <FileDropzone inputId="translate-file-input" kind={PDF_FILES} disabled={busy} className="rounded-lg border-2 border-dashed p-6 text-center" onFilesSelected={files => {
-        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); invalidate();
+        setFile(files[0]); setSource(undefined); setPages([]); setComplete(false); setError(''); setConsent(false); setBatchLimit(INITIAL_BATCH_LIMIT); invalidate();
       }}>{file?.name ?? t.common.choosePdf}</FileDropzone>
       <p className="text-sm text-gray-600">{c.analyzeHelp}</p>
       <label className="flex gap-2 text-sm"><input type="checkbox" checked={forceOcr} disabled={busy} onChange={e => setForceOcr(e.target.checked)} />{c.force}</label>
@@ -110,8 +136,14 @@ export default function TranslatePage() {
       <label className="text-sm">{c.key}<input className={field} type="password" autoComplete="off" spellCheck={false} value={key} onChange={e => setKey(e.target.value)} maxLength={2048} /></label>
       <button className="self-end rounded-lg border p-2 text-sm" onClick={() => { setKey(''); setConsent(false); }}>{c.clear}</button>
       <label className="text-sm sm:col-span-2">{c.glossary}<textarea className={field} value={glossary} maxLength={3000} onChange={e => { setGlossary(e.target.value); setConsent(false); }} /></label>
+      <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={useContext} onChange={e => { setUseContext(e.target.checked); setConsent(false); }} />{c.context}</label>
+      <p className="text-xs text-gray-600 sm:col-span-2">{c.contextHelp}</p>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} />{c.consent}</label>
     </fieldset>
+    <label className="block text-sm">{c.exportMode}<select className={field} disabled={busy} value={exportMode} onChange={e => {
+      setExportMode(e.target.value as TranslationExportMode); invalidate();
+    }}><option value="preserve">{c.preserveMode}</option><option value="readable">{c.readableMode}</option></select></label>
+    {exportMode === 'readable' && <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm">{c.readableHelp}</p>}
     <div className="flex flex-wrap items-center gap-3">
       <button className={button} disabled={busy || !complete || !pending || !consent || !key.trim() || !model.trim()} onClick={translate}>{c.translate}</button>
       <button className={button} disabled={busy || !complete || pending > 0 || !pages.some(p => p.blocks.some(b => b.included))} onClick={preview}>{c.preview}</button>
@@ -119,16 +151,25 @@ export default function TranslatePage() {
       {busy && <button className="rounded-lg border px-4 py-2" onClick={() => controller.current?.abort()}>{c.cancel}</button>}
     </div>
     <p role="status" className="text-sm">{progress || (pages.length ? `${pending} ${c.pending}` : '')}</p>
+    {batchLimit < INITIAL_BATCH_LIMIT && <p className="text-sm text-amber-800">{c.recovery} {batchLimit} {c.recoveryLimit}</p>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">{error}<p>{c.kept}</p></div>}
     {current && <section className="space-y-4">
       <div className="flex gap-3"><h2 className="text-xl font-medium">{c.review}</h2>
-        <label>{c.page} <select aria-label={c.page} value={pageIndex} onChange={e => setPageIndex(Number(e.target.value))}>
+        <label>{c.page} <select aria-label={c.page} disabled={busy} value={pageIndex} onChange={e => {
+          const index = Number(e.target.value); setPageIndex(index); setOutputPage(outputLayout?.sourcePages[index] ?? index + 1);
+        }}>
           {pages.map((p, i) => <option value={i} key={p.number}>{p.number} ({p.method.toUpperCase()})</option>)}
         </select></label></div>
       <p className="text-sm text-amber-800">{c.excluded}</p>
       {current.warnings.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">{c.warnings}: {current.warnings.map(w => c[w as 'no_text' | 'rotated_text' | 'outside_page']).join(' ')}</div>}
       {source && <div className="grid gap-4 md:grid-cols-2"><TranslationPreview bytes={source} page={current.number} label={c.original} />
-        {output && <TranslationPreview bytes={output} page={current.number} label={c.result} />}</div>}
+        {output && <div>
+          {outputLayout && <label className="block text-sm">{c.outputPage}<select aria-label={c.outputPage} value={outputPage}
+            onChange={e => setOutputPage(Number(e.target.value))}>
+            {Array.from({ length: outputLayout.pageCount }, (_, i) => <option key={i} value={i + 1}>{i + 1} / {outputLayout.pageCount}</option>)}
+          </select></label>}
+          <TranslationPreview bytes={output} page={outputPage} label={c.result} />
+        </div>}</div>}
       {current.blocks.map(b => <fieldset key={b.id} disabled={busy} className="space-y-2 rounded-xl border p-4">
         <label className="flex gap-2 text-sm font-medium"><input type="checkbox" checked={b.included} onChange={e => updateBlock(b.id, { included: e.target.checked })} />{b.id} · {c.include}</label>
         <p className="text-xs text-gray-500">{b.font} · {b.size.toFixed(1)} pt{b.confidence !== undefined ? ` · OCR ${Math.round(b.confidence)}/100` : ''}</p>
@@ -137,6 +178,9 @@ export default function TranslatePage() {
           <label className="text-sm">{c.source}<textarea aria-label={`${c.source} ${b.id}`} rows={4} className={field} value={b.source} maxLength={12_000} onChange={e => updateBlock(b.id, { source: e.target.value, translated: '' })} /></label>
           <label className="text-sm">{c.target}<textarea aria-label={`${c.target} ${b.id}`} rows={4} className={field} value={b.translated} maxLength={48_000} onChange={e => updateBlock(b.id, { translated: e.target.value })} /></label>
         </div>
+        {source && <TranslationRegionReview key={`${b.id}:${provider}:${model}`} source={source} page={current} block={b}
+          busy={busy} provider={provider} model={model} apiKey={key} locale={locale} run={run}
+          apply={text => updateBlock(b.id, { source: text, translated: '' })} />}
         {issues.filter(issue => issue.id === b.id).map(issue => <p className="text-sm text-red-700" key={issue.reason}>{c[issue.reason]}</p>)}
       </fieldset>)}
     </section>}

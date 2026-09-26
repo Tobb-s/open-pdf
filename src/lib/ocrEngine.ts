@@ -139,7 +139,7 @@ export async function createOcrEngine(options: OcrOptions, signal: AbortSignal) 
     throw error;
   }
 
-  const recognize = async (image: HTMLCanvasElement, psm = '3') => {
+  const recognize = async (image: HTMLCanvasElement | string, psm = '3') => {
     check();
     // terminate() does not settle tesseract's pending promise. Race an explicit abort/timeout.
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -167,6 +167,18 @@ export async function createOcrEngine(options: OcrOptions, signal: AbortSignal) 
   };
 
   return {
+    /** Separate block and sparse-text hypotheses; never silently choose or merge their text. */
+    async region(image: string) {
+      const candidates: { text: string; confidence: number; mode: string }[] = [];
+      for (const mode of ['6', '11']) {
+        const result = (await recognize(image, mode)).data;
+        const text = result.text.trim();
+        if (text && text.length <= 12_000 && !candidates.some(c => c.text === text)) {
+          candidates.push({ text, confidence: recognitionScore(extractOcrWords(result)), mode });
+        }
+      }
+      return candidates;
+    },
     async close() {
       signal.removeEventListener('abort', abort);
       await close();

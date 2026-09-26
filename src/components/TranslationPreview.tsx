@@ -4,6 +4,7 @@ import { openPdf, renderPageToCanvas } from '@/lib/pdfjs';
 export default function TranslationPreview({ bytes, page, label }: { bytes: Uint8Array; page: number; label: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState(false);
+  const [renderedPage, setRenderedPage] = useState<number>();
   useEffect(() => {
     const controller = new AbortController();
     // Each render owns its canvas to avoid reuse while a cancelled task settles.
@@ -14,12 +15,14 @@ export default function TranslationPreview({ bytes, page, label }: { bytes: Uint
       try {
         controller.signal.throwIfAborted();
         setError(false);
+        setRenderedPage(undefined);
         const p = await pdf.document.getPage(page);
         const view = p.getViewport({ scale: 1 });
         await renderPageToCanvas(p, scratch, Math.min(1.5, 1000 / view.width), { signal: controller.signal });
         if (destination && !controller.signal.aborted) {
           destination.width = scratch.width; destination.height = scratch.height;
           destination.getContext('2d')?.drawImage(scratch, 0, 0);
+          setRenderedPage(page);
         }
       } finally { scratch.width = 0; scratch.height = 0; await pdf.destroy(); }
     })().catch(() => { if (!controller.signal.aborted) setError(true); });
@@ -27,6 +30,7 @@ export default function TranslationPreview({ bytes, page, label }: { bytes: Uint
   }, [bytes, page]);
   return <figure><figcaption className="mb-2 text-sm font-medium">{label}</figcaption>
     {error && <p role="alert">{label}: preview unavailable / vista previa no disponible</p>}
-    <canvas ref={canvas} aria-label={label} className="h-auto w-full rounded border bg-white" />
+    <canvas ref={canvas} aria-label={label} aria-busy={renderedPage !== page}
+      data-rendered-page={renderedPage} className="h-auto w-full rounded border bg-white" />
   </figure>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { batches, validateRequest, validateTranslations, type TranslationRequest } from '@/lib/translation/contracts';
-import { fitBlock, groupRuns } from '@/lib/translation/layout';
+import { batches, validateRequest, validateTranslations, validateTranslationResult, type TranslationRequest } from '@/lib/translation/contracts';
+import { fitBlock, groupRuns, isVerticalOcrRun } from '@/lib/translation/layout';
 import { providerUrl, readBounded, translateWithProvider } from '@/lib/translation/provider';
 import { POST } from '@/app/api/translate/route';
 const input: TranslationRequest = { provider: 'openai', model: 'gpt-4.1-mini', glossary: '', consent: true,
@@ -9,6 +9,28 @@ const result = { translations: [{ id: 'p1_b1', text: 'Crecimiento económico y c
 const response = () => Response.json({ status: 'completed', output: [{ content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
 afterEach(() => vi.unstubAllGlobals());
 describe('translation contract', () => {
+  it('groups double-spaced OCR prose with initial indentation without crossing paragraph boundaries', () => {
+    const line = (text: string, x: number, y: number, width: number, n: number) => ({
+      text, x, y, width, height: 13, size: 10, font: 'Helvetica', line: n,
+    });
+    const blocks = groupRuns([
+      line('Indented first line', 138, 80, 377, 1),
+      line('second line', 101, 106, 420, 2),
+      line('last short line', 101, 132, 130, 3),
+      line('New paragraph', 138, 158, 390, 4),
+      line('continued paragraph', 101, 184, 420, 5),
+    ], 1);
+    expect(blocks.map(b => b.source)).toEqual(['Indented first line second line last short line',
+      'New paragraph continued paragraph']);
+    expect(blocks[0].lines).toHaveLength(3);
+    expect(blocks[0].x).toBe(101);
+  });
+  it('keeps widely separated OCR columns independent while grouping their prose', () => {
+    const lines = [0, 1].flatMap(col => [0, 1, 2].map(n => ({ text: `C${col}L${n}`,
+      x: 40 + col * 300, y: 80 + n * 26, width: 200, height: 13, size: 10,
+      font: 'Helvetica', line: col * 3 + n })));
+    expect(groupRuns(lines, 1).map(b => b.source)).toEqual(['C0L0 C0L1 C0L2', 'C1L0 C1L1 C1L2']);
+  });
   it('keeps only allowed fields and never carries a credential', () => {
     expect(validateRequest({ ...input, key: 'secret', pdf: 'bytes' })).toEqual(input);
   });
@@ -23,6 +45,55 @@ describe('translation contract', () => {
   });
   it('restores source order', () => {
     expect(validateTranslations({ translations: [{ id: 'b', text: 'B' }, { id: 'a', text: 'A' }] }, [{ id: 'a', text: 'a' }, { id: 'b', text: 'b' }]).map(s => s.id)).toEqual(['a', 'b']);
+  });
+  it('recovers 68 of 80 completed segments and reports exactly the missing IDs', () => {
+    const source = Array.from({ length: 80 }, (_, i) => ({ id: `b${i}`, text: `Source ${i}` }));
+    const translated = source.slice(0, 68).map(s => ({ id: s.id, text: `ES ${s.id}` })).reverse();
+    const partial = validateTranslationResult({ translations: translated }, source);
+    expect(partial.translations.map(s => s.id)).toEqual(source.slice(0, 68).map(s => s.id));
+    expect(partial.missingIds).toEqual(source.slice(68).map(s => s.id));
+    expect(() => validateTranslations({ translations: translated }, source)).toThrow('invalid_response');
+  });
+  it('leaves empty translations pending while preserving other valid entries', () => {
+    const source = [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }];
+    expect(validateTranslationResult({ translations: [{ id: 'b', text: '  ' }, { id: 'a', text: ' Hola ' }] }, source))
+      .toEqual({ translations: [{ id: 'a', text: 'Hola' }], missingIds: ['b'] });
+  });
+  it('leaves large omissions and expansions pending without losing valid peers', () => {
+    const source = [{ id: 'shortened', text: 'Source text. '.repeat(40) },
+      { id: 'expanded', text: 'A title.' }, { id: 'valid', text: 'Economic growth.' }];
+    const result = validateTranslationResult({ translations: [
+      { id: 'shortened', text: 'Un resumen.' }, { id: 'expanded', text: 'Texto vecino. '.repeat(30) },
+      { id: 'valid', text: 'Crecimiento económico.' },
+    ] }, source);
+    expect(result.translations).toEqual([{ id: 'valid', text: 'Crecimiento económico.' }]);
+    expect(result.missingIds).toEqual(['shortened', 'expanded']);
+  });
+  it('normalizes whitespace before length alarms and permits normal translation expansion', () => {
+    const source = [{ id: 'a', text: 'Economic      growth.\n'.repeat(25) }];
+    expect(validateTranslations({ translations: [{ id: 'a', text: 'Crecimiento económico. '.repeat(25) }] }, source))
+      .toHaveLength(1);
+  });
+  it.each([
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'foreign', text: 'extra' }],
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b1', text: '' }],
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b2', text: null }],
+    [{ id: 'p1_b1', text: 'Hola' }, { id: 'p1_b2', text: 'x'.repeat(48_001) }],
+    [null], [], [{ id: 'p1_b1', text: ' ' }],
+  ].map(translations => ({ translations })))('rejects ambiguous or unusable partial output %#', ({ translations }) => {
+    expect(() => validateTranslationResult({ translations }, [...input.segments, { id: 'p1_b2', text: 'More source' }]))
+      .toThrow('invalid_response');
+  });
+  it('computes missing IDs independently of untrusted completion metadata', () => {
+    expect(validateTranslationResult({ ...result, missingIds: ['p1_b1'] }, input.segments).missingIds).toEqual([]);
+  });
+  it.each([1, 2, 20, 80])('splits recovery batches at %i blocks without loss', limit => {
+    const source = Array.from({ length: 85 }, (_, i) => ({ id: `b${i}`, text: 'text' }));
+    const groups = batches(source, limit);
+    expect(groups.flat()).toEqual(source); expect(groups.every(g => g.length <= limit)).toBe(true);
+  });
+  it.each([0, 81, 1.5, NaN])('rejects invalid recovery limit %s', limit => {
+    expect(() => batches(input.segments, limit)).toThrow('invalid_request');
   });
   it('bounds batches without dropping blocks', () => {
     const source = Array.from({ length: 201 }, (_, i) => ({ id: `${i}`, text: 'a'.repeat(310) }));
@@ -46,6 +117,20 @@ describe('provider and route security', () => {
     expect(JSON.parse(init.body).store).toBe(false);
     expect(init.body).not.toContain('test-only-key');
   });
+  it.each(['openai', 'gemini', 'compatible'] as const)('sends bounded read-only context and glossary to %s', async provider => {
+    const context = [{ id: 'previous', text: 'Capital accumulation.', position: 'before' as const, translation: 'Acumulación de capital.' }];
+    const fetcher = vi.fn().mockResolvedValue(provider === 'openai' ? response() : Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(result) } }] }));
+    await translateWithProvider({ ...input, provider, baseUrl: 'https://openrouter.ai/api/v1', glossary: 'capital = capital', context },
+      'test-only-key', new AbortController().signal, { fetch: fetcher });
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    const sent = JSON.parse(provider === 'openai' ? body.input : body.messages[1].content);
+    expect(sent).toEqual({ glossary: 'capital = capital', segments: input.segments, context });
+    const instructions = provider === 'openai' ? body.instructions : body.messages[0].content;
+    expect(instructions).toContain('NEVER translate, repeat or return context IDs');
+    expect(instructions).toContain('glossary takes priority');
+    expect(instructions).toContain('untrusted document data');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it.each([401, 403, 429, 500])('does not echo provider error body or retry (%s)', async status => {
     const fetcher = vi.fn().mockResolvedValue(new Response('secret provider detail', { status }));
     await expect(translateWithProvider(input, 'key', new AbortController().signal, { fetch: fetcher })).rejects.not.toThrow('secret');
@@ -54,6 +139,25 @@ describe('provider and route security', () => {
   it('rejects truncated completions even when JSON happens to parse', async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ status: 'incomplete', output: [] }));
     await expect(translateWithProvider(input, 'key', new AbortController().signal, { fetch: fetcher })).rejects.toThrow('invalid_response');
+  });
+  it('salvages a completed partial provider response without another billable request', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response());
+    expect(await translateWithProvider({ ...input, segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] },
+      'key', new AbortController().signal, { fetch: fetcher })).toEqual(result.translations);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(['gemini', 'compatible'] as const)('rejects parseable but token-truncated %s output', async provider => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify(result) } }] }));
+    await expect(translateWithProvider({ ...input, provider, baseUrl: 'https://openrouter.ai/api/v1' }, 'key',
+      new AbortController().signal, { fetch: fetcher })).rejects.toThrow('invalid_response');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each(['gemini', 'compatible'] as const)('recovers completed partial %s output', async provider => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(result) } }] }));
+    expect(await translateWithProvider({ ...input, provider, baseUrl: 'https://openrouter.ai/api/v1',
+      segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] }, 'key', new AbortController().signal,
+    { fetch: fetcher })).toEqual(result.translations);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it('limits bodies without content-length', async () => {
     await expect(readBounded(new Response('abcdef').body, 5)).rejects.toThrow('payload_too_large');
@@ -81,6 +185,25 @@ describe('provider and route security', () => {
     const r = await POST(request()); expect(r.status).toBe(200); expect(await r.json()).toEqual(result);
     expect(r.headers.get('cache-control')).toBe('no-store');
   });
+  it('returns valid partial entries and missing IDs without retrying at the proxy', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response()); vi.stubGlobal('fetch', fetcher);
+    const r = await POST(request({}, { ...input, segments: [...input.segments, { id: 'p1_b2', text: 'More source' }] }));
+    expect(r.status).toBe(200); expect(await r.json()).toEqual({ ...result, missingIds: ['p1_b2'] });
+    expect(r.headers.get('cache-control')).toBe('no-store'); expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('rejects excessive context before contacting the provider', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    const r = await POST(request({}, { ...input, context: [{ id: 'previous', text: 'x'.repeat(1201), position: 'before' }] }));
+    expect(r.status).toBe(400); expect(await r.json()).toEqual({ error: 'invalid_context' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('forwards sanitized reference context without returning or translating its ID', async () => {
+    const fetcher = vi.fn().mockResolvedValue(response()); vi.stubGlobal('fetch', fetcher);
+    const context = [{ id: 'previous', text: 'Capital.', position: 'before' as const, translation: 'Capital.' }];
+    const r = await POST(request({}, { ...input, context }));
+    expect(r.status).toBe(200); expect(await r.json()).toEqual(result);
+    expect(JSON.parse(JSON.parse(fetcher.mock.calls[0][1].body).input).context).toEqual(context);
+  });
 });
 describe('layout safety', () => {
   const run = (text: string, x: number, y: number, width = 100) => ({ text, x, y, width, height: 12, size: 12, font: 'Times' });
@@ -91,6 +214,45 @@ describe('layout safety', () => {
   it('does not scramble OCR words with different ascender heights', () => {
     const blocks = groupRuns([run('growth', 60, 19, 40), run('Economic', 0, 21, 55), run('depends', 105, 20, 45)], 1);
     expect(blocks[0].source).toBe('Economic growth depends');
+  });
+  it('keeps recognized words and tiny punctuation in one reading line', () => {
+    const blocks = groupRuns([
+      { ...run('growth', 68, 21, 39), line: 1, height: 8, size: 7 },
+      { ...run('a', 58, 24, 5), line: 1, height: 5, size: 4 },
+      { ...run('Economic', 0, 20, 54), line: 1, height: 10, size: 9 },
+      { ...run('=', 111, 26, 8), line: 1, height: 2, size: 1.5 },
+    ], 1);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].source).toBe('Economic a growth =');
+    expect(blocks[0].size).toBeCloseTo(7 / 0.75);
+  });
+  it('does not merge different recognition lines despite overlapping ink boxes', () => {
+    const blocks = groupRuns([
+      { ...run('First', 0, 20, 40), line: 1 },
+      { ...run('Second', 45, 22, 50), line: 2 },
+    ], 1);
+    expect(blocks.map(b => b.source)).toEqual(['First', 'Second']);
+  });
+  it('retains column gaps even when OCR assigns both columns the same line', () => {
+    const blocks = groupRuns([
+      { ...run('Left', 0, 20, 40), line: 1 },
+      { ...run('Right', 300, 20, 40), line: 1 },
+    ], 1);
+    expect(blocks.map(b => b.source)).toEqual(['Left', 'Right']);
+  });
+  it('identifies sideways words without removing narrow upright letters or native text', () => {
+    expect(isVerticalOcrRun({ ...run('Authorized', 8, 20, 9), height: 47, line: 1 })).toBe(true);
+    expect(isVerticalOcrRun({ ...run('I', 8, 20, 2), line: 1 })).toBe(false);
+    expect(isVerticalOcrRun({ ...run('Authorized', 8, 20, 9), height: 47 })).toBe(false);
+    expect(isVerticalOcrRun({ ...run('Economics', 50, 20, 70), line: 1 })).toBe(false);
+  });
+  it('invalid boxes do not distort recognition-line font metrics', () => {
+    const blocks = groupRuns([
+      { ...run('Good', 0, 20, 40), line: 1 },
+      { ...run('bad', NaN, 20, 30), line: 1, size: 999 },
+    ], 1);
+    expect(blocks).toHaveLength(1); expect(blocks[0].source).toBe('Good');
+    expect(blocks[0].size).toBe(16);
   });
   it('keeps separated paragraphs apart and gives stable unique ids', () => {
     const blocks = groupRuns([run('First', 20, 20), run('Next', 20, 100)], 2);

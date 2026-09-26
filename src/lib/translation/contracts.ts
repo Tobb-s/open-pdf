@@ -7,8 +7,14 @@ export interface TranslationSettings {
   glossary: string;
 }
 export interface Segment { id: string; text: string }
+/** Read-only excerpts. These IDs must never appear in the translation output. */
+export interface ContextSegment extends Segment {
+  position: 'before' | 'after' | 'reference';
+  translation?: string;
+}
 export interface TranslationRequest extends TranslationSettings {
   segments: Segment[];
+  context?: ContextSegment[];
   consent: true;
 }
 export class TranslationError extends Error {
@@ -16,6 +22,9 @@ export class TranslationError extends Error {
 }
 export const MAX_BATCH_CHARS = 12_000;
 export const MAX_SEGMENTS = 80;
+export const MAX_CONTEXT_ITEMS = 6;
+export const MAX_CONTEXT_CHARS = 6_000;
+export const MAX_CONTEXT_ITEM_CHARS = 1_200;
 export function validateRequest(value: unknown): TranslationRequest {
   if (!value || typeof value !== 'object') throw new TranslationError('invalid_request');
   const v = value as Record<string, unknown>;
@@ -40,35 +49,72 @@ export function validateRequest(value: unknown): TranslationRequest {
     return { id, text };
   });
   if (chars > MAX_BATCH_CHARS) throw new TranslationError('batch_too_large', 413);
+  let context: ContextSegment[] | undefined;
+  if (v.context !== undefined) {
+    if (!Array.isArray(v.context) || v.context.length > MAX_CONTEXT_ITEMS) throw new TranslationError('invalid_context');
+    let contextChars = 0;
+    context = v.context.map((entry: unknown) => {
+      if (!entry || typeof entry !== 'object') throw new TranslationError('invalid_context');
+      const { id, text, position, translation } = entry as ContextSegment;
+      if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,60}$/.test(id) || ids.has(id) ||
+          typeof text !== 'string' || !text.trim() || !['before', 'after', 'reference'].includes(position) ||
+          (translation !== undefined && (typeof translation !== 'string' || !translation.trim())) ||
+          text.length + (translation?.length ?? 0) > MAX_CONTEXT_ITEM_CHARS) throw new TranslationError('invalid_context');
+      ids.add(id); contextChars += text.length + (translation?.length ?? 0);
+      return { id, text, position, ...(translation !== undefined ? { translation } : {}) };
+    });
+    if (contextChars > MAX_CONTEXT_CHARS) throw new TranslationError('invalid_context');
+  }
   return { provider: v.provider as TranslationProvider, model: v.model, glossary: v.glossary,
-    baseUrl: v.baseUrl as string | undefined, consent: true, segments };
+    baseUrl: v.baseUrl as string | undefined, consent: true, segments, ...(context !== undefined ? { context } : {}) };
 }
 
-/** Fail closed on missing/duplicate/foreign IDs, empty, truncated or enormous output. */
-export function validateTranslations(value: unknown, source: Segment[]): Segment[] {
+/** Salvage only unambiguous entries in a completed, parsed response. Never guess IDs. */
+export function validateTranslationResult(value: unknown, source: Segment[]) {
   const raw = (value as { translations?: unknown })?.translations;
-  if (!Array.isArray(raw) || raw.length !== source.length) throw new TranslationError('invalid_response', 502);
+  if (!Array.isArray(raw) || raw.length > source.length) throw new TranslationError('invalid_response', 502);
+  const expected = new Set(source.map(s => s.id)), seen = new Set<string>();
+  const originals = new Map(source.map(s => [s.id, s.text.replace(/\s+/g, ' ').trim()]));
   const map = new Map<string, string>();
   for (const item of raw) {
     if (!item || typeof item.id !== 'string' || typeof item.text !== 'string' ||
-        !item.text.trim() || item.text.length > MAX_BATCH_CHARS * 4 || map.has(item.id)) {
+        !expected.has(item.id) || item.text.length > MAX_BATCH_CHARS * 4 || seen.has(item.id)) {
       throw new TranslationError('invalid_response', 502);
     }
-    map.set(item.id, item.text.trim());
+    seen.add(item.id);
+    if (item.text.trim()) {
+      const original = originals.get(item.id)!, target = item.text.replace(/\s+/g, ' ').trim();
+      // es-AR prose should not become a summary or absorb neighboring paragraphs.
+      // This is a coarse alarm, NOT proof of semantic fidelity. Leave suspicious
+      // items pending for explicit retry or human correction; retain valid peers.
+      const suspicious = (original.length >= 200 && target.length < original.length * 0.6) ||
+        target.length > original.length * 3 + 120;
+      if (!suspicious) map.set(item.id, item.text.trim());
+    }
   }
-  return source.map(s => {
-    const text = map.get(s.id);
-    if (!text) throw new TranslationError('invalid_response', 502);
-    return { id: s.id, text };
-  });
+  if (!map.size) throw new TranslationError('invalid_response', 502);
+  return {
+    translations: source.filter(s => map.has(s.id)).map(s => ({ id: s.id, text: map.get(s.id)! })),
+    missingIds: source.filter(s => !map.has(s.id)).map(s => s.id),
+  };
 }
 
-export function batches(segments: Segment[]): Segment[][] {
+/** Strict validation remains available for callers requiring complete output. */
+export function validateTranslations(value: unknown, source: Segment[]): Segment[] {
+  const result = validateTranslationResult(value, source);
+  if (result.missingIds.length) throw new TranslationError('invalid_response', 502);
+  return result.translations;
+}
+
+export function batches(segments: Segment[], maxSegments = MAX_SEGMENTS): Segment[][] {
+  if (!Number.isInteger(maxSegments) || maxSegments < 1 || maxSegments > MAX_SEGMENTS) {
+    throw new TranslationError('invalid_request');
+  }
   const result: Segment[][] = [];
   let current: Segment[] = [], count = 0;
   for (const segment of segments) {
     if (!segment.text.trim() || segment.text.length > MAX_BATCH_CHARS) throw new TranslationError('batch_too_large');
-    if (current.length && (count + segment.text.length > MAX_BATCH_CHARS || current.length >= MAX_SEGMENTS)) {
+    if (current.length && (count + segment.text.length > MAX_BATCH_CHARS || current.length >= maxSegments)) {
       result.push(current); current = []; count = 0;
     }
     current.push(segment); count += segment.text.length;
