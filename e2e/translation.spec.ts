@@ -138,6 +138,87 @@ test('readable mode keeps short text in place and still rejects unsupported char
   expect(doc.getPageCount()).toBe(1); expect(doc.getPage(0).getSize()).toEqual({ width: 400, height: 400 });
 });
 
+async function prepareRegion(page: Page) {
+  await page.getByText('Revisar región difícil (OCR + IA)', { exact: true }).click();
+  await page.getByRole('button', { name: 'Preparar recorte y releer OCR p1_b1', exact: true }).click();
+  await expect(page.getByRole('img', { name: 'Recorte del bloque p1_b1' })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByRole('button', { name: 'Preparar recorte y releer OCR p1_b1', exact: true })).toBeEnabled({ timeout: 90_000 });
+}
+
+test('regional local OCR and vision produce proposals, applying changes only one block and clears its translation', async ({ page }, testInfo) => {
+  await page.goto('/es/translate'); await native(page, 2); await credentials(page); await fakeProvider(page);
+  await page.getByRole('button', { name: 'Traducir pendientes' }).click();
+  await expect(page.getByRole('status')).toHaveText('0 bloques pendientes');
+  const original = await page.getByLabel('Texto original / OCR p1_b1').inputValue();
+  await prepareRegion(page);
+  const localChoice = page.getByRole('button', { name: 'Usar como propuesta OCR 6', exact: true });
+  await expect(localChoice).toBeVisible(); await localChoice.click();
+  await expect(page.getByLabel('Propuesta de texto original p1_b1')).toHaveValue(/Economic growth depends on investment/i);
+  await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue(original);
+  const vision = page.getByRole('button', { name: 'Revisar recorte con IA p1_b1', exact: true });
+  await expect(vision).toBeDisabled();
+  const calls: { image: string; sourceText: string; consent: boolean }[] = [];
+  await page.route('**/api/translation-review', route => {
+    calls.push(route.request().postDataJSON());
+    return route.fulfill({ json: { text: 'Economic growth depends on education.', uncertain: true } });
+  });
+  await page.getByLabel(/Autorizo enviar este recorte/).check(); await vision.click();
+  await expect(page.getByText(/Hay partes ambiguas o ilegibles/)).toBeVisible();
+  expect(calls).toHaveLength(1); expect(Object.keys(calls[0]).sort()).toEqual(['consent', 'image', 'model', 'sourceText']);
+  expect(calls[0].image).toMatch(/^data:image\/png;base64,/); expect(calls[0].sourceText).toBe(original);
+  expect(JSON.stringify(calls)).not.toContain('La inversión');
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('La inversión impulsa el crecimiento.');
+  await page.getByRole('button', { name: 'Usar como propuesta IA', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('regional-review.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Aplicar propuesta al original', exact: true }).click();
+  await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue('Economic growth depends on education.');
+  await expect(page.getByLabel('Español argentino p1_b1')).toHaveValue('');
+  await expect(page.getByRole('status')).toHaveText('1 bloques pendientes');
+  await page.getByLabel('Página', { exact: true }).selectOption('1');
+  await expect(page.getByLabel('Español argentino p2_b1')).toHaveValue('La inversión impulsa el crecimiento.');
+});
+
+test('regional consent resets on key changes; quota failure does not retry or change source', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page); await credentials(page); await prepareRegion(page);
+  const consent = page.getByLabel(/Autorizo enviar este recorte/);
+  await consent.check();
+  await page.getByLabel('Clave API (sólo en memoria)').fill('another-synthetic-key');
+  await expect(consent).not.toBeChecked();
+  const original = await page.getByLabel('Texto original / OCR p1_b1').inputValue(); let calls = 0;
+  await page.route('**/api/translation-review', route => {
+    calls++; return route.fulfill({ status: 502, json: { error: 'provider_quota' } });
+  });
+  await consent.check(); await page.getByRole('button', { name: 'Revisar recorte con IA p1_b1', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'No se reintentó automáticamente' })).toBeVisible();
+  expect(calls).toBe(1);
+  await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue(original);
+  await page.unroute('**/api/translation-review');
+  await page.route('**/api/translation-review', route => route.fulfill({ json: { text: 'Text \u0003 symbol', uncertain: true } }));
+  await page.getByRole('button', { name: 'Revisar recorte con IA p1_b1', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'incompleta o inválida' })).toBeVisible();
+  await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue(original);
+  await expect(page.getByRole('button', { name: 'Usar como propuesta IA', exact: true })).not.toBeVisible();
+  await page.getByRole('combobox', { name: 'Proveedor', exact: true }).selectOption('gemini');
+  await expect(page.getByLabel('Clave API (sólo en memoria)')).toHaveValue('');
+  await prepareRegion(page);
+  await expect(page.getByLabel(/Autorizo enviar este recorte/)).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Revisar recorte con IA p1_b1', exact: true })).toBeDisabled();
+});
+
+test('cancelling regional vision preserves source and OCR proposals for a manual retry', async ({ page }) => {
+  await page.goto('/es/translate'); await native(page); await credentials(page); await prepareRegion(page);
+  const original = await page.getByLabel('Texto original / OCR p1_b1').inputValue(); let called = false;
+  await page.route('**/api/translation-review', async route => {
+    called = true; await new Promise(resolve => setTimeout(resolve, 2000)); await route.abort().catch(() => {});
+  });
+  await page.getByLabel(/Autorizo enviar este recorte/).check();
+  await page.getByRole('button', { name: 'Revisar recorte con IA p1_b1', exact: true }).click();
+  await expect.poll(() => called).toBe(true); await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Revisar recorte con IA p1_b1', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue(original);
+  await expect(page.getByRole('button', { name: 'Usar como propuesta OCR 6', exact: true })).toBeVisible();
+});
+
 test('partial completion keeps valid blocks and retries only pending blocks in smaller batches', async ({ page }) => {
   await page.goto('/es/translate'); await native(page, 4); await credentials(page);
   const calls: string[][] = [];

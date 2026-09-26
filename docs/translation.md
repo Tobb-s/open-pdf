@@ -40,6 +40,30 @@ semántica ni garantiza que no repita texto de contexto con un ID solicitado. Re
 
 ## Alcance y límites
 
+### Segunda lectura regional (beta)
+
+Cada bloque incluido ofrece «Revisar región difícil». «Preparar recorte y releer OCR» renderiza
+sólo su región en el navegador (hasta 2000 px por lado y 3 MP) y ejecuta dos lecturas Tesseract
+en inglés: PSM 6 (bloque uniforme) y PSM 11 (texto disperso). Las alternativas quedan separadas;
+no se elige automáticamente la de mayor confianza ni se mezclan sus textos.
+
+Después de inspeccionar el recorte, se puede autorizar y solicitar una revisión visual con IA.
+Este primer adaptador usa **OpenAI Responses** y el modelo configurado, que debe admitir visión
+y JSON Schema. Gemini y compatibles siguen funcionando para traducción, pero la revisión visual
+no está habilitada para ellos en esta etapa. Cada clic envía sólo un PNG (máximo 1,5 MB) y el
+texto original de ese bloque, sin PDF completo, glosario, contexto ni traducciones. No hay reintentos
+automáticos. El consentimiento visual es separado y se renueva al cambiar recorte, modelo o clave.
+
+Las otras cajas de texto detectadas se enmascaran en el recorte, incluso si están desmarcadas.
+Esto NO garantiza eliminar información no detectada: revisar el recorte antes de consentir;
+no usar como saneamiento. El margen puede cortar símbolos o incluir texto ajeno no detectado.
+
+La IA transcribe en el idioma original y señala incertidumbre; puede alucinar o equivocarse,
+especialmente en fórmulas/números. Elegir una alternativa llena una propuesta editable. Sólo
+«Aplicar propuesta al original» cambia el texto, borra la traducción de ese bloque e invalida
+la vista previa. El resto de bloques/traducciones y la geometría quedan intactos. Esta herramienta
+no descubre regiones ausentes ni recompone columnas, tablas o fórmulas estructuradas.
+
 ### Formatos de salida
 
 «Conservar distribución original» mantiene el tamaño de página y las cajas detectadas: si el
@@ -100,7 +124,8 @@ Este reflujo no reconstruye columnas, tablas o fórmulas ni corrige el OCR o el 
   sin clave o de otro origen. Limita entrada/salida y tiempo de proveedor.
 - La clave viaja en Authorization hasta OpenPDF y luego al proveedor. No se guarda en localStorage,
   IndexedDB, cookies, archivos de servidor ni registros de aplicación. Texto/glosario tampoco.
-  No se suben PDF ni imágenes. Proveedor e infraestructura pueden retener datos según sus políticas.
+  No se suben PDF. La traducción sólo envía texto; la revisión visual opcional envía un PNG y el texto
+  de su bloque con consentimiento separado. Proveedor e infraestructura pueden retener datos según sus políticas.
 - La ruta pública **nunca** usa `OPENAI_API_KEY` del servidor como fallback: no es una API gratuita
   financiada por el dueño del sitio. La clave de desarrollo sólo es usada por una prueba explícita.
 - Límite de concurrencia por instancia (8), no un rate limiter distribuido. Antes de gran escala/pagos:
@@ -120,6 +145,7 @@ Fuentes de contrato consultadas:
 
 - https://developers.openai.com/api/docs/guides/structured-outputs
 - https://ai.google.dev/gemini-api/docs/openai
+- https://developers.openai.com/api/docs/guides/images-vision
 
 ## Evolución recomendada
 

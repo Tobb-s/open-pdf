@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import TranslationPreview from '@/components/TranslationPreview';
+import TranslationRegionReview from '@/components/TranslationRegionReview';
 import { useI18n } from '@/lib/i18n/context';
 import { downloadBlob, derivedFileName } from '@/lib/files';
 import { batches, MAX_SEGMENTS, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
@@ -176,6 +177,9 @@ export default function TranslatePage() {
           <label className="text-sm">{c.source}<textarea aria-label={`${c.source} ${b.id}`} rows={4} className={field} value={b.source} maxLength={12_000} onChange={e => updateBlock(b.id, { source: e.target.value, translated: '' })} /></label>
           <label className="text-sm">{c.target}<textarea aria-label={`${c.target} ${b.id}`} rows={4} className={field} value={b.translated} maxLength={48_000} onChange={e => updateBlock(b.id, { translated: e.target.value })} /></label>
         </div>
+        {source && <TranslationRegionReview key={`${b.id}:${provider}:${model}`} source={source} page={current} block={b}
+          busy={busy} provider={provider} model={model} apiKey={key} locale={locale} run={run}
+          apply={text => updateBlock(b.id, { source: text, translated: '' })} />}
         {issues.filter(issue => issue.id === b.id).map(issue => <p className="text-sm text-red-700" key={issue.reason}>{c[issue.reason]}</p>)}
       </fieldset>)}
     </section>}
