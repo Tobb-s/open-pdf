@@ -49,6 +49,15 @@ describe('doubtful block selection and conservative automatic acceptance', () =>
   it('does not silently change mathematical operators', () => {
     expect(reviewDecision('Economic output Y = K + L', { text: 'Economic output Y < K + L', uncertain: false }).reason).toBe('symbols_changed');
   });
+  it.each([
+    ['Growth is -3.5 percent.', 'Growth is 3.5 percent.', 'numbers_changed'],
+    ['Growth is 3.5%.', 'Growth is 3.5.', 'symbols_changed'],
+    ['Price is $250.', 'Price is 250.', 'symbols_changed'],
+    ['Output Y = K + L', 'Output Y = K L', 'symbols_changed'],
+    ['Economic growth', 'Grow', 'length_changed'],
+  ])('also protects signs, units and short readings %#', (original, text, reason) => {
+    expect(reviewDecision(original, { text, uncertain: false }).reason).toBe(reason);
+  });
   it('rejects malformed results even if the model claims certainty', () => {
     expect(() => reviewDecision('Source', { text: '', uncertain: false })).toThrow('invalid_response');
   });

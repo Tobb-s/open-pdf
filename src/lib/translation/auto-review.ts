@@ -22,12 +22,12 @@ export function reviewDecision(original: string, raw: RegionReviewResult) {
   if (result.uncertain || illegible.test(result.text)) return { ...result, reason: 'ambiguous' };
   const compact = (text: string) => text.replace(/\s+/g, ' ').trim();
   const before = compact(original), after = compact(result.text);
-  if ((before.length >= 20 && after.length < before.length * .5) || after.length > before.length * 1.8 + 40) {
+  if ((before.length >= 8 && after.length < before.length * .5) || after.length > before.length * 1.8 + 40) {
     return { ...result, reason: 'length_changed' };
   }
-  const numbers = (text: string) => (text.normalize('NFKC').match(/\d+(?:[.,]\d+)*/g) ?? []).join('|');
+  const numbers = (text: string) => (text.normalize('NFKC').match(/[-−+]?\d+(?:[.,]\d+)*/g) ?? []).join('|');
   if (numbers(before) !== numbers(after)) return { ...result, reason: 'numbers_changed' };
-  const symbols = (text: string) => (text.match(/[=<>≤≥±×÷∑∫√]/gu) ?? []).join('');
+  const symbols = (text: string) => (text.match(/[=<>≤≥±×÷∑∫√+*/^−%$€£¥]/gu) ?? []).join('');
   if (symbols(before) !== symbols(after)) return { ...result, reason: 'symbols_changed' };
   return { ...result, reason: undefined };
 }
