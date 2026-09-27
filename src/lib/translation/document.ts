@@ -9,7 +9,7 @@ import { savePdf } from '@/lib/pdfio';
 import { fitBlock, groupRuns, isVerticalOcrRun, type TranslationPage, type TextRun, type TranslationBlock } from './layout';
 import { TranslationError } from './contracts';
 import { orderTranslationBlocks } from './order';
-import { MAX_TRANSLATION_PAGES, READING_HEADER_HEIGHT, planReadingSheets, type ReadingSheet, type TranslationExportMode } from './reading';
+import { MAX_TRANSLATION_PAGES, READING_FONT, READING_FONT_SIZE, planReadingSheets, type ReadingSheet, type TranslationExportMode } from './reading';
 
 export async function analyzeTranslation(source: Uint8Array, options: {
   forceOcr: boolean; signal: AbortSignal; progress: (page: number, total: number) => void;
@@ -98,13 +98,14 @@ export interface LayoutIssue { id: string; page: number; reason: 'overflow' | 'u
 async function plansFor(pages: TranslationPage[], document: PDFDocument, mode: TranslationExportMode = 'preserve') {
   if (!['preserve', 'readable'].includes(mode)) throw new TranslationError('invalid_request');
   const fonts = new Map<string, PDFFont>();
+  const faceFor = (name: string) => standardFace(mode === 'readable' ? READING_FONT : name);
   // Select one font per face BEFORE measuring: continuation metrics must match the exported font.
   for (const page of pages) for (const block of page.blocks.filter(b => b.included)) {
-    const face = standardFace(block.font);
+    const face = faceFor(block.font);
     if (!fonts.has(face)) fonts.set(face, await document.embedFont(face));
   }
   for (const face of fonts.keys()) {
-    const texts = pages.flatMap(p => p.blocks.filter(b => b.included && standardFace(b.font) === face)
+    const texts = pages.flatMap(p => p.blocks.filter(b => b.included && faceFor(b.font) === face)
       .map(b => b.translated.replace(/\s/g, ' ')));
     if (texts.every(text => { try { fonts.get(face)!.encodeText(text); return true; } catch { return false; } })) continue;
     // Same-origin bundled PDF.js Liberation fonts; no document/font upload or third-party fetch.
@@ -128,7 +129,7 @@ async function plansFor(pages: TranslationPage[], document: PDFDocument, mode: T
     const startIssues = issues.length;
     for (const block of page.blocks.filter(b => b.included)) {
       if (!block.translated.trim()) { issues.push({ id: block.id, page: page.number, reason: 'missing_translation' }); continue; }
-      const face = standardFace(block.font);
+      const face = faceFor(block.font);
       let font = fonts.get(face);
       if (!font) { font = await document.embedFont(face); fonts.set(face, font); }
       try {
@@ -137,8 +138,8 @@ async function plansFor(pages: TranslationPage[], document: PDFDocument, mode: T
         if (!text.isWellFormed() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ||
             [...text].some(c => !glyphs.has(c.codePointAt(0)!))) throw new Error();
         font.encodeText(text);
-        const preferred = mode === 'readable' ? Math.max(11, Math.min(18, block.size)) : block.size;
-        const fit = fitBlock(block.translated, block, preferred, (text, size) => font.widthOfTextAtSize(text, size), mode === 'readable' ? 11 : 7);
+        const preferred = mode === 'readable' ? READING_FONT_SIZE : block.size;
+        const fit = fitBlock(block.translated, block, preferred, (text, size) => font.widthOfTextAtSize(text, size), mode === 'readable' ? READING_FONT_SIZE : 7);
         if (fit) plans.set(block.id, { font, fit });
         else if (mode === 'readable') needsReading = true;
         else issues.push({ id: block.id, page: page.number, reason: 'overflow' });
@@ -188,8 +189,6 @@ export async function exportTranslation(source: Uint8Array, pages: TranslationPa
     }
     let totalImageBytes = 0;
     const sourcePages: number[] = [];
-    const navigationFont = await output.embedFont(StandardFonts.Helvetica);
-    const labelFont = await output.embedFont(StandardFonts.HelveticaBold);
     for (const info of pages) {
       signal.throwIfAborted(); progress(info.number);
       const page = await pdf.document.getPage(info.number);
@@ -211,33 +210,17 @@ export async function exportTranslation(source: Uint8Array, pages: TranslationPa
         const image = await output.embedPng(await blob.arrayBuffer());
         sourcePages.push(output.getPageCount() + 1);
         const sheets = reading.get(info.number);
-        const target = output.addPage([info.width, info.height + (sheets ? READING_HEADER_HEIGHT : 0)]);
+        const target = output.addPage([info.width, info.height]);
         target.drawImage(image, { x: 0, y: 0, width: info.width, height: info.height });
         if (sheets) {
-          const first = output.getPageCount() + 1, last = first + sheets.length - 1;
-          const label = `Origen ${info.number}. Traducción: ${first}-${last}.`;
-          const headerBox = { x: 8, y: 0, width: info.width - 16, height: 28 };
-          const fit = fitBlock(label, headerBox, 10, (text, size) => navigationFont.widthOfTextAtSize(text, size))
-            ?? fitBlock(`${info.number}: ${first}-${last}`, headerBox, 9, (text, size) => navigationFont.widthOfTextAtSize(text, size));
-          if (!fit) throw new TranslationError('layout_issues');
-          fit.lines.forEach((line, i) => target.drawText(line, { x: 8,
-            y: info.height + 24 - i * fit.lineHeight, size: fit.size, font: navigationFont }));
           for (let i = 0; i < sheets.length; i++) {
             signal.throwIfAborted();
             const sheet = sheets[i], continuation = output.addPage([sheet.width, sheet.height]);
-            const heading = `Traducción - origen ${info.number} - continuación ${i + 1}/${sheets.length}`;
-            const header = fitBlock(heading, { x: 36, y: 0, width: sheet.width - 72, height: 24 }, 10,
-              (text, size) => navigationFont.widthOfTextAtSize(text, size), 8);
-            if (!header) throw new TranslationError('layout_issues');
-            header.lines.forEach((line, j) => continuation.drawText(line,
-              { x: 36, y: sheet.height - 36 - j * header.lineHeight, size: header.size, font: navigationFont }));
             for (const line of sheet.lines) {
-              const font = line.font === 'Helvetica-Bold' && line.size === 9 ? labelFont
-                : fonts.get(standardFace(line.font))!;
+              const font = fonts.get(standardFace(line.font))!;
               if (line.text) continuation.drawText(line.text, { x: line.x,
                 y: sheet.height - line.y - line.size * 0.9, size: line.size, font });
             }
-            continuation.drawText(`OpenPDF - ${output.getPageCount()}`, { x: 36, y: 16, size: 9, font: navigationFont });
           }
         } else for (const block of info.blocks.filter(b => b.included)) {
           const { font, fit } = plans.get(block.id)!;

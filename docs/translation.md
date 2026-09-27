@@ -98,14 +98,18 @@ no descubre regiones ausentes ni recompone columnas, tablas o fórmulas estructu
 «Conservar distribución original» mantiene el tamaño de página y las cajas detectadas: si el
 texto no entra a 7 pt o más, informa desborde y no exporta. Sigue siendo el modo predeterminado.
 
-«Lectura cómoda con continuaciones» mantiene el texto que entra en sus cajas a 11 pt o más.
+«Lectura cómoda con continuaciones» usa una sola fuente, Helvetica, a **12 pt fijos**.
+Si necesita símbolos adicionales, toda esa fuente pasa a Liberation Sans Regular local.
+No toma familia, negrita, cursiva ni tamaño del documento original y no achica texto para encajar.
 Si cualquier bloque incluido desborda, mueve **todos los bloques incluidos de esa página** a
-páginas adicionales, respetando su orden detectado. El cuerpo usa entre 11 y 18 pt, márgenes
-de 36 pt y la familia/estilo estándar aproximados. No abrevia ni recorta contenido; los tokens
-largos se dividen por caracteres Unicode sin insertar guiones. Los IDs indican el bloque de origen.
+páginas adicionales, respetando su orden detectado. El cuerpo usa márgenes de 36 pt.
+No abrevia ni recorta contenido; los tokens largos se dividen por caracteres Unicode sin insertar
+guiones. Los IDs se conservan internamente para trazabilidad, pero no se imprimen. Tampoco se
+agregan etiquetas de origen, continuación ni pies técnicos al PDF. No se elimina texto real que
+casualmente contenga un ID parecido: la corrección evita generar esas etiquetas, no filtra el contenido.
 
-La página de origen queda como lámina visual, con imágenes y texto excluido/no detectado, y una
-banda superior de 36 pt que indica dónde leer su traducción. Las figuras no se redistribuyen entre
+La página de origen queda como lámina visual, con imágenes y texto excluido/no detectado, sin
+banda superior ni cambio de dimensiones. Las figuras todavía no se redistribuyen entre
 párrafos. Las páginas de lectura usan como mínimo 300 × 400 pt. El selector de resultado recorre
 todas las páginas generadas; cambiar la página de origen salta a su lámina correspondiente.
 Cambiar de modo invalida la vista previa, sin perder traducciones. Máximo: 500 páginas generadas.
@@ -192,6 +196,29 @@ Fuentes de contrato consultadas:
 
 ## Evolución recomendada
 
-Preservación vectorial y reutilización de fuentes completas, reflujo integrado con figuras,
-OCR regional y clasificación de fórmulas/tablas, evaluación de coherencia del glosario entre lotes, evaluación humana
-de traducción técnica y checkpoints descargables sin incluir credenciales.
+### Documento limpio: etapas pendientes
+
+La tipografía uniforme y eliminación de etiquetas técnicas son la primera etapa. **No equivalen
+a una limpieza semántica ni resuelven todavía la integración de figuras en el texto**.
+
+1. Representar el contenido como una secuencia trazable de títulos, párrafos, listas, notas,
+   tablas, fórmulas y regiones gráficas. Conservar origen y coordenadas de cada elemento;
+   el escaneo completo de una página no debe confundirse con una figura. Detectar regiones
+   gráficas antes de borrar texto para no destruir ejes, celdas o rótulos.
+2. Definir el anclaje de cada imagen: misma posición entre párrafos o página/coordenadas exactas.
+   Son restricciones distintas. Con 12 pt fijos, una traducción más larga puede necesitar páginas
+   adicionales; no mover imágenes, recortar texto ni reducir la fuente silenciosamente.
+3. Agregar una revisión de estructura/limpieza con IA, primero una página y luego lotes acotados
+   de hasta diez, sujetos a límites de texto e imágenes. OCR aporta lectura y coordenadas;
+   la IA contrasta contra la página y propone clasificación, uniones y exclusiones justificadas.
+   No es un resumen ni una reescritura libre. Cada fragmento debe quedar asignado exactamente
+   una vez, en orden, al contenido conservado o a una exclusión registrada. No eliminar por baja
+   confianza solamente; conservar ante ambigüedad. Proteger cifras, fórmulas, citas y notas.
+4. Validar primero las diez páginas iniciales de Easterly, reutilizando lecturas/traducciones
+   verificadas. Comprobar cobertura y orden, ubicación/integridad de figuras, separación de
+   títulos/párrafos y ausencia de etiquetas añadidas, además de inspeccionar el PDF renderizado.
+   Extender al documento completo sólo después. No volver a gastar API ni OCR por cambios
+   exclusivamente tipográficos.
+
+Otras mejoras: evaluación de coherencia del glosario entre lotes, evaluación humana de traducción
+técnica y checkpoints descargables sin incluir credenciales.

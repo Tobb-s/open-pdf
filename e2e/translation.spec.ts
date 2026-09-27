@@ -66,7 +66,7 @@ test('bad provider response keeps original and permits retry', async ({ page }) 
   await expect(page.getByLabel('Español argentino p1_b1')).not.toHaveValue('');
 });
 
-test('readable export keeps complete text, images, minimum body size and source/output navigation', async ({ page }, testInfo) => {
+test('readable export keeps complete text, fixed typography, images and UI-only source navigation', async ({ page }, testInfo) => {
   await page.goto('/es/translate'); await native(page, 2);
   const translation = 'La inversión y la educación mejoran la productividad económica. '.repeat(140) + 'MARCAFINAL';
   await page.getByLabel('Español argentino p1_b1').fill(translation);
@@ -80,7 +80,7 @@ test('readable export keeps complete text, images, minimum body size and source/
   const file = testInfo.outputPath('readable.pdf'); await (await download).saveAs(file);
   const bytes = await readFile(file), doc = await PDFDocument.load(bytes);
   const count = doc.getPageCount(); expect(count).toBeGreaterThan(3);
-  expect(doc.getPage(0).getSize()).toEqual({ width: 400, height: 436 });
+  expect(doc.getPage(0).getSize()).toEqual({ width: 400, height: 400 });
   expect(doc.getPage(count - 1).getSize()).toEqual({ width: 400, height: 400 });
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const loading = pdfjs.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
@@ -88,8 +88,9 @@ test('readable export keeps complete text, images, minimum body size and source/
   try {
     for (let n = 2; n < count; n++) {
       const items = (await (await pdf.getPage(n)).getTextContent()).items;
-      for (const item of items) if ('str' in item && item.str && !/^(Traducción -|p1_b1|OpenPDF -)/.test(item.str)) {
-        expect(Math.hypot(item.transform[0], item.transform[1])).toBeGreaterThanOrEqual(11);
+      for (const item of items) if ('str' in item && item.str) {
+        expect(item.str).not.toMatch(/p\d+_b\d+|Traducción - origen|Origen \d+|OpenPDF -/);
+        expect(Math.hypot(item.transform[0], item.transform[1])).toBe(12);
         expect(item.transform[4]).toBeGreaterThanOrEqual(36);
         expect(item.transform[4] + item.width).toBeLessThanOrEqual(364.1);
         body.push(item.str);
@@ -104,8 +105,8 @@ test('readable export keeps complete text, images, minimum body size and source/
   await expect(selector).toHaveValue('1');
   const canvas = page.getByLabel('Resultado generado', { exact: true });
   await expect(canvas).toHaveAttribute('data-rendered-page', '1');
-  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.height / c.width)).toBeCloseTo(436 / 400, 2);
-  const pixel = await canvas.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(c.width * .375, c.height * (436 - 130) / 436, 1, 1).data]);
+  await expect.poll(() => canvas.evaluate((c: HTMLCanvasElement) => c.height / c.width)).toBeCloseTo(1, 2);
+  const pixel = await canvas.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(c.width * .375, c.height * .675, 1, 1).data]);
   expect(pixel[2]).toBeGreaterThan(200); expect(pixel[0]).toBeLessThan(20);
   await canvas.screenshot({ path: testInfo.outputPath('readable-source.png') });
   await selector.selectOption('2');

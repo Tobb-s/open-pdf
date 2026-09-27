@@ -36,11 +36,19 @@ describe('readable translation layout', () => {
     expect(planReadingSheets(source, measure).flatMap(s => s.lines.filter(l => l.size >= 11).map(l => l.text)))
       .toEqual(['UNO', 'TRES']);
   });
-  it('uses a readable minimum even for tiny source fonts and keeps heading sizes bounded', () => {
+  it('uses one fixed font and size regardless of source typography, with no printed IDs', () => {
     const source = page(); source.blocks[0].size = 3;
-    expect(planReadingSheets(source, measure)[0].lines[1].size).toBe(11);
+    source.blocks[0].font = 'Times-BoldItalic';
+    const first = planReadingSheets(source, measure);
     source.blocks[0].size = 100;
-    expect(planReadingSheets(source, measure)[0].lines[1].size).toBe(18);
+    source.blocks[0].font = 'Courier';
+    expect(planReadingSheets(source, measure)).toEqual(first);
+    expect(first.flatMap(s => s.lines).every(l => l.size === 12 && l.font === 'Helvetica')).toBe(true);
+    expect(first.flatMap(s => s.lines).some(l => /p1_b1|continúa/.test(l.text))).toBe(false);
+  });
+  it('does not strip genuine text that happens to resemble an internal ID', () => {
+    const source = page(); source.blocks[0].translated = 'La variable p1_b1 vale 1985.';
+    expect(planReadingSheets(source, measure)[0].lines.map(l => l.text)).toEqual(['La variable p1_b1 vale 1985.']);
   });
   it('bounds pathological page growth instead of silently truncating', () => {
     const source = page(); source.blocks[0].translated = 'a '.repeat(50_000);
@@ -57,6 +65,11 @@ describe('readable translation layout', () => {
   it('allows readable overflow while original-layout mode remains strict', async () => {
     expect(await checkTranslationLayout([page()])).toEqual([{ id: 'p1_b1', page: 1, reason: 'overflow' }]);
     expect(await checkTranslationLayout([page()], 'readable')).toEqual([]);
+  });
+  it('reflows instead of shrinking or using smaller source glyphs', async () => {
+    const source = page(); Object.assign(source.blocks[0], { size: 7, height: 9, translated: 'Texto breve.' });
+    expect(await checkTranslationLayout([source], 'readable')).toEqual([]);
+    expect(planReadingSheets(source, measure)[0].lines[0].size).toBe(12);
   });
   it('still reports unsupported glyphs and missing translations in readable mode', async () => {
     const source = page(); source.blocks[0].translated = 'Texto 漢';
@@ -81,7 +94,11 @@ describe('readable translation layout', () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(bytes)));
     try {
       const source = page(); source.blocks[0].translated = 'Y = φ K; ∫ x';
+      source.blocks[0].font = 'Times-BoldItalic';
+      source.blocks.push({ ...source.blocks[0], id: 'p1_b2', font: 'Courier', translated: 'Otra fórmula: φ = 2.' });
       expect(await checkTranslationLayout([source], 'readable')).toEqual([]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(fetch).toHaveBeenCalledWith('/vendor/pdfjs/standard_fonts/LiberationSans-Regular.ttf');
       source.blocks[0].translated = '漢';
       expect(await checkTranslationLayout([source], 'readable')).toEqual([
         { id: 'p1_b1', page: 1, reason: 'unsupported_characters' },

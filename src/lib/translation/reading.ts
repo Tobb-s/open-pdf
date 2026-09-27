@@ -3,7 +3,8 @@ import type { TranslationPage } from './layout';
 
 export type TranslationExportMode = 'preserve' | 'readable';
 export const MAX_TRANSLATION_PAGES = 500;
-export const READING_HEADER_HEIGHT = 36;
+export const READING_FONT = 'Helvetica';
+export const READING_FONT_SIZE = 12;
 export interface ReadingLine {
   text: string; id: string; font: string; size: number; x: number; y: number;
 }
@@ -38,27 +39,22 @@ export function planReadingSheets(page: TranslationPage,
     throw new TranslationError('layout_issues');
   }
   const width = Math.max(300, page.width), height = Math.max(400, page.height);
-  const margin = 36, top = 66, bottom = height - 36;
+  const margin = 36, top = 36, bottom = height - 36;
   const sheets: ReadingSheet[] = [];
   let cursor = top;
   const addSheet = () => {
     if (sheets.length >= MAX_TRANSLATION_PAGES) throw new TranslationError('output_too_large');
     sheets.push({ width, height, lines: [] }); cursor = top;
   };
-  const label = (id: string, continued: boolean) => {
-    sheets[sheets.length - 1].lines.push({ text: `${id}${continued ? ' (continúa)' : ''}`, id,
-      font: 'Helvetica-Bold', size: 9, x: margin, y: cursor });
-    cursor += 16;
-  };
   for (const block of page.blocks.filter(b => b.included)) {
     if (!block.translated.trim()) throw new TranslationError('layout_issues');
-    const size = Math.max(11, Math.min(18, block.size)), lineHeight = size * 1.3;
-    const lines = wrapReadingText(block.translated, width - margin * 2, text => measure(text, size, block.font));
-    if (!sheets.length || cursor + 16 + lineHeight > bottom) addSheet();
-    label(block.id, false);
+    const size = READING_FONT_SIZE, lineHeight = size * 1.3;
+    const lines = wrapReadingText(block.translated, width - margin * 2, text => measure(text, size, READING_FONT));
+    if (!sheets.length || cursor + lineHeight > bottom) addSheet();
     for (const text of lines) {
-      if (cursor + lineHeight > bottom) { addSheet(); label(block.id, true); }
-      sheets[sheets.length - 1].lines.push({ text, id: block.id, font: block.font, size, x: margin, y: cursor });
+      if (cursor + lineHeight > bottom) addSheet();
+      // IDs remain internal provenance, never visible document content.
+      sheets[sheets.length - 1].lines.push({ text, id: block.id, font: READING_FONT, size, x: margin, y: cursor });
       cursor += lineHeight;
     }
     cursor += 12;
