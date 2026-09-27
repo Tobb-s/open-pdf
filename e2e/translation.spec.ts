@@ -17,7 +17,7 @@ async function native(page: Page, count = 1, rotated = false) {
 }
 async function credentials(page: Page) {
   await page.getByLabel('Clave API (sólo en memoria)').fill('synthetic-test-key-not-real');
-  await page.getByLabel(/Autorizo enviar/).check();
+  await page.getByLabel(/Autorizo enviar los textos incluidos/).check();
 }
 async function fakeProvider(page: Page) {
   await page.route('**/api/translate', route => {
@@ -314,7 +314,7 @@ test('context excludes unchecked blocks and disabling it resets consent', async 
   expect(body!.glossary).toBe('growth = crecimiento');
   expect(JSON.stringify(body)).not.toContain('p2_b1');
   await page.getByLabel('Usar contexto entre páginas y lotes').uncheck();
-  await expect(page.getByLabel(/Autorizo enviar/)).not.toBeChecked();
+  await expect(page.getByLabel(/Autorizo enviar los textos incluidos/)).not.toBeChecked();
   // Retranslate a deliberately cleared target with context disabled.
   await page.getByLabel('Página', { exact: true }).selectOption('2');
   await page.getByLabel('Español argentino p3_b1').fill('');
@@ -414,7 +414,7 @@ test('credentials are not persisted; changing provider clears the key and consen
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-test-key');
   await page.getByRole('combobox', { name: 'Proveedor', exact: true }).selectOption('gemini');
   await expect(page.getByLabel('Clave API (sólo en memoria)')).toHaveValue('');
-  await expect(page.getByLabel(/Autorizo enviar/)).not.toBeChecked();
+  await expect(page.getByLabel(/Autorizo enviar los textos incluidos/)).not.toBeChecked();
   await credentials(page); await page.reload();
   await expect(page.getByLabel('Clave API (sólo en memoria)')).toHaveValue('');
 });

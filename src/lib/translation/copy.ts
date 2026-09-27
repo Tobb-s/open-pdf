@@ -49,6 +49,7 @@ export const translationCopy = {
     unsupported_characters: 'Hay caracteres que la fuente de exportación no puede representar. Corregí el bloque o conservá el original.',
     missing_translation: 'Falta la traducción.',
     errors: {
+      clean_uncertain: 'La revisión de estructura encontró contenido o recortes ambiguos. Se conservó el resultado parcial, pero no se exportó una muestra que podría perder contenido. Revisá las incertidumbres de la muestra.',
       login_required: 'Tu sesión venció. Volvé a entrar a Mi cuenta.',
       provider_not_found: 'Este proveedor ya no está disponible en tu cuenta. Elegí otro.',
       provider_mismatch: 'Volvé a elegir tu proveedor guardado para cargar su configuración.',
@@ -117,6 +118,7 @@ export const translationCopy = {
     overflow: 'Text does not fit at 7 pt or above. Review wording without losing content, or keep the original block.',
     unsupported_characters: 'The export font cannot represent some characters. Edit the block or keep the original.', missing_translation: 'Translation missing.',
     errors: {
+      clean_uncertain: 'Structure review found ambiguous content or crops. Partial work was retained, but no potentially incomplete sample was exported. Inspect the sample uncertainty list.',
       login_required: 'Your session expired. Sign in to My account again.',
       provider_not_found: 'This provider is no longer available in your account. Select another.',
       provider_mismatch: 'Select your saved provider again to reload its settings.',

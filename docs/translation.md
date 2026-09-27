@@ -196,27 +196,73 @@ Fuentes de contrato consultadas:
 
 ## Evolución recomendada
 
-### Documento limpio: etapas pendientes
+### Documento limpio: muestra experimental de hasta diez páginas
 
-La tipografía uniforme y eliminación de etiquetas técnicas son la primera etapa. **No equivalen
-a una limpieza semántica ni resuelven todavía la integración de figuras en el texto**.
+«Generar muestra limpia» crea un PDF nuevo, sin fondo de las hojas originales, de las primeras
+diez páginas analizadas como máximo. Requiere OpenAI y autorización adicional para enviar
+**páginas completas**, incluidos textos desmarcados: no hereda las exclusiones del modo por bloques.
+La autorización describe una solicitud por página, hasta dos lecturas por recorte dudoso y las
+traducciones necesarias. No reintenta fallos automáticamente. Los avances viven en memoria;
+otro clic continúa lo pendiente. Cambiar archivo, textos, proveedor, clave o modelo invalida la muestra.
 
-1. Representar el contenido como una secuencia trazable de títulos, párrafos, listas, notas,
+La IA compara OCR e imagen y propone títulos, párrafos, listas, notas, fórmulas, figuras y ruido.
+La traducción incluye contexto de las unidades vecinas de esta muestra, con los mismos límites
+de seis referencias/6.000 caracteres de la traducción por bloques, según su consentimiento propio.
+Cada ID OCR debe quedar contabilizado; los párrafos completos recuperados sin ID se vinculan
+sólo por coincidencia única casi literal. Si OCR había unido párrafos, se conservan sus saltos
+explícitos al recuperar cobertura. Las respuestas incompletas, figuras fuera de página y grandes
+abreviaciones no se aplican. Cambios de cifras/símbolos e ilegibilidad se señalan como inciertos.
+Los recortes de verificación cubren tanto límites OCR como propuestos, con margen; se enmascaran
+otros bloques conocidos para no transcribir párrafos vecinos. Las figuras exportadas **no** se enmascaran.
+Una lectura distinta necesita acuerdo entre dos lecturas del recorte; puede coincidir la segunda
+con la propuesta inicial. Un acuerdo del mismo modelo no prueba exactitud. Si permanece ambiguo,
+se conserva el trabajo parcial y no se exporta una muestra potencialmente incompleta.
+
+El PDF usa DejaVu Sans Regular de 12 pt, con fuente libre incluida localmente y cobertura de
+español, griego, símbolos comunes y superíndices. Los títulos se distinguen por separación,
+no por tamaño ni otra fuente. Los párrafos evidentemente cortados entre páginas se unen antes
+de traducir; títulos, notas e imágenes impiden la unión. Es una heurística, no una garantía de
+segmentación. Se reutilizan traducciones sólo si coincide el texto de la unidad; las uniones
+entre páginas se traducen como una sola unidad para evitar duplicaciones.
+
+Las imágenes se recortan del original intacto y entran en el mismo flujo que los párrafos;
+pueden pasar a otra página, pero no a un apéndice. Mantienen proporción y no se agrandan sobre
+su tamaño original. El recorte aproximado se amplía y ajusta a tinta visible; si toca los bordes
+de búsqueda o invade texto OCR no asignado a la figura, se informa incertidumbre y no se exporta.
+Es un control conservador de contraste sobre fondo claro, no segmentación universal de imágenes:
+fotografías, fondos complejos y texto no detectado requieren validación adicional.
+Tablas y gráficos conservan sus rótulos originales, aún sin traducir.
+No hay láminas vacías de origen, IDs impresos, cabeceras de diagnóstico ni pies técnicos.
+La fuente debe poder representar cada carácter; se rechazan glifos ausentes, no se sustituyen.
+
+Límites iniciales: hasta 200 referencias/22.000 caracteres por página, imagen PNG hasta 1,5 MB,
+máximo 2.000 px por lado/3 MP y respuesta estructurada acotada. No es un detector infalible:
+puede omitir texto que ni OCR ni IA encuentren, equivocarse en una exclusión corta, alterar orden,
+leer cifras mal con aparente acuerdo o proponer un recorte incorrecto. Inspeccionar el resultado.
+En documentos de más de diez páginas, la descarga es una **muestra**, no una traducción completa.
+
+Fuente distribuida con licencia incluida en `public/fonts/LICENSE-DejaVu.txt`.
+
+### Etapas pendientes
+
+La muestra implementa un primer flujo de estructura, revisión, traducción y figuras integradas.
+No reemplaza todavía los modos anteriores ni implica que se validaron todos los tipos de PDF.
+
+1. Robustecer la representación trazable de títulos, párrafos, listas, notas,
    tablas, fórmulas y regiones gráficas. Conservar origen y coordenadas de cada elemento;
    el escaneo completo de una página no debe confundirse con una figura. Detectar regiones
    gráficas antes de borrar texto para no destruir ejes, celdas o rótulos.
-2. Definir el anclaje de cada imagen: misma posición entre párrafos o página/coordenadas exactas.
-   Son restricciones distintas. Con 12 pt fijos, una traducción más larga puede necesitar páginas
-   adicionales; no mover imágenes, recortar texto ni reducir la fuente silenciosamente.
-3. Agregar una revisión de estructura/limpieza con IA, primero una página y luego lotes acotados
+2. El anclaje acordado es entre los mismos párrafos, no página/coordenadas físicas exactas.
+   Robustecer detección de regiones y comprobar límites contra la imagen; ampliar a gráficos
+   y tablas complejos sin destruir rótulos ni desplazar sus anclajes.
+3. Evaluar una segunda revisión semántica/estructural de la muestra con IA y lotes acotados
    de hasta diez, sujetos a límites de texto e imágenes. OCR aporta lectura y coordenadas;
    la IA contrasta contra la página y propone clasificación, uniones y exclusiones justificadas.
    No es un resumen ni una reescritura libre. Cada fragmento debe quedar asignado exactamente
    una vez, en orden, al contenido conservado o a una exclusión registrada. No eliminar por baja
    confianza solamente; conservar ante ambigüedad. Proteger cifras, fórmulas, citas y notas.
-4. Validar primero las diez páginas iniciales de Easterly, reutilizando lecturas/traducciones
-   verificadas. Comprobar cobertura y orden, ubicación/integridad de figuras, separación de
-   títulos/párrafos y ausencia de etiquetas añadidas, además de inspeccionar el PDF renderizado.
+4. Revisar con el usuario la muestra validada de las diez páginas iniciales de Easterly;
+   evidencia y limitaciones en `audits/2026-09-27-traduccion-limpia.md`.
    Extender al documento completo sólo después. No volver a gastar API ni OCR por cambios
    exclusivamente tipográficos.
 
