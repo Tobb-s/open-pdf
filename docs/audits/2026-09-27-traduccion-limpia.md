@@ -87,3 +87,8 @@ Una coincidencia de lecturas del mismo modelo tampoco elimina errores semántico
 
 Siguiente etapa propuesta: revisar esta muestra y luego probar un intervalo que contenga gráficos
 y tablas reales, antes de ampliar al libro completo o publicar el nuevo modo como estable.
+
+Actualización del mismo día: se ejecutó esa etapa con intervalos 10–13 y 21–30. Los resultados,
+arreglos y límites se documentan en `2026-09-27-traduccion-graficos-tablas.md`. Las métricas de
+esta nota son las de la primera muestra histórica y no deben sumarse a las nuevas como si
+correspondieran a una única exportación.

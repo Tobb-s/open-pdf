@@ -3,7 +3,7 @@ import { CLEAN_SAMPLE_LIMIT, linkRecoveredReferences, validateCleanRequest, vali
 import { CLEAN_HEIGHT, CLEAN_MARGIN, CLEAN_WIDTH, planCleanDocument } from '@/lib/translation/clean-document';
 import { cleanWithProvider } from '@/lib/translation/clean-provider';
 import { POST } from '@/app/api/translation-clean/route';
-import { cleanVerificationBox, verifyCleanReading } from '@/lib/translation/clean-verification';
+import { cleanVerificationBox, cleanVerificationMask, verifyCleanReading } from '@/lib/translation/clean-verification';
 import { keepCleanTitlesTogether } from '@/lib/translation/clean-order';
 import { cleanTextGroups } from '@/lib/translation/clean-groups';
 import { plainCleanText } from '@/lib/translation/clean-text';
@@ -32,6 +32,12 @@ describe('clean structure contract', () => {
   it('retains the transcription and reason for excluded page furniture', () => {
     const e = element({ kind: 'noise', noiseReason: 'page_number', text: '12' });
     expect(validateCleanResult({ elements: [e] }, reference)[0]).toEqual(e);
+  });
+  it('records a non-text scan speck without inventing characters or erasing an OCR reference', () => {
+    const e = element({ ids: [], kind: 'noise', noiseReason: 'scan_mark', text: '' });
+    expect(validateCleanResult({ elements: [e] }, [])).toEqual([e]);
+    expect(() => validateCleanResult({ elements: [e] }, reference)).toThrow();
+    expect(() => validateCleanResult({ elements: [{ ...e, ids: ['p1_b1'] }] }, reference)).toThrow();
   });
   it.each([element({ kind: 'noise' }), element({ noiseReason: 'running_header' }), element({ kind: 'noise', noiseReason: 'page_number', uncertain: true }),
     element({ box: { ...box, x: 1000 } }), element({ text: '' }), element({ text: '\ud800' })])('rejects inconsistent or unsafe elements %#', e => {
@@ -86,6 +92,23 @@ describe('new flowing document layout', () => {
     expect(result.pageCount).toBe(1); expect(result.sourcePages).toEqual([1, 1]);
     expect(result.placements.map(x => x.text)).toEqual(['Crecimiento en 1983.', 'Crecimiento en 1983.']);
   });
+  it('rejects a recovered heading duplicated inside the neighboring paragraph', () => {
+    const p = page(); p.elements[0].text += ' Section heading recovered'; p.reference[0].text = p.elements[0].text;
+    p.elements.push({ ...element({ kind: 'heading', ids: [], text: 'Section heading recovered' }), translated: 'Título recuperado' });
+    expect(() => planCleanDocument([p], measure)).toThrow('clean_uncertain');
+  });
+  it('does not publish a translation that introduced an illegible placeholder', () => {
+    const p = page(); p.elements[0].translated = '[ilegible]';
+    expect(() => planCleanDocument([p], measure)).toThrow('clean_uncertain');
+  });
+  it('keeps a short translated caption with its figure when both fit on one new page', () => {
+    const p = page(); p.elements[0].translated = 'Texto. '.repeat(450);
+    p.reference.push({ ...reference[0], id: 'caption', text: 'Figure 2: Chart title' });
+    p.elements.push({ ...element({ ids: ['caption'], text: 'Figure 2: Chart title' }), translated: 'Figura 2: Título' },
+      { ...element({ ids: [], kind: 'figure', text: '', box: { x: 100, y: 100, width: 500, height: 500 } }), translated: '' });
+    const positions = planCleanDocument([p], measure).placements;
+    expect(positions.at(-2)!.element).toBe(1); expect(positions.at(-1)!.sheet).toBe(positions.at(-2)!.sheet);
+  });
   it.each([0, CLEAN_SAMPLE_LIMIT + 1])('rejects sample length %i', length => expect(() => planCleanDocument(Array.from({ length }, (_, i) => ({ ...page(), number: i + 1 })), measure)).toThrow());
   it('rejects uncertainty and missing translations rather than publishing an incomplete document', () => {
     const p = page(); p.elements[0].uncertain = true;
@@ -125,6 +148,11 @@ describe('independent checks for suspicious readings', () => {
     const p = page(); p.elements[0].box = { x: 10, y: 20, width: 300, height: 10 };
     const b = cleanVerificationBox(p, 0); expect(b.y + b.height).toBe(128); expect(b.x).toBe(2);
   });
+  it('masks separate neighboring titles even if their OCR ID was merged into the target paragraph', () => {
+    const p = page(), b = { x: 10, y: 140, width: 200, height: 20 };
+    p.elements.push({ ...element({ kind: 'heading', ids: [], text: 'Section heading', box: b }), translated: '' });
+    expect(cleanVerificationMask(p, 0)).toContainEqual(b);
+  });
   it('accepts a matching unambiguous crop reading with only one extra call', async () => {
     const read = vi.fn().mockResolvedValue({ text: 'Growth\nin 1983.', uncertain: false });
     expect(await verifyCleanReading('Growth in 1983.', read)).toBe('Growth\nin 1983.'); expect(read).toHaveBeenCalledTimes(1);
@@ -154,6 +182,14 @@ describe('independent checks for suspicious readings', () => {
     const blocks = [{ ...reference[0], text: a + ' ' + b }];
     const linked = linkRecoveredReferences({ elements: [element({ text: a }), element({ text: b, ids: [] })] }, blocks);
     expect(validateCleanResult(linked, blocks)[0].text).toBe(a + '\n\n' + b);
+  });
+  it('links an OCR-merged lead-in preceding a separately recovered table caption', () => {
+    const a = 'Table 3 shows the results of including a constant in these country by country regressions.';
+    const b = 'Table 3: Results of regressing growth on investment with a constant, country by country.';
+    const blocks = [{ ...reference[0], text: a + ' ' + b }];
+    const linked = linkRecoveredReferences({ elements: [element({ text: a, ids: [] }), element({ text: b })] }, blocks);
+    expect(validateCleanResult(linked, blocks)[0]).toMatchObject({ text: a + '\n\n' + b, ids: ['p1_b1'] });
+    expect(() => validateCleanResult(linkRecoveredReferences({ elements: [element({ text: 'Unrelated prose.', ids: [] }), element({ text: b })] }, blocks), blocks)).toThrow();
   });
 });
 describe('page vision transport and credential isolation', () => {

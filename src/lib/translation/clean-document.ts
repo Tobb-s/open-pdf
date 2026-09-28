@@ -8,11 +8,21 @@ import { CLEAN_SAMPLE_LIMIT, cleanReadingConfirmed, validateCleanResult, type Cl
 import type { Box, TranslationPage } from './layout';
 import { MAX_TRANSLATION_PAGES, READING_FONT_SIZE, wrapReadingText } from './reading';
 import { cleanTextGroups } from './clean-groups';
-import { plainCleanText } from './clean-text';
+import { plainCleanText, cleanParagraphText } from './clean-text';
+import { figureSearchBox } from './clean-figure';
 
 export function cleanReferences(page: TranslationPage): CleanReference[] {
   // Whole-page consent is explicit; include excluded OCR as reference too, never silently lose it.
-  return page.blocks.map(b => ({ id: b.id, text: b.source,
+  const compact = (text: string) => text.replace(/\s+/g, ' ').trim();
+  const blocks = page.blocks.flatMap<Box & { id: string; source: string }>(b => {
+    const original = b.lineTexts?.reduce((text, line) => text + (text.endsWith('-') ? '\n' : ' ') + line, '').trim();
+    if (page.method !== 'ocr' || !b.lineTexts || b.lines.length !== b.lineTexts.length || b.lines.length < 2 ||
+      compact(original ?? '') !== compact(b.source)) return [b];
+    // A single grouped OCR block can span prose, a caption and a table header. Every original
+    // line becomes independently accountable; edited text falls back to the complete user block.
+    return b.lines.map((line, i) => ({ ...line, id: `${b.id}_l${i + 1}`, source: b.lineTexts![i] }));
+  });
+  return blocks.map(b => ({ id: b.id, text: b.source,
     x: Math.max(0, b.x / page.width * 1000), y: Math.max(0, b.y / page.height * 1000),
     width: Math.min(b.width, page.width - Math.max(0, b.x)) / page.width * 1000,
     height: Math.min(b.height, page.height - Math.max(0, b.y)) / page.height * 1000 }));
@@ -72,6 +82,14 @@ export function planCleanDocument(pages: CleanPage[], measure: (text: string) =>
   const next = () => { if (++sheet >= MAX_TRANSLATION_PAGES) throw new TranslationError('output_too_large'); cursor = CLEAN_MARGIN; };
   for (const page of pages) {
     const checked = validateCleanResult({ elements: page.elements }, page.reference);
+    for (let i = 0; i < page.elements.length; i++) {
+      const e = page.elements[i], compact = (text: string) => text.replace(/\s+/g, ' ').trim();
+      if (e.kind === 'heading' && !e.ids.length && e.text.length >= 15 &&
+        ((page.elements[i - 1]?.kind === 'paragraph' && compact(page.elements[i - 1].text).endsWith(compact(e.text))) ||
+         (page.elements[i + 1]?.kind === 'paragraph' && compact(page.elements[i + 1].text).startsWith(compact(e.text))))) {
+        throw new TranslationError('clean_uncertain');
+      }
+    }
     let first: number | undefined;
     for (let i = 0; i < page.elements.length; i++) {
       const e = page.elements[i];
@@ -91,10 +109,19 @@ export function planCleanDocument(pages: CleanPage[], measure: (text: string) =>
         continue;
       }
       if (!e.translated?.trim()) throw new TranslationError('layout_issues');
+      if (/\[(?:illegible|ilegible)\]/i.test(e.translated)) throw new TranslationError('clean_uncertain');
       const group = leaders.get(`${page.number}:${i}`);
       if (group && group.parts.length > 1 && e.translatedSource !== group.text) throw new TranslationError('layout_issues');
       if (e.kind === 'heading') cursor += 12;
-      const lines = wrapReadingText(plainCleanText(e.translated, group?.text ?? e.text), CLEAN_WIDTH - CLEAN_MARGIN * 2, measure);
+      const plain = plainCleanText(e.translated, group?.text ?? e.text);
+      const lines = wrapReadingText(e.kind === 'formula' ? plain : cleanParagraphText(plain), CLEAN_WIDTH - CLEAN_MARGIN * 2, measure);
+      const following = page.elements[i + 1];
+      if (following?.kind === 'figure' && /^(?:Figure|Table|Figura|Tabla)\s*\d/i.test(e.text.trim()) && lines.length <= 5) {
+        const ratio = following.box.width * page.width / (following.box.height * page.height);
+        const height = Math.min(CLEAN_WIDTH - CLEAN_MARGIN * 2, following.box.width / 1000 * page.width, (bottom - CLEAN_MARGIN) * ratio) / ratio;
+        const needed = lines.length * lineHeight + 10 + height;
+        if (needed <= bottom - CLEAN_MARGIN && cursor + needed > bottom) next();
+      }
       // Avoid an orphan heading where possible; same font and size, hierarchy through whitespace.
       if (e.kind === 'heading' && cursor + (lines.length + 2) * lineHeight > bottom) next();
       for (const text of lines) {
@@ -112,11 +139,8 @@ export function planCleanDocument(pages: CleanPage[], measure: (text: string) =>
 
 /** Expand the approximate AI crop, then locate actual ink. Reject collisions with known prose,
  * rather than silently exporting a clipped figure or duplicating nearby paragraphs. */
-async function refineFigure(source: Uint8Array, page: CleanPage, index: number, signal: AbortSignal): Promise<Box> {
-  const e = page.elements[index], padding = 60;
-  const x = Math.max(0, e.box.x - padding), y = Math.max(0, e.box.y - padding);
-  const area = { x, y, width: Math.min(1000, e.box.x + e.box.width + padding) - x,
-    height: Math.min(1000, e.box.y + e.box.height + padding) - y };
+export async function refineCleanFigure(source: Uint8Array, page: CleanPage, index: number, signal: AbortSignal): Promise<Box> {
+  const e = page.elements[index], area = figureSearchBox(page, index), { x, y } = area;
   const png = await cleanSourceImage(source, page, signal, area);
   const image = new Image(); image.src = png; await image.decode(); signal.throwIfAborted();
   const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
@@ -166,7 +190,7 @@ export async function exportCleanTranslation(source: Uint8Array, pages: CleanPag
   } finally { await pdf.destroy(); }
   pages = structuredClone(pages);
   for (const p of pages) for (let i = 0; i < p.elements.length; i++) {
-    if (p.elements[i].kind === 'figure') p.elements[i].box = await refineFigure(source, p, i, signal);
+    if (p.elements[i].kind === 'figure') p.elements[i].box = await refineCleanFigure(source, p, i, signal);
   }
   const output = await PDFDocument.create();
   const font = await uniformFont(output, pages.flatMap(p => p.elements.filter(e => e.kind !== 'noise' && e.kind !== 'figure').map(e => e.translated)));

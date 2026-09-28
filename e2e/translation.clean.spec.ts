@@ -81,3 +81,45 @@ test('invalid structure is retained as a safe failure with no translation or dow
   expect(translations).toBe(0); await expect(page.getByRole('button', { name: 'Descargar muestra limpia' })).not.toBeVisible();
   await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue('A genuine paragraph in the book.');
 });
+
+for (const ambiguous of [false, true]) test(`uncertain margin classification ${ambiguous ? 'retains ambiguity and stops' : 'excludes a verified stamp, not body content'}`, async ({ page }, info) => {
+  const doc = await PDFDocument.create(), p = doc.addPage([400, 400]);
+  p.drawText('Worksheet stamp', { x: 35, y: 380, size: 8 });
+  p.drawText('Genuine book paragraph.', { x: 35, y: 280, size: 12 });
+  await page.goto('/es/translate'); await page.locator('#translate-file-input').setInputFiles({ name: 'margin.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
+  await page.getByRole('button', { name: 'Analizar PDF localmente' }).click();
+  await expect(page.getByLabel('Texto original / OCR p1_b2')).toBeVisible();
+  await page.getByLabel('Clave API (sólo en memoria)').fill('synthetic-key-not-real');
+  await page.getByLabel(/Autorizo enviar los textos incluidos/).check(); await page.getByLabel(/Autorizo enviar las primeras 10 páginas completas/).check();
+  await page.route('**/api/translation-clean', route => {
+    const body = route.request().postDataJSON();
+    return route.fulfill({ json: { elements: body.blocks.map((b: { id: string; text: string; x: number; y: number; width: number; height: number }, i: number) => ({
+      kind: i === 0 ? 'note' : 'paragraph', ids: [b.id], text: b.text,
+      box: { x: b.x, y: b.y, width: b.width, height: b.height }, noiseReason: 'none', uncertain: i === 0,
+    })) } });
+  });
+  let reviews = 0, translations = 0;
+  await page.route('**/api/translation-review', route => {
+    reviews++; const body = route.request().postDataJSON(); expect(body.task).toBe('classify_noise');
+    const context = JSON.parse(body.sourceText); expect(context.targetText).toBe('Worksheet stamp'); expect(context.pageContext).toContain('Genuine book paragraph.');
+    return route.fulfill({ json: { text: 'Worksheet stamp', uncertain: ambiguous, noiseReason: ambiguous ? 'none' : 'scan_mark' } });
+  });
+  await page.route('**/api/translate', route => {
+    translations++; const body = route.request().postDataJSON();
+    return route.fulfill({ json: { translations: body.segments.map((s: { id: string }) => ({ id: s.id, text: 'Párrafo genuino del libro.' })) } });
+  });
+  await page.getByRole('button', { name: 'Generar muestra limpia' }).click();
+  const button = page.getByRole('button', { name: 'Descargar muestra limpia' });
+  if (ambiguous) {
+    await expect(page.getByRole('alert').filter({ hasText: 'contenido o recortes ambiguos' })).toBeVisible();
+    await expect(button).not.toBeVisible(); expect(translations).toBe(0);
+  } else {
+    await expect(button).toBeVisible({ timeout: 30000 });
+    const event = page.waitForEvent('download'); await button.click(); const file = info.outputPath('margin.pdf'); await (await event).saveAs(file);
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs'), loading = pdfjs.getDocument({ data: new Uint8Array(await readFile(file)), useSystemFonts: true });
+    try { const pdf = await loading.promise, text = await (await pdf.getPage(1)).getTextContent();
+      expect(text.items.filter(i => 'str' in i && i.str).map(i => 'str' in i ? i.str : '').join(' ')).toBe('Párrafo genuino del libro.');
+    } finally { await loading.destroy(); }
+  }
+  expect(reviews).toBe(1);
+});

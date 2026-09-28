@@ -8,7 +8,7 @@ import { CLEAN_SAMPLE_LIMIT, type CleanPage } from '@/lib/translation/clean-cont
 import { cleanReferences, cleanSourceImage, exportCleanTranslation } from '@/lib/translation/clean-document';
 import { requestCleanPage } from '@/lib/translation/clean-client';
 import { requestRegionReview } from '@/lib/translation/review-client';
-import { cleanVerificationBox, verifyCleanReading } from '@/lib/translation/clean-verification';
+import { cleanVerificationBox, cleanVerificationMask, cleanMarginCandidate, cleanMarginContext, cleanMarginReviewBox, verifyCleanReading } from '@/lib/translation/clean-verification';
 import type { TranslationPage } from '@/lib/translation/layout';
 import { cleanTextGroups, cleanTranslationContext } from '@/lib/translation/clean-groups';
 
@@ -45,8 +45,16 @@ export default function TranslationCleanSample(props: {
       setStatus(`${es ? 'Traduciendo contenido limpio' : 'Translating clean content'} ${p.number}/${sample.length}`);
       for (let i = 0; i < p.elements.length; i++) {
         const e = p.elements[i];
+        if (cleanMarginCandidate(e) && (e.uncertain || /\[(?:illegible|ilegible)\]/i.test(e.translated))) {
+          const image = await cleanSourceImage(props.source, p, signal, cleanMarginReviewBox(e));
+          const result = await requestRegionReview({ model: props.model.trim(), image, sourceText: cleanMarginContext(p, i), task: 'classify_noise' }, credentials, signal);
+          if (result.uncertain) throw new TranslationError('clean_uncertain');
+          e.text = result.text; e.uncertain = false; e.translated = ''; e.verification = { text: result.text, model: props.model.trim() };
+          if (result.noiseReason !== 'none') { e.kind = 'noise'; e.noiseReason = result.noiseReason!; }
+          checkpoint();
+        }
         if (e.uncertain && !e.verification && e.kind !== 'figure' && e.kind !== 'noise') {
-          const image = await cleanSourceImage(props.source, p, signal, cleanVerificationBox(p, i), p.reference.filter(b => !e.ids.includes(b.id)));
+          const image = await cleanSourceImage(props.source, p, signal, cleanVerificationBox(p, i), cleanVerificationMask(p, i));
           const sourceText = e.ids.map(id => p.reference.find(b => b.id === id)?.text ?? '').join(' ').slice(0, 12000);
           const text = await verifyCleanReading(e.text, () => requestRegionReview({ model: props.model.trim(), image, sourceText }, credentials, signal));
           if (text) { e.text = text; e.verification = { text, model: props.model.trim() }; e.uncertain = false; checkpoint(); }
@@ -59,7 +67,7 @@ export default function TranslationCleanSample(props: {
     for (const g of groups) {
       const first = g.parts[0], e = completed.current[first.page - 1].elements[first.element];
       if (e.translated && e.translatedSource === g.text) continue;
-      const previous = e.ids.map(id => sample[first.page - 1].blocks.find(b => b.id === id));
+      const previous = [...new Set(e.ids.map(id => id.replace(/_l\d+$/, '')))].map(id => sample[first.page - 1].blocks.find(b => b.id === id));
       if (g.parts.length === 1 && previous.length && previous.every(b => b?.translated.trim()) &&
           compact(previous.map(b => b!.source).join(' ')) === compact(g.text)) e.translated = previous.map(b => b!.translated).join(' ');
       else { e.translated = ''; pending.push({ id: g.id, text: g.text }); }
@@ -97,8 +105,8 @@ export default function TranslationCleanSample(props: {
       ? 'OCR + IA reconstruyen títulos, párrafos y figuras. Una fuente de 12 pt; imágenes entre los mismos párrafos, aunque cambie la página. No usa la hoja original como fondo. Beta: puede equivocarse en el orden, la lectura o los recortes. Gráficos y tablas se conservan como imágenes con sus rótulos originales, todavía sin traducir.'
       : 'OCR + AI reconstruct headings, paragraphs and figures. One 12 pt font; images stay between the same paragraphs even when pagination changes. No original-page background. Beta: reading order, transcription and crops may be wrong. Charts and tables retain their original labels as images, not yet translated.'}</p>
     <label className="flex gap-2 text-sm"><input type="checkbox" checked={consent} disabled={props.busy} onChange={e => setConsent(e.target.checked)} />
-      {es ? 'Autorizo enviar las primeras 10 páginas completas como imágenes, sus textos OCR y fragmentos vecinos de la muestra como contexto a OpenAI, incluidos bloques desmarcados. Una solicitud por página, hasta dos relecturas por recorte dudoso y las traducciones necesarias, con mi API y posibles costos. No hay reintentos automáticos de solicitudes fallidas.'
-        : 'I authorize sending the first 10 full-page images, their OCR text and neighboring sample excerpts as context to OpenAI, including unchecked blocks. One request per page, up to two readings per uncertain crop and necessary translations, using my API with possible costs. Failed requests are not automatically retried.'}</label>
+      {es ? 'Autorizo enviar las primeras 10 páginas completas como imágenes, sus textos OCR y fragmentos vecinos de la muestra como contexto a OpenAI, incluidos bloques desmarcados. Una pasada de estructura por página, hasta dos revisiones de lectura o clasificación por recorte dudoso y las traducciones necesarias, con mi API y posibles costos. No hay reintentos automáticos de solicitudes fallidas.'
+        : 'I authorize sending the first 10 full-page images, their OCR text and neighboring sample excerpts as context to OpenAI, including unchecked blocks. One structure pass per page, up to two reading or classification reviews per uncertain crop and necessary translations, using my API with possible costs. Failed requests are not automatically retried.'}</label>
     <p className="text-xs">{es ? 'Requiere OpenAI y la autorización de traducción de arriba. Los resultados viven sólo en esta pestaña. Cambiar el texto original o las traducciones invalida la muestra; otro clic continúa únicamente lo pendiente.'
       : 'Requires OpenAI and translation consent above. Results live only in this tab. Editing source or translations invalidates the sample; another click continues only pending work.'}</p>
     <button type="button" className="rounded-lg bg-violet-600 px-4 py-2 text-sm text-white disabled:opacity-40" disabled={!allowed}

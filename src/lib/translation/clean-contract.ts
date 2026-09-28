@@ -59,20 +59,20 @@ export function linkRecoveredReferences(value: unknown, blocks: CleanReference[]
   // but only when adjacent recovered pieces account for that entire source almost verbatim.
   for (let i = 0; i < elements.length; i++) {
     const first = elements[i];
-    if (first.kind !== 'paragraph' || !first.ids.length || typeof first.text !== 'string') continue;
-    const before = first.ids.map(id => blocks.find(b => b.id === id)?.text ?? '').join(' ');
-    if (first.text.length >= before.length * .8) continue;
+    if (first.kind !== 'paragraph' || typeof first.text !== 'string') continue;
     let combined = first.text;
     for (let j = i + 1; j < Math.min(elements.length, i + 5); j++) {
       const extra = elements[j];
-      if (extra.kind !== first.kind || extra.ids.length || typeof extra.text !== 'string') break;
+      if (extra.kind !== first.kind || typeof extra.text !== 'string') break;
       combined += '\n\n' + extra.text;
+      const pieces = elements.slice(i, j + 1), ids = pieces.flatMap(e => e.ids);
+      if (!ids.length || !pieces.some(e => !e.ids.length)) continue;
+      const before = ids.map(id => blocks.find(b => b.id === id)?.text ?? '').join(' ');
       if (similar(before, combined)) {
-        const pieces = elements.slice(i, j + 1);
         if (pieces.some(e => !validBox(e.box))) break;
         const x = Math.min(...pieces.map(e => e.box.x)), y = Math.min(...pieces.map(e => e.box.y));
         const right = Math.max(...pieces.map(e => e.box.x + e.box.width)), bottom = Math.max(...pieces.map(e => e.box.y + e.box.height));
-        elements.splice(i, j - i + 1, { ...first, text: combined, box: { x, y, width: right - x, height: bottom - y },
+        elements.splice(i, j - i + 1, { ...first, ids, text: combined, box: { x, y, width: right - x, height: bottom - y },
           uncertain: pieces.some(e => e.uncertain) });
         break;
       }
@@ -98,8 +98,9 @@ export function validateCleanResult(value: unknown, blocks: CleanReference[]): C
     if (!e || !CLEAN_KINDS.includes(e.kind) || !Array.isArray(e.ids) || !validBox(e.box) ||
         typeof e.uncertain !== 'boolean' || typeof e.text !== 'string' ||
         (e.text && !validRegionalText(e.text)) || !['none', 'page_number', 'running_header', 'running_footer', 'scan_mark'].includes(e.noiseReason)) return fail();
+    const nonTextMark = e.kind === 'noise' && e.noiseReason === 'scan_mark' && !e.ids.length && !e.uncertain;
     if ((e.kind === 'noise') !== (e.noiseReason !== 'none') ||
-        (e.kind !== 'figure' && !e.text.trim()) || (e.kind === 'noise' && e.uncertain)) return fail();
+        (e.kind !== 'figure' && !e.text.trim() && !nonTextMark) || (e.kind === 'noise' && e.uncertain)) return fail();
     let before = '';
     for (const id of e.ids) {
       if (!known.has(id) || seen.has(id)) return fail();
@@ -126,7 +127,8 @@ export function validateCleanResult(value: unknown, blocks: CleanReference[]): C
 
 const boxSchema = { type: 'object', additionalProperties: false, required: ['x', 'y', 'width', 'height'],
   properties: { x: { type: 'number' }, y: { type: 'number' }, width: { type: 'number' }, height: { type: 'number' } } };
-export const CLEAN_SCHEMA = { type: 'object', additionalProperties: false, required: ['elements'], properties: {
+export const CLEAN_SCHEMA = { type: 'object', additionalProperties: false, required: ['coordinateSpace', 'elements'], properties: {
+  coordinateSpace: { type: 'string', enum: ['normalized_1000', 'image_pixels'] },
   elements: { type: 'array', items: { type: 'object', additionalProperties: false,
     required: ['kind', 'ids', 'text', 'box', 'noiseReason', 'uncertain'], properties: {
       kind: { type: 'string', enum: [...CLEAN_KINDS] }, ids: { type: 'array', items: { type: 'string' } },

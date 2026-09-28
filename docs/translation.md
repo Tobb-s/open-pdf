@@ -212,11 +212,21 @@ Cada ID OCR debe quedar contabilizado; los párrafos completos recuperados sin I
 sólo por coincidencia única casi literal. Si OCR había unido párrafos, se conservan sus saltos
 explícitos al recuperar cobertura. Las respuestas incompletas, figuras fuera de página y grandes
 abreviaciones no se aplican. Cambios de cifras/símbolos e ilegibilidad se señalan como inciertos.
+En páginas OCR, las líneas originales conservan su propio ID y caja: esto permite distinguir
+un título, una leyenda o un encabezado de tabla dentro de un bloque OCR amplio. Si el usuario
+editó el texto del bloque, no se reutilizan coordenadas de líneas antiguas. El proveedor declara
+si sus cajas vienen en la escala normalizada 0–1000 o en píxeles de la imagen; la conversión usa
+las dimensiones reales del PNG. No se infiere la escala por valores parecidos, que pueden ser ambiguos.
 Los recortes de verificación cubren tanto límites OCR como propuestos, con margen; se enmascaran
 otros bloques conocidos para no transcribir párrafos vecinos. Las figuras exportadas **no** se enmascaran.
 Una lectura distinta necesita acuerdo entre dos lecturas del recorte; puede coincidir la segunda
 con la propuesta inicial. Un acuerdo del mismo modelo no prueba exactitud. Si permanece ambiguo,
 se conserva el trabajo parcial y no se exporta una muestra potencialmente incompleta.
+Las notas marginales dudosas pueden pasar por una revisión visual de clasificación con contexto
+de la misma franja de página. Sólo se excluyen si la IA las identifica sin duda como marca de
+escaneo, número de página o encabezado/pie repetido. Ante ambigüedad se conserva el contenido
+y se detiene la exportación; identificadores bibliográficos WPS/ISBN/ISSN/DOI están protegidos.
+Esto no equivale a sanear contenido sensible ni prueba que toda marca de producción sea detectada.
 
 El PDF usa DejaVu Sans Regular de 12 pt, con fuente libre incluida localmente y cobertura de
 español, griego, símbolos comunes y superíndices. Los títulos se distinguen por separación,
@@ -229,6 +239,9 @@ Las imágenes se recortan del original intacto y entran en el mismo flujo que lo
 pueden pasar a otra página, pero no a un apéndice. Mantienen proporción y no se agrandan sobre
 su tamaño original. El recorte aproximado se amplía y ajusta a tinta visible; si toca los bordes
 de búsqueda o invade texto OCR no asignado a la figura, se informa incertidumbre y no se exporta.
+La búsqueda incorpora todas las cajas OCR asignadas a la imagen y se acota frente a elementos
+vecinos para evitar perder títulos de tabla o incluir párrafos ajenos. Los títulos y leyendas
+externos se mantienen como texto del flujo, junto a su imagen cuando entran en la misma hoja.
 Es un control conservador de contraste sobre fondo claro, no segmentación universal de imágenes:
 fotografías, fondos complejos y texto no detectado requieren validación adicional.
 Tablas y gráficos conservan sus rótulos originales, aún sin traducir.
@@ -261,10 +274,11 @@ No reemplaza todavía los modos anteriores ni implica que se validaron todos los
    No es un resumen ni una reescritura libre. Cada fragmento debe quedar asignado exactamente
    una vez, en orden, al contenido conservado o a una exclusión registrada. No eliminar por baja
    confianza solamente; conservar ante ambigüedad. Proteger cifras, fórmulas, citas y notas.
-4. Revisar con el usuario la muestra validada de las diez páginas iniciales de Easterly;
-   evidencia y limitaciones en `audits/2026-09-27-traduccion-limpia.md`.
-   Extender al documento completo sólo después. No volver a gastar API ni OCR por cambios
-   exclusivamente tipográficos.
+4. Revisar con el usuario las muestras reales de Easterly: primeras diez páginas y gráficos/
+   tablas de páginas físicas 10–13 y 21–30. Evidencia y límites en
+   `audits/2026-09-27-traduccion-limpia.md` y
+   `audits/2026-09-27-traduccion-graficos-tablas.md`. Extender al documento completo sólo
+   después. No volver a gastar API ni OCR por cambios exclusivamente tipográficos.
 
 Otras mejoras: evaluación de coherencia del glosario entre lotes, evaluación humana de traducción
 técnica y checkpoints descargables sin incluir credenciales.
