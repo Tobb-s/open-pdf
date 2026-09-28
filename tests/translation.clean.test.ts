@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { CLEAN_SAMPLE_LIMIT, linkRecoveredReferences, validateCleanRequest, validateCleanResult, type CleanElement, type CleanPage } from '@/lib/translation/clean-contract';
+import { linkRecoveredReferences, validateCleanRequest, validateCleanResult, type CleanElement, type CleanPage } from '@/lib/translation/clean-contract';
 import { CLEAN_HEIGHT, CLEAN_MARGIN, CLEAN_WIDTH, planCleanDocument } from '@/lib/translation/clean-document';
 import { cleanWithProvider } from '@/lib/translation/clean-provider';
 import { POST } from '@/app/api/translation-clean/route';
@@ -7,6 +7,7 @@ import { cleanVerificationBox, cleanVerificationMask, verifyCleanReading } from 
 import { keepCleanTitlesTogether } from '@/lib/translation/clean-order';
 import { cleanTextGroups } from '@/lib/translation/clean-groups';
 import { plainCleanText } from '@/lib/translation/clean-text';
+import { MAX_ANALYSIS_PAGES, selectedPageNumbers } from '@/lib/translation/scope';
 const image = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1XkAAAAASUVORK5CYII=';
 const box = { x: 10, y: 20, width: 300, height: 100 };
 const reference = [{ id: 'p1_b1', text: 'Growth in 1983.', ...box }];
@@ -109,7 +110,13 @@ describe('new flowing document layout', () => {
     const positions = planCleanDocument([p], measure).placements;
     expect(positions.at(-2)!.element).toBe(1); expect(positions.at(-1)!.sheet).toBe(positions.at(-2)!.sheet);
   });
-  it.each([0, CLEAN_SAMPLE_LIMIT + 1])('rejects sample length %i', length => expect(() => planCleanDocument(Array.from({ length }, (_, i) => ({ ...page(), number: i + 1 })), measure)).toThrow());
+  it.each([0, MAX_ANALYSIS_PAGES + 1])('rejects selection length %i', length => expect(() => planCleanDocument(Array.from({ length }, (_, i) => ({ ...page(), number: i + 1 })), measure)).toThrow());
+  it('accepts a later inclusive range with physical page references', () => {
+    const pages = Array.from({ length: 31 }, (_, i) => ({ ...page(), number: i + 20 }));
+    const result = planCleanDocument(pages, measure);
+    expect(result.placements.map(p => p.page)).toEqual(selectedPageNumbers(80, { mode: 'range', from: 20, to: 50 }));
+    expect(result.sourcePages).toHaveLength(31);
+  });
   it('rejects uncertainty and missing translations rather than publishing an incomplete document', () => {
     const p = page(); p.elements[0].uncertain = true;
     expect(() => planCleanDocument([p], measure)).toThrow('clean_uncertain');

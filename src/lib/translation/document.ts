@@ -10,19 +10,21 @@ import { fitBlock, groupRuns, isVerticalOcrRun, type TranslationPage, type TextR
 import { TranslationError } from './contracts';
 import { orderTranslationBlocks } from './order';
 import { MAX_TRANSLATION_PAGES, READING_FONT, READING_FONT_SIZE, planReadingSheets, type ReadingSheet, type TranslationExportMode } from './reading';
+import { selectedPageNumbers, contiguousSelectedPages, type TranslationScope } from './scope';
 
 export async function analyzeTranslation(source: Uint8Array, options: {
   forceOcr: boolean; signal: AbortSignal; progress: (page: number, total: number) => void;
   checkpoint: (page: TranslationPage) => void;
+  scope?: TranslationScope;
 }) {
   if (source.length > 50 * 1024 * 1024) throw new TranslationError('file_too_large');
   const pdf = await openPdf(source);
   let ocr: Awaited<ReturnType<typeof createOcrEngine>> | undefined;
   try {
-    if (pdf.document.numPages > 100) throw new TranslationError('too_many_pages');
-    for (let n = 1; n <= pdf.document.numPages; n++) {
+    const selected = selectedPageNumbers(pdf.document.numPages, options.scope ?? { mode: 'all' });
+    for (const [index, n] of selected.entries()) {
       options.signal.throwIfAborted();
-      options.progress(n, pdf.document.numPages);
+      options.progress(index + 1, selected.length);
       const page = await pdf.document.getPage(n);
       try {
         const viewport = page.getViewport({ scale: 1 });
@@ -184,7 +186,7 @@ export async function exportTranslation(source: Uint8Array, pages: TranslationPa
   if (issues.length) throw new TranslationError('layout_issues');
   const pdf = await openPdf(source);
   try {
-    if (pdf.document.numPages !== pages.length || pages.some((p, i) => p.number !== i + 1)) {
+    if (!contiguousSelectedPages(pages) || pages.at(-1)!.number > pdf.document.numPages) {
       throw new TranslationError('analysis_incomplete');
     }
     let totalImageBytes = 0;

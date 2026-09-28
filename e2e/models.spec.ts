@@ -18,6 +18,7 @@ test('saved key catalog uses only its ID; complete catalog, model choice and con
   await page.getByRole('button', { name: 'Consultar modelos de mi API' }).click();
   await expect(page.getByText('3 modelos disponibles en el catálogo')).toBeVisible();
   await expect(page.getByRole('option', { name: /gpt-image-2/ })).toHaveAttribute('disabled', '');
+  await page.getByText('Edición y formatos avanzados', { exact: true }).click();
   await page.getByLabel(/Autorizo enviar los textos/).check();
   await page.getByLabel('Elegir del catálogo', { exact: true }).selectOption('gpt-6-sol');
   await expect(page.getByLabel('Modelo', { exact: true })).toHaveValue('gpt-6-sol');

@@ -2,7 +2,6 @@ import { TranslationError } from './contracts';
 import { validateRegionImage, validRegionalText } from './review-contract';
 import type { Box } from './layout';
 
-export const CLEAN_SAMPLE_LIMIT = 10;
 export const CLEAN_KINDS = ['heading', 'paragraph', 'list', 'note', 'formula', 'figure', 'noise'] as const;
 export type CleanKind = typeof CLEAN_KINDS[number];
 export interface CleanReference extends Box { id: string; text: string }

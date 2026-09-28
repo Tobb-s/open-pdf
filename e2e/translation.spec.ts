@@ -2,6 +2,10 @@ import { test, expect, type Page } from '@playwright/test';
 import { PDFDocument, StandardFonts, rgb, degrees } from 'pdf-lib';
 import { readFile } from 'node:fs/promises';
 test.setTimeout(180_000);
+async function openAdvanced(page: Page) {
+  const summary = page.getByText('Edición y formatos avanzados', { exact: true });
+  if (!await summary.evaluate(element => (element.parentElement as HTMLDetailsElement).open)) await summary.click();
+}
 async function native(page: Page, count = 1, rotated = false) {
   const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < count; i++) {
@@ -12,10 +16,14 @@ async function native(page: Page, count = 1, rotated = false) {
   }
   await page.locator('#translate-file-input').setInputFiles({ name: 'translation-fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   await page.getByRole('button', { name: 'Analizar PDF localmente' }).click();
+  await openAdvanced(page);
+  const settings = page.getByText('Glosario y ajustes de traducción', { exact: true });
+  if (!await settings.evaluate(element => (element.parentElement as HTMLDetailsElement).open)) await settings.click();
   await expect(page.getByText('Revisión por bloques')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Analizar PDF localmente' })).toBeEnabled({ timeout: 90_000 });
 }
 async function credentials(page: Page) {
+  await openAdvanced(page);
   await page.getByLabel('Clave API (sólo en memoria)').fill('synthetic-test-key-not-real');
   await page.getByLabel(/Autorizo enviar los textos incluidos/).check();
 }
@@ -461,6 +469,7 @@ test('English scan uses deep local OCR before translation', async ({ page }) => 
   doc.addPage([600, 300]).drawImage(image, { x: 0, y: 0, width: 600, height: 300 });
   await page.locator('#translate-file-input').setInputFiles({ name: 'scan.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   await page.getByRole('button', { name: 'Analizar PDF localmente' }).click();
+  await openAdvanced(page);
   await expect(page.getByText('Revisión por bloques')).toBeVisible({ timeout: 150_000 });
   await expect(page.getByLabel('Página', { exact: true })).toContainText('OCR');
   await expect(page.getByLabel('Texto original / OCR p1_b1')).toHaveValue(/Economic growth/i);

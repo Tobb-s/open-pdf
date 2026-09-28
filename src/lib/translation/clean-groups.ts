@@ -22,8 +22,9 @@ export function cleanTextGroups(pages: CleanPage[]): CleanTextGroup[] {
 }
 export function cleanTranslationContext(pages: CleanPage[], targets: Segment[]) {
   const groups = cleanTextGroups(pages);
+  const pagesByNumber = new Map(pages.map(page => [page.number, page]));
   const contextPage: TranslationPage = { number: 1, width: 1, height: 1, method: 'native', warnings: [], blocks: groups.map(g => {
-    const first = g.parts[0], e = pages[first.page - 1].elements[first.element];
+    const first = g.parts[0], e = pagesByNumber.get(first.page)!.elements[first.element];
     return { id: g.id, source: g.text, translated: e.translated, included: true, x: 0, y: 0, width: 1, height: 1, size: 12, font: 'DejaVuSans', lines: [] };
   }) };
   return buildTranslationContext([contextPage], targets);
