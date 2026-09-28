@@ -4,7 +4,8 @@ import { openPdf } from '@/lib/pdfjs';
 import { savePdf } from '@/lib/pdfio';
 import { TranslationError } from './contracts';
 import { validateRegionImage } from './review-contract';
-import { CLEAN_SAMPLE_LIMIT, cleanReadingConfirmed, validateCleanResult, type CleanPage, type CleanReference } from './clean-contract';
+import { cleanReadingConfirmed, validateCleanResult, type CleanPage, type CleanReference } from './clean-contract';
+import { contiguousSelectedPages } from './scope';
 import type { Box, TranslationPage } from './layout';
 import { MAX_TRANSLATION_PAGES, READING_FONT_SIZE, wrapReadingText } from './reading';
 import { cleanTextGroups } from './clean-groups';
@@ -71,7 +72,7 @@ export interface CleanPlacement { page: number; element: number; sheet: number; 
 export const CLEAN_WIDTH = 595.28, CLEAN_HEIGHT = 841.89, CLEAN_MARGIN = 48;
 /** Position images as indivisible elements in the SAME stream as paragraphs. Never sort after layout. */
 export function planCleanDocument(pages: CleanPage[], measure: (text: string) => number) {
-  if (!pages.length || pages.length > CLEAN_SAMPLE_LIMIT || pages.some((p, i) => p.number !== i + 1)) {
+  if (!contiguousSelectedPages(pages)) {
     throw new TranslationError('analysis_incomplete');
   }
   const placements: CleanPlacement[] = [], sourcePages: number[] = [];
@@ -186,7 +187,7 @@ export async function exportCleanTranslation(source: Uint8Array, pages: CleanPag
   signal.throwIfAborted();
   const pdf = await openPdf(source);
   try {
-    if (pdf.document.numPages < pages.length) throw new TranslationError('analysis_incomplete');
+    if (!contiguousSelectedPages(pages) || pages.at(-1)!.number > pdf.document.numPages) throw new TranslationError('analysis_incomplete');
   } finally { await pdf.destroy(); }
   pages = structuredClone(pages);
   for (const p of pages) for (let i = 0; i < p.elements.length; i++) {
@@ -195,6 +196,7 @@ export async function exportCleanTranslation(source: Uint8Array, pages: CleanPag
   const output = await PDFDocument.create();
   const font = await uniformFont(output, pages.flatMap(p => p.elements.filter(e => e.kind !== 'noise' && e.kind !== 'figure').map(e => e.translated)));
   const layout = planCleanDocument(pages, text => font.widthOfTextAtSize(text, READING_FONT_SIZE));
+  const pagesByNumber = new Map(pages.map(page => [page.number, page]));
   for (let i = 0; i < layout.pageCount; i++) output.addPage([CLEAN_WIDTH, CLEAN_HEIGHT]);
   let imageBytes = 0;
   const images = new Map<string, Awaited<ReturnType<typeof output.embedPng>>>();
@@ -205,7 +207,7 @@ export async function exportCleanTranslation(source: Uint8Array, pages: CleanPag
       if (position.text) target.drawText(position.text, { x: position.x, y: CLEAN_HEIGHT - position.y - READING_FONT_SIZE,
         size: READING_FONT_SIZE, font });
     } else {
-      const info = pages[position.page - 1], e = info.elements[position.element], key = `${position.page}:${position.element}`;
+      const info = pagesByNumber.get(position.page)!, e = info.elements[position.element], key = `${position.page}:${position.element}`;
       if (!images.has(key)) {
         progress(info.number);
         const png = await cleanSourceImage(source, info, signal, e.box);

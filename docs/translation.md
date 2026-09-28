@@ -129,7 +129,9 @@ Se comprueba la cobertura: los glifos ausentes siguen bloqueando, sin sustituci�
 - El OCR conserva las líneas reconocidas y ordena sus palabras antes de formar bloques.
   El tamaño se estima con varias palabras de cada línea; es una aproximación, no detección
   de la fuente original. Los huecos grandes siguen separados; no se garantiza el orden entre columnas.
-- Hasta 50 MB y 100 páginas. La interfaz usa lotes iniciales de hasta 12 bloques y 12.000 caracteres;
+- Hasta 50 MB por archivo y 100 páginas seleccionadas por procesamiento. Puede ser el PDF completo
+  o un rango físico inclusivo (por ejemplo, 20–50 = 31 páginas), incluso de un PDF más largo.
+  La interfaz usa lotes iniciales de hasta 12 bloques y 12.000 caracteres;
   el contrato del servidor admite hasta 80 bloques. Ante fallas se reduce el lote manualmente.
 - El OCR agrupa líneas de prosa con sangría inicial y espaciado amplio en párrafos conservando
   sus cajas originales. Es heurístico: revisar columnas, listas, tablas y límites de párrafo.
@@ -196,10 +198,11 @@ Fuentes de contrato consultadas:
 
 ## Evolución recomendada
 
-### Documento limpio: muestra experimental de hasta diez páginas
+### Documento limpio: PDF completo o rango seleccionado
 
-«Generar muestra limpia» crea un PDF nuevo, sin fondo de las hojas originales, de las primeras
-diez páginas analizadas como máximo. Requiere OpenAI y autorización adicional para enviar
+«Traducir al español» crea un PDF nuevo, sin fondo de las hojas originales, con todas las páginas
+seleccionadas. El selector ofrece el documento completo o un rango físico inclusivo; cada
+procesamiento admite hasta 100 páginas. Requiere OpenAI y autorización específica para enviar
 **páginas completas**, incluidos textos desmarcados: no hereda las exclusiones del modo por bloques.
 La autorización describe una solicitud por página, hasta dos lecturas por recorte dudoso y las
 traducciones necesarias. No reintenta fallos automáticamente. Los avances viven en memoria;
@@ -252,13 +255,13 @@ Límites iniciales: hasta 200 referencias/22.000 caracteres por página, imagen 
 máximo 2.000 px por lado/3 MP y respuesta estructurada acotada. No es un detector infalible:
 puede omitir texto que ni OCR ni IA encuentren, equivocarse en una exclusión corta, alterar orden,
 leer cifras mal con aparente acuerdo o proponer un recorte incorrecto. Inspeccionar el resultado.
-En documentos de más de diez páginas, la descarga es una **muestra**, no una traducción completa.
+La descarga corresponde sólo a las páginas seleccionadas, sin incluir las demás hojas del origen.
 
 Fuente distribuida con licencia incluida en `public/fonts/LICENSE-DejaVu.txt`.
 
 ### Etapas pendientes
 
-La muestra implementa un primer flujo de estructura, revisión, traducción y figuras integradas.
+El modo limpio implementa un primer flujo de estructura, revisión, traducción y figuras integradas.
 No reemplaza todavía los modos anteriores ni implica que se validaron todos los tipos de PDF.
 
 1. Robustecer la representación trazable de títulos, párrafos, listas, notas,
@@ -268,17 +271,19 @@ No reemplaza todavía los modos anteriores ni implica que se validaron todos los
 2. El anclaje acordado es entre los mismos párrafos, no página/coordenadas físicas exactas.
    Robustecer detección de regiones y comprobar límites contra la imagen; ampliar a gráficos
    y tablas complejos sin destruir rótulos ni desplazar sus anclajes.
-3. Evaluar una segunda revisión semántica/estructural de la muestra con IA y lotes acotados
+3. Evaluar una segunda revisión semántica/estructural del documento con IA y lotes acotados
    de hasta diez, sujetos a límites de texto e imágenes. OCR aporta lectura y coordenadas;
    la IA contrasta contra la página y propone clasificación, uniones y exclusiones justificadas.
    No es un resumen ni una reescritura libre. Cada fragmento debe quedar asignado exactamente
    una vez, en orden, al contenido conservado o a una exclusión registrada. No eliminar por baja
    confianza solamente; conservar ante ambigüedad. Proteger cifras, fórmulas, citas y notas.
-4. Revisar con el usuario las muestras reales de Easterly: primeras diez páginas y gráficos/
+4. Seguir revisando con el usuario las muestras reales de Easterly: primeras diez páginas y gráficos/
    tablas de páginas físicas 10–13 y 21–30. Evidencia y límites en
    `audits/2026-09-27-traduccion-limpia.md` y
-   `audits/2026-09-27-traduccion-graficos-tablas.md`. Extender al documento completo sólo
-   después. No volver a gastar API ni OCR por cambios exclusivamente tipográficos.
+   `audits/2026-09-27-traduccion-graficos-tablas.md`. La opción de procesar todas las páginas
+   ya existe para archivos de hasta 100 páginas, pero falta validar una traducción completa
+   real con control de calidad editorial. No volver a gastar API ni OCR por cambios
+   exclusivamente tipográficos.
 
 Otras mejoras: evaluación de coherencia del glosario entre lotes, evaluación humana de traducción
 técnica y checkpoints descargables sin incluir credenciales.

@@ -10,6 +10,7 @@ async function fixture(page: Page, count = 1) {
   await page.goto('/es/translate');
   await page.locator('#translate-file-input').setInputFiles({ name: 'ai-review-fixture.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   await page.getByRole('button', { name: 'Analizar PDF localmente', exact: true }).click();
+  await page.getByText('Edición y formatos avanzados', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Analizar PDF localmente', exact: true })).toBeEnabled();
 }
 async function source(page: Page, n: number, text: string) {
