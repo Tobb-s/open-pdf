@@ -98,14 +98,18 @@ no descubre regiones ausentes ni recompone columnas, tablas o fórmulas estructu
 «Conservar distribución original» mantiene el tamaño de página y las cajas detectadas: si el
 texto no entra a 7 pt o más, informa desborde y no exporta. Sigue siendo el modo predeterminado.
 
-«Lectura cómoda con continuaciones» mantiene el texto que entra en sus cajas a 11 pt o más.
+«Lectura cómoda con continuaciones» usa una sola fuente, Helvetica, a **12 pt fijos**.
+Si necesita símbolos adicionales, toda esa fuente pasa a Liberation Sans Regular local.
+No toma familia, negrita, cursiva ni tamaño del documento original y no achica texto para encajar.
 Si cualquier bloque incluido desborda, mueve **todos los bloques incluidos de esa página** a
-páginas adicionales, respetando su orden detectado. El cuerpo usa entre 11 y 18 pt, márgenes
-de 36 pt y la familia/estilo estándar aproximados. No abrevia ni recorta contenido; los tokens
-largos se dividen por caracteres Unicode sin insertar guiones. Los IDs indican el bloque de origen.
+páginas adicionales, respetando su orden detectado. El cuerpo usa márgenes de 36 pt.
+No abrevia ni recorta contenido; los tokens largos se dividen por caracteres Unicode sin insertar
+guiones. Los IDs se conservan internamente para trazabilidad, pero no se imprimen. Tampoco se
+agregan etiquetas de origen, continuación ni pies técnicos al PDF. No se elimina texto real que
+casualmente contenga un ID parecido: la corrección evita generar esas etiquetas, no filtra el contenido.
 
-La página de origen queda como lámina visual, con imágenes y texto excluido/no detectado, y una
-banda superior de 36 pt que indica dónde leer su traducción. Las figuras no se redistribuyen entre
+La página de origen queda como lámina visual, con imágenes y texto excluido/no detectado, sin
+banda superior ni cambio de dimensiones. Las figuras todavía no se redistribuyen entre
 párrafos. Las páginas de lectura usan como mínimo 300 × 400 pt. El selector de resultado recorre
 todas las páginas generadas; cambiar la página de origen salta a su lámina correspondiente.
 Cambiar de modo invalida la vista previa, sin perder traducciones. Máximo: 500 páginas generadas.
@@ -192,6 +196,89 @@ Fuentes de contrato consultadas:
 
 ## Evolución recomendada
 
-Preservación vectorial y reutilización de fuentes completas, reflujo integrado con figuras,
-OCR regional y clasificación de fórmulas/tablas, evaluación de coherencia del glosario entre lotes, evaluación humana
-de traducción técnica y checkpoints descargables sin incluir credenciales.
+### Documento limpio: muestra experimental de hasta diez páginas
+
+«Generar muestra limpia» crea un PDF nuevo, sin fondo de las hojas originales, de las primeras
+diez páginas analizadas como máximo. Requiere OpenAI y autorización adicional para enviar
+**páginas completas**, incluidos textos desmarcados: no hereda las exclusiones del modo por bloques.
+La autorización describe una solicitud por página, hasta dos lecturas por recorte dudoso y las
+traducciones necesarias. No reintenta fallos automáticamente. Los avances viven en memoria;
+otro clic continúa lo pendiente. Cambiar archivo, textos, proveedor, clave o modelo invalida la muestra.
+
+La IA compara OCR e imagen y propone títulos, párrafos, listas, notas, fórmulas, figuras y ruido.
+La traducción incluye contexto de las unidades vecinas de esta muestra, con los mismos límites
+de seis referencias/6.000 caracteres de la traducción por bloques, según su consentimiento propio.
+Cada ID OCR debe quedar contabilizado; los párrafos completos recuperados sin ID se vinculan
+sólo por coincidencia única casi literal. Si OCR había unido párrafos, se conservan sus saltos
+explícitos al recuperar cobertura. Las respuestas incompletas, figuras fuera de página y grandes
+abreviaciones no se aplican. Cambios de cifras/símbolos e ilegibilidad se señalan como inciertos.
+En páginas OCR, las líneas originales conservan su propio ID y caja: esto permite distinguir
+un título, una leyenda o un encabezado de tabla dentro de un bloque OCR amplio. Si el usuario
+editó el texto del bloque, no se reutilizan coordenadas de líneas antiguas. El proveedor declara
+si sus cajas vienen en la escala normalizada 0–1000 o en píxeles de la imagen; la conversión usa
+las dimensiones reales del PNG. No se infiere la escala por valores parecidos, que pueden ser ambiguos.
+Los recortes de verificación cubren tanto límites OCR como propuestos, con margen; se enmascaran
+otros bloques conocidos para no transcribir párrafos vecinos. Las figuras exportadas **no** se enmascaran.
+Una lectura distinta necesita acuerdo entre dos lecturas del recorte; puede coincidir la segunda
+con la propuesta inicial. Un acuerdo del mismo modelo no prueba exactitud. Si permanece ambiguo,
+se conserva el trabajo parcial y no se exporta una muestra potencialmente incompleta.
+Las notas marginales dudosas pueden pasar por una revisión visual de clasificación con contexto
+de la misma franja de página. Sólo se excluyen si la IA las identifica sin duda como marca de
+escaneo, número de página o encabezado/pie repetido. Ante ambigüedad se conserva el contenido
+y se detiene la exportación; identificadores bibliográficos WPS/ISBN/ISSN/DOI están protegidos.
+Esto no equivale a sanear contenido sensible ni prueba que toda marca de producción sea detectada.
+
+El PDF usa DejaVu Sans Regular de 12 pt, con fuente libre incluida localmente y cobertura de
+español, griego, símbolos comunes y superíndices. Los títulos se distinguen por separación,
+no por tamaño ni otra fuente. Los párrafos evidentemente cortados entre páginas se unen antes
+de traducir; títulos, notas e imágenes impiden la unión. Es una heurística, no una garantía de
+segmentación. Se reutilizan traducciones sólo si coincide el texto de la unidad; las uniones
+entre páginas se traducen como una sola unidad para evitar duplicaciones.
+
+Las imágenes se recortan del original intacto y entran en el mismo flujo que los párrafos;
+pueden pasar a otra página, pero no a un apéndice. Mantienen proporción y no se agrandan sobre
+su tamaño original. El recorte aproximado se amplía y ajusta a tinta visible; si toca los bordes
+de búsqueda o invade texto OCR no asignado a la figura, se informa incertidumbre y no se exporta.
+La búsqueda incorpora todas las cajas OCR asignadas a la imagen y se acota frente a elementos
+vecinos para evitar perder títulos de tabla o incluir párrafos ajenos. Los títulos y leyendas
+externos se mantienen como texto del flujo, junto a su imagen cuando entran en la misma hoja.
+Es un control conservador de contraste sobre fondo claro, no segmentación universal de imágenes:
+fotografías, fondos complejos y texto no detectado requieren validación adicional.
+Tablas y gráficos conservan sus rótulos originales, aún sin traducir.
+No hay láminas vacías de origen, IDs impresos, cabeceras de diagnóstico ni pies técnicos.
+La fuente debe poder representar cada carácter; se rechazan glifos ausentes, no se sustituyen.
+
+Límites iniciales: hasta 200 referencias/22.000 caracteres por página, imagen PNG hasta 1,5 MB,
+máximo 2.000 px por lado/3 MP y respuesta estructurada acotada. No es un detector infalible:
+puede omitir texto que ni OCR ni IA encuentren, equivocarse en una exclusión corta, alterar orden,
+leer cifras mal con aparente acuerdo o proponer un recorte incorrecto. Inspeccionar el resultado.
+En documentos de más de diez páginas, la descarga es una **muestra**, no una traducción completa.
+
+Fuente distribuida con licencia incluida en `public/fonts/LICENSE-DejaVu.txt`.
+
+### Etapas pendientes
+
+La muestra implementa un primer flujo de estructura, revisión, traducción y figuras integradas.
+No reemplaza todavía los modos anteriores ni implica que se validaron todos los tipos de PDF.
+
+1. Robustecer la representación trazable de títulos, párrafos, listas, notas,
+   tablas, fórmulas y regiones gráficas. Conservar origen y coordenadas de cada elemento;
+   el escaneo completo de una página no debe confundirse con una figura. Detectar regiones
+   gráficas antes de borrar texto para no destruir ejes, celdas o rótulos.
+2. El anclaje acordado es entre los mismos párrafos, no página/coordenadas físicas exactas.
+   Robustecer detección de regiones y comprobar límites contra la imagen; ampliar a gráficos
+   y tablas complejos sin destruir rótulos ni desplazar sus anclajes.
+3. Evaluar una segunda revisión semántica/estructural de la muestra con IA y lotes acotados
+   de hasta diez, sujetos a límites de texto e imágenes. OCR aporta lectura y coordenadas;
+   la IA contrasta contra la página y propone clasificación, uniones y exclusiones justificadas.
+   No es un resumen ni una reescritura libre. Cada fragmento debe quedar asignado exactamente
+   una vez, en orden, al contenido conservado o a una exclusión registrada. No eliminar por baja
+   confianza solamente; conservar ante ambigüedad. Proteger cifras, fórmulas, citas y notas.
+4. Revisar con el usuario las muestras reales de Easterly: primeras diez páginas y gráficos/
+   tablas de páginas físicas 10–13 y 21–30. Evidencia y límites en
+   `audits/2026-09-27-traduccion-limpia.md` y
+   `audits/2026-09-27-traduccion-graficos-tablas.md`. Extender al documento completo sólo
+   después. No volver a gastar API ni OCR por cambios exclusivamente tipográficos.
+
+Otras mejoras: evaluación de coherencia del glosario entre lotes, evaluación humana de traducción
+técnica y checkpoints descargables sin incluir credenciales.

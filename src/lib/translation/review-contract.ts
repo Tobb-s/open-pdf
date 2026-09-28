@@ -2,8 +2,9 @@ import { TranslationError } from './contracts';
 
 export const MAX_REVIEW_IMAGE_BYTES = 1_500_000;
 export const MAX_REVIEW_BODY_BYTES = 2_050_000;
-export interface RegionReviewRequest { model: string; image: string; sourceText: string; consent: true }
-export interface RegionReviewResult { text: string; uncertain: boolean }
+export type ReviewNoiseReason = 'none' | 'scan_mark' | 'running_header' | 'running_footer' | 'page_number';
+export interface RegionReviewRequest { model: string; image: string; sourceText: string; consent: true; task?: 'classify_noise' }
+export interface RegionReviewResult { text: string; uncertain: boolean; noiseReason?: ReviewNoiseReason }
 export function validRegionalText(text: unknown): text is string {
   return typeof text === 'string' && !!text.trim() && text.length <= 12_000 && text.isWellFormed() &&
     !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text);
@@ -34,13 +35,22 @@ export function validateRegionReview(value: unknown): RegionReviewRequest {
   const v = value as Record<string, unknown>;
   if (v.consent !== true) throw new TranslationError('consent_required');
   if (typeof v.model !== 'string' || !/^[\w./:-]{1,120}$/.test(v.model) ||
-      typeof v.sourceText !== 'string' || v.sourceText.length > 12_000) throw new TranslationError('invalid_request');
-  return { model: v.model, sourceText: v.sourceText, image: validateRegionImage(v.image), consent: true };
+      typeof v.sourceText !== 'string' || v.sourceText.length > 12_000 ||
+      (v.task !== undefined && v.task !== 'classify_noise')) throw new TranslationError('invalid_request');
+  return { model: v.model, sourceText: v.sourceText, image: validateRegionImage(v.image), consent: true,
+    ...(v.task === 'classify_noise' ? { task: 'classify_noise' as const } : {}) };
 }
-export function validateRegionResult(value: unknown): RegionReviewResult {
+export function validateRegionResult(value: unknown, task?: 'classify_noise'): RegionReviewResult {
   const v = value as Partial<RegionReviewResult> | null;
   if (!v || !validRegionalText(v.text) || typeof v.uncertain !== 'boolean') throw new TranslationError('invalid_response', 502);
+  if (task === 'classify_noise') {
+    if (!['none', 'scan_mark', 'running_header', 'running_footer', 'page_number'].includes(v.noiseReason ?? '') ||
+      (v.noiseReason !== 'none' && (v.uncertain || /\b(?:WPS\s*\d+|ISBN|ISSN|DOI)\b/i.test(v.text)))) throw new TranslationError('invalid_response', 502);
+    return { text: v.text.trim(), uncertain: v.uncertain, noiseReason: v.noiseReason };
+  }
   return { text: v.text.trim(), uncertain: v.uncertain };
 }
 export const REGION_SCHEMA = { type: 'object', additionalProperties: false, required: ['text', 'uncertain'],
   properties: { text: { type: 'string' }, uncertain: { type: 'boolean' } } };
+export const NOISE_REVIEW_SCHEMA = { type: 'object', additionalProperties: false, required: ['text', 'uncertain', 'noiseReason'],
+  properties: { ...REGION_SCHEMA.properties, noiseReason: { type: 'string', enum: ['none', 'scan_mark', 'running_header', 'running_footer', 'page_number'] } } };

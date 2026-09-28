@@ -15,6 +15,8 @@ export interface TranslationBlock extends Box {
   };
   /** Original line rectangles; erase only ink areas, not whole paragraph whitespace. */
   lines: Box[];
+  /** Session-only original line transcriptions for clean reconstruction; never inferred after an edit. */
+  lineTexts?: string[];
 }
 export interface TranslationPage {
   number: number; width: number; height: number; method: 'native' | 'ocr';
@@ -94,12 +96,13 @@ export function groupRuns(runs: TextRun[], pageNumber: number): TranslationBlock
     if (candidate) {
       candidate.source += (candidate.source.endsWith('-') ? '\n' : ' ') + line.text.trim();
       candidate.lines.push(box);
+      candidate.lineTexts?.push(line.text.trim());
       Object.assign(candidate, union(candidate, line));
       if (line.confidence !== undefined) candidate.confidence = Math.min(candidate.confidence ?? 100, line.confidence);
     } else {
       const id = `p${pageNumber}_b${blocks.length + 1}`;
       blocks.push({ ...box, id, source: line.text.trim(), translated: '', size: line.size,
-        font: line.font, confidence: line.confidence, included: true, lines: [box] });
+        font: line.font, confidence: line.confidence, included: true, lines: [box], lineTexts: [line.text.trim()] });
       if (line.line !== undefined) ocrBlocks.add(id);
     }
   }

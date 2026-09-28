@@ -2,7 +2,7 @@ export const translationCopy = {
   es: {
     title: 'Traducir PDF', intro: 'Inglés → español argentino · Beta con tu propia API',
     privacy: 'El PDF y el OCR se procesan en tu navegador. Al traducir, los textos incluidos, el glosario y, si activás el contexto, fragmentos cercanos con traducciones ya aceptadas pasan con tu clave por OpenPDF al proveedor elegido. Los bloques desmarcados no se envían como texto. La revisión visual opcional envía un recorte y el texto de su bloque a OpenAI, con consentimiento separado y previo. OpenPDF no los guarda deliberadamente ni los registra en la aplicación; se aplican las políticas de retención del proveedor y de la infraestructura. La API puede tener costo. Tu suscripción a ChatGPT no incluye crédito de API.',
-    limits: 'Beta: fondo rasterizado con texto traducido seleccionable. El modo original conserva tamaño y distribución; el modo legible puede agregar una banda de navegación y páginas de continuación. Aproxima la familia y el estilo de letra; no replica fuentes exactas, colores ni formato interno de cada párrafo. Puede alterar fondos detrás del texto. No conserva firmas válidas, formularios, enlaces, capas ni accesibilidad. Las imágenes quedan en la lámina de origen; sus rótulos sólo se traducen si el OCR los detecta. Revisá siempre el resultado.',
+    limits: 'Beta: fondo rasterizado con texto traducido seleccionable. El modo original aproxima la letra y conserva la distribución; el modo legible usa una sola fuente de 12 pt y puede agregar páginas de continuación, sin identificadores ni encabezados técnicos. Puede alterar fondos detrás del texto. No conserva firmas válidas, formularios, enlaces, capas ni accesibilidad. Las imágenes quedan en la lámina de origen; sus rótulos sólo se traducen si el OCR los detecta. Revisá siempre el resultado.',
     provider: 'Proveedor', model: 'Modelo', endpoint: 'URL base compatible', key: 'Clave API (sólo en memoria)',
     clear: 'Borrar clave', glossary: 'Glosario opcional (término = traducción)',
     consent: 'Autorizo enviar los textos incluidos, el glosario y el contexto activado (incluidas traducciones aceptadas) al proveedor seleccionado, usando mi clave, y acepto los posibles costos.',
@@ -33,7 +33,7 @@ export const translationCopy = {
     regionApplyHelp: 'Aplicar cambia sólo el texto de este bloque y borra su traducción y la vista previa. No cambia coordenadas ni recupera bloques ausentes. Verificá cifras, fórmulas y que no falte contenido.',
     exportMode: 'Formato de salida', preserveMode: 'Conservar distribución original', readableMode: 'Lectura cómoda con continuaciones',
     outputPage: 'Página del PDF generado',
-    readableHelp: 'Mantiene texto que entra a 11 pt o más. Si una página necesita reflujo, mueve todos sus bloques incluidos a páginas de lectura adicionales, en el orden detectado y sin recortar contenido. Las imágenes quedan en una lámina de origen con una banda de navegación; no se redistribuyen entre párrafos. Puede aumentar el número de páginas. Revisá columnas, tablas, fórmulas y texto no detectado.',
+    readableHelp: 'Usa Helvetica de 12 pt en todo el texto traducido (Liberation Sans para símbolos que lo requieran), sin identificadores ni encabezados técnicos. No reduce la letra para encajar: si una página necesita reflujo, mueve todos sus bloques incluidos a páginas adicionales, en el orden detectado y sin recortar contenido. Las imágenes todavía quedan en la lámina de origen, no entre los párrafos. Puede aumentar el número de páginas. Revisá columnas, tablas, fórmulas y texto no detectado.',
     preview: 'Generar vista previa del PDF', download: 'Descargar PDF traducido', original: 'Original', result: 'Resultado generado',
     analyzeProgress: 'Analizando página', translateProgress: 'Traduciendo lote', exportProgress: 'Generando página',
     kept: 'Los bloques válidos recibidos se conservan. Podés corregir la configuración y volver a traducir sólo los pendientes.',
@@ -49,6 +49,7 @@ export const translationCopy = {
     unsupported_characters: 'Hay caracteres que la fuente de exportación no puede representar. Corregí el bloque o conservá el original.',
     missing_translation: 'Falta la traducción.',
     errors: {
+      clean_uncertain: 'La revisión de estructura encontró contenido o recortes ambiguos. Se conservó el resultado parcial, pero no se exportó una muestra que podría perder contenido. Revisá las incertidumbres de la muestra.',
       login_required: 'Tu sesión venció. Volvé a entrar a Mi cuenta.',
       provider_not_found: 'Este proveedor ya no está disponible en tu cuenta. Elegí otro.',
       provider_mismatch: 'Volvé a elegir tu proveedor guardado para cargar su configuración.',
@@ -73,7 +74,7 @@ export const translationCopy = {
   en: {
     title: 'Translate PDF', intro: 'English → Argentine Spanish · Bring your own API · Beta',
     privacy: 'PDF processing and OCR run in your browser. Translation sends included text, glossary and, when context is enabled, nearby excerpts with accepted translations through OpenPDF to your selected provider using your key. Excluded blocks are not sent as text. Optional visual review sends a crop and its block source text to OpenAI with separate prior consent. OpenPDF does not deliberately persist or log them in the application; provider and infrastructure retention policies apply. API usage may cost money. A ChatGPT subscription does not include API credits.',
-    limits: 'Beta: raster backgrounds and selectable translated text. Original-layout mode retains dimensions and layout; readable mode may add a navigation band and continuation pages. Approximates font family and style, not exact fonts, colors or inline paragraph formatting. Text backgrounds may change. Valid signatures, forms, links, layers and accessibility are not preserved. Images stay on their source plate; image labels are translated only when OCR detects them. Always review the output.',
+    limits: 'Beta: raster backgrounds and selectable translated text. Original-layout mode approximates source typography and retains layout; readable mode uses one 12 pt font and may add continuation pages, without internal IDs or technical headings. Text backgrounds may change. Valid signatures, forms, links, layers and accessibility are not preserved. Images stay on their source plate; image labels are translated only when OCR detects them. Always review the output.',
     provider: 'Provider', model: 'Model', endpoint: 'Compatible base URL', key: 'API key (memory only)', clear: 'Clear key',
     glossary: 'Optional glossary (term = translation)',
     consent: 'I authorize sending included text, glossary and enabled context (including accepted translations) to the selected provider using my key and accept possible costs.',
@@ -104,7 +105,7 @@ export const translationCopy = {
     regionApplyHelp: 'Applying changes only this block text and clears its translation and PDF preview. It does not change coordinates or recover absent blocks. Check numbers, formulas and completeness.',
     exportMode: 'Output format', preserveMode: 'Preserve original layout', readableMode: 'Comfortable reading with continuations',
     outputPage: 'Generated PDF page',
-    readableHelp: 'Keeps text that fits at 11 pt or above. If a page needs reflow, moves all included blocks to extra reading pages in detected order without truncating content. Images remain on a source plate with a navigation strip; they are not redistributed among paragraphs. Page count may increase. Review columns, tables, formulas and undetected text.',
+    readableHelp: 'Uses Helvetica at 12 pt for all translated text (Liberation Sans when symbols require it), without internal IDs or technical headings. Never shrinks text to fit: if a page needs reflow, moves all included blocks to extra pages in detected order without truncation. Images still remain on their source plate, not between paragraphs. Page count may increase. Review columns, tables, formulas and undetected text.',
     analyzeProgress: 'Analyzing page', translateProgress: 'Translating batch', exportProgress: 'Generating page',
     kept: 'Valid received blocks are retained. You can correct the settings and translate only pending blocks again.',
     recovery: 'Manual recovery: the next attempt sends only pending blocks, in batches of up to',
@@ -117,6 +118,7 @@ export const translationCopy = {
     overflow: 'Text does not fit at 7 pt or above. Review wording without losing content, or keep the original block.',
     unsupported_characters: 'The export font cannot represent some characters. Edit the block or keep the original.', missing_translation: 'Translation missing.',
     errors: {
+      clean_uncertain: 'Structure review found ambiguous content or crops. Partial work was retained, but no potentially incomplete sample was exported. Inspect the sample uncertainty list.',
       login_required: 'Your session expired. Sign in to My account again.',
       provider_not_found: 'This provider is no longer available in your account. Select another.',
       provider_mismatch: 'Select your saved provider again to reload its settings.',

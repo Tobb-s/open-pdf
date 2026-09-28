@@ -10,6 +10,7 @@ import { DEFAULT_OPENAI_MODEL } from '@/lib/openai/models';
 import FileDropzone, { PDF_FILES } from '@/components/FileDropzone';
 import TranslationPreview from '@/components/TranslationPreview';
 import TranslationRegionReview from '@/components/TranslationRegionReview';
+import TranslationCleanSample from '@/components/TranslationCleanSample';
 import { useI18n } from '@/lib/i18n/context';
 import { downloadBlob, derivedFileName } from '@/lib/files';
 import { batches, TranslationError, validateTranslationResult, type TranslationProvider } from '@/lib/translation/contracts';
@@ -46,6 +47,7 @@ export default function TranslatePage() {
   const [exportMode, setExportMode] = useState<TranslationExportMode>('preserve');
   const [outputLayout, setOutputLayout] = useState<{ pageCount: number; sourcePages: number[] }>();
   const [outputPage, setOutputPage] = useState(1);
+  const [cleanRevision, setCleanRevision] = useState(0);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const current = pages[pageIndex], pending = pendingSegments(pages).length;
@@ -54,8 +56,8 @@ export default function TranslatePage() {
     b.aiReview?.status === 'failed' && b.aiReview.source === b.source && b.aiReview.model === model.trim()).length;
   const canReviewAi = !busy && complete && !!source && provider === 'openai' && aiConsent &&
     (!!savedProviderId || !!key.trim()) && !!model.trim();
-  const revokeConsent = () => { setConsent(false); setAiConsent(false); };
-  const invalidate = () => { setOutput(undefined); setOutputLayout(undefined); setOutputPage(1); setIssues([]); };
+  const revokeConsent = () => { setConsent(false); setAiConsent(false); setCleanRevision(r => r + 1); };
+  const invalidate = () => { setOutput(undefined); setOutputLayout(undefined); setOutputPage(1); setIssues([]); setCleanRevision(r => r + 1); };
   function updateBlock(id: string, patch: Partial<TranslationBlock>) {
     invalidate();
     setPages(old => old.map(p => ({ ...p, blocks: p.blocks.map(b => b.id === id
@@ -208,6 +210,9 @@ export default function TranslatePage() {
     <p role="status" className="text-sm">{progress || (pages.length ? `${pending} ${c.pending}` : '')}</p>
     {batchLimit < INITIAL_BATCH_LIMIT && <p className="text-sm text-amber-800">{c.recovery} {batchLimit} {c.recoveryLimit}</p>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">{error}<p>{c.kept}</p></div>}
+    {source && pages.length > 0 && <TranslationCleanSample key={cleanRevision} source={source} pages={pages} busy={busy} complete={complete}
+      provider={provider} model={model} apiKey={key} savedProviderId={savedProviderId || undefined}
+      translationConsent={consent} glossary={glossary} locale={locale} run={run} />}
     {current && <section className="space-y-4">
       <div className="flex gap-3"><h2 className="text-xl font-medium">{c.review}</h2>
         <label>{c.page} <select aria-label={c.page} disabled={busy} value={pageIndex} onChange={e => {
